@@ -38,7 +38,10 @@ resource "aws_iam_policy" "glue_crawler_s3_policy" {
         ],
         Resource = [
           "${var.s3_bucket_partitioned_data_storage_prod_arn}",
-          "${var.s3_bucket_partitioned_data_storage_prod_arn}/*"
+          "${var.s3_bucket_partitioned_data_storage_prod_arn}/*",
+
+          "arn:aws:s3:::lottery-athena-results-prod",
+          "arn:aws:s3:::lottery-athena-results-prod/*"
         ]
       }
     ]
