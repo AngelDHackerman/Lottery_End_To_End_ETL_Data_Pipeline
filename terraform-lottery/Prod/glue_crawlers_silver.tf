@@ -65,7 +65,7 @@ resource "aws_glue_crawler" "sorteos_silver_crawler" {
 
 }
 
-# Execute the crawlers
+# Execute the crawlers once they are deployed
 resource "null_resource" "run_silver_glue_crawlers" {
   provisioner "local-exec" {
     command = <<EOT

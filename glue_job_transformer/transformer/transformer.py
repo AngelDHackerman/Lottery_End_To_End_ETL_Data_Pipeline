@@ -210,22 +210,6 @@ def transform(
         year = int(sorteos_df["fecha_sorteo"].dt.year.iloc[0])
 
         # -----------------------
-        # Add partitions BEFORE writing Parquet (critical!)
-        # -----------------------
-        sorteos_df["year"] = year
-        sorteos_df["sorteo"] = numero_sorteo
-
-        premios_df["year"] = year
-        premios_df["sorteo"] = numero_sorteo
-
-        # Enforce partition dtypes
-        sorteos_df["year"] = sorteos_df["year"].astype("int32")
-        sorteos_df["sorteo"] = sorteos_df["sorteo"].astype("int64")
-
-        premios_df["year"] = premios_df["year"].astype("int32")
-        premios_df["sorteo"] = premios_df["sorteo"].astype("int64")
-
-        # -----------------------
         # Write Parquet locally
         # -----------------------
         sorteos_local_path = f"/tmp/sorteos_{numero_sorteo}.parquet"
