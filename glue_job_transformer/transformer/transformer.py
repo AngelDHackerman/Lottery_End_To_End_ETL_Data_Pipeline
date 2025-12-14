@@ -1,14 +1,24 @@
-# Note: the partitioned bucket is the "Source Of Truth" 
-# there I validate if a lottery has or hasn't been processed.
+"""
+Transformer (Glue Job)
+
+Goal:
+- Read raw .txt files from the partitioned bucket (raw/year=YYYY/sorteo=NNNN/...)
+- Parse into two DataFrames: sorteos + premios
+- Enforce a *stable Silver schema* (types + partitions)
+- Write Parquet to:
+  - Partitioned bucket (Silver): silver/{dataset}/year=YYYY/sorteo=NNNN/{dataset}.parquet
+  - Simple bucket (optional, flat files): <SIMPLE_PREFIX>/sorteos_<NNNN>.parquet, premios_<NNNN>.parquet
+
+Important:
+- NEVER mix schemas in the same S3 prefix.
+- Partitions (year, sorteo) must be added BEFORE writing Parquet.
+"""
 
 import sys
 import os
 import re
-import json
 import pandas as pd
-import boto3
-from botocore.exceptions import ClientError
-from awsglue.utils import getResolvedOptions 
+from awsglue.utils import getResolvedOptions
 
 from parser.parser import (
     split_header_body,
@@ -21,31 +31,72 @@ from extractor.s3_utils import (
     list_files_in_s3,
     list_processed_sorteos_in_partitioned_bucket,
     download_file_from_s3,
-    upload_file_to_s3
+    upload_file_to_s3,
 )
 
 from extractor.aws_secrets import get_secrets
 
+
+# -----------------------
+# Config
+# -----------------------
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
-simple_bucket      = buckets["simple"]
-    
-def transform(bucket_name, raw_prefix, processed_prefix):
+simple_bucket = buckets["simple"]
+
+SILVER_PREFIX_DEFAULT = "silver/"  # The new Source of Truth for clean Parquet
+SILVER_SORTEOS_PREFIX = f"{SILVER_PREFIX_DEFAULT}sorteos/"
+SILVER_PREMIOS_PREFIX = f"{SILVER_PREFIX_DEFAULT}premios/"
+
+
+def _to_int64(series: pd.Series, default=None) -> pd.Series:
     """
-    Transforms raw lottery data stored in S3 and uploads processed apache Parquet files back to S3.
+    Convert a Series to nullable Int64 (supports NA).
+    If default is provided, NA will be replaced with that value and cast to int64.
     """
-    # List all files in the raw prefix
-    processed_sorteos = list_processed_sorteos_in_partitioned_bucket(bucket_name)
+    s = pd.to_numeric(series, errors="coerce").astype("Int64")
+    if default is not None:
+        s = s.fillna(default).astype("int64")
+    return s
+
+
+def _to_float64(series: pd.Series, default=0.0) -> pd.Series:
+    """
+    Convert a Series to float64, replacing invalid values with a default.
+    """
+    return pd.to_numeric(series, errors="coerce").fillna(default).astype("float64")
+
+
+def _to_string(series: pd.Series) -> pd.Series:
+    """
+    Use pandas StringDtype to keep nulls as <NA> instead of 'nan' strings.
+    """
+    return series.astype("string")
+
+
+def transform(
+    bucket_name: str,
+    raw_prefix: str,
+    simple_prefix: str,
+    silver_prefix: str = SILVER_PREFIX_DEFAULT,
+) -> None:
+    """
+    Transforms raw lottery .txt files stored in S3 and uploads clean Silver Parquet files back to S3.
+    """
+
+    # ✅ Idempotency check must be against SILVER (not legacy/processed)
+    processed_sorteos = list_processed_sorteos_in_partitioned_bucket(
+        bucket_name,
+        prefix=f"{silver_prefix}sorteos/",
+    )
+
     raw_files = list_files_in_s3(bucket_name, raw_prefix)
-    
-    print(f"Found {len(raw_files)} raw files in S3.")
-    print(f"Found {len(processed_sorteos)} sorteos already processed")
-    
-    sorteos_df = pd.DataFrame()
-    premios_df = pd.DataFrame()
-    
-    # Process each file and checks if already processed
+
+    print(f"Found {len(raw_files)} raw files in S3 under prefix: {raw_prefix}")
+    print(f"Found {len(processed_sorteos)} sorteos already processed in Silver")
+
     for raw_file in raw_files:
+        # Expect: raw/year=YYYY/sorteo=NNNN/<file>.txt
         match = re.search(r"sorteo=(\d+)/", raw_file)
         if not match:
             print(f"Skipping file with unexpected structure: {raw_file}")
@@ -59,101 +110,200 @@ def transform(bucket_name, raw_prefix, processed_prefix):
         local_path = f"/tmp/{os.path.basename(raw_file)}"
         download_file_from_s3(bucket_name, raw_file, local_path)
 
-        with open(local_path, "r", encoding="utf-8") as file:
-            file_content = file.read()
+        with open(local_path, "r", encoding="utf-8") as f:
+            file_content = f.read()
 
-        header, body = split_header_body(file_content.splitlines())
-        sorteos = [process_header(header)]
-        premios = process_body(body)
+        header_lines, body_lines = split_header_body(file_content.splitlines())
 
+        # Parse into python objects
+        sorteos = [process_header(header_lines)]
+        premios = process_body(body_lines)
+
+        # Attach numero_sorteo to each premio row
         for premio in premios:
             premio["numero_sorteo"] = sorteos[0]["numero_sorteo"]
-            
-        # Column cleaning in pandas
+
+        # -----------------------
+        # DataFrames
+        # -----------------------
         sorteos_df = pd.DataFrame(sorteos)
         premios_df = pd.DataFrame(premios)
+
+        # Split vendido_por into vendor/city/department
         premios_df = split_vendido_por_column(premios_df)
-        premios_df.loc[premios_df['ciudad'].str.upper() == "DE ESTA CAPITAL", 'departamento'] = "GUATEMALA"
-        premios_df = premios_df[["numero_sorteo", "numero_premiado", "letras", "monto", "vendedor", "ciudad", "departamento"]]
 
+        # Normalize "DE ESTA CAPITAL" -> department = GUATEMALA
+        # Use fillna("") to avoid errors when ciudad is null
+        mask_capital = premios_df["ciudad"].fillna("").str.upper().eq("DE ESTA CAPITAL")
+        premios_df.loc[mask_capital, "departamento"] = "GUATEMALA"
+
+        # Keep only the columns you want in Silver
+        premios_df = premios_df[
+            ["numero_sorteo", "numero_premiado", "letras", "monto", "vendedor", "ciudad", "departamento"]
+        ]
+
+        # -----------------------
+        # Enforce PREMIOS schema (Silver)
+        # -----------------------
         premios_df.replace({"N/A": None, "n/a": None, "": None}, inplace=True)
-        premios_df['numero_sorteo'] = pd.to_numeric(premios_df['numero_sorteo'], errors='coerce').fillna(0).astype(int)
-        premios_df['numero_premiado'] = premios_df['numero_premiado'].astype(str)
-        premios_df['letras'] = premios_df['letras'].astype(str)
-        premios_df['monto'] = pd.to_numeric(premios_df['monto'], errors='coerce').fillna(0.0).astype(float)
-        premios_df['vendedor'] = premios_df['vendedor'].astype(str)
-        premios_df['ciudad'] = premios_df['ciudad'].astype(str)
-        premios_df['departamento'] = premios_df['departamento'].astype(str)
 
-        sorteos_df[['reintegro_primer_premio', 'reintegro_segundo_premio', 'reintegro_tercer_premio']] = sorteos_df['reintegros'].str.split(',', expand=True)
-        sorteos_df.drop(columns=['reintegros'], inplace=True)
+        premios_df["numero_sorteo"] = _to_int64(premios_df["numero_sorteo"], default=0)  # int64
+        premios_df["numero_premiado"] = _to_int64(premios_df["numero_premiado"])         # nullable Int64
+        premios_df["monto"] = _to_float64(premios_df["monto"], default=0.0)
 
-        numero_sorteo = sorteos_df['numero_sorteo'].iloc[0]
-        fecha_sorteo = pd.to_datetime(sorteos_df["fecha_sorteo"].iloc[0], format='%d/%m/%Y', errors='coerce')
-        year = fecha_sorteo.year if not pd.isna(fecha_sorteo) else "unknown"
+        premios_df["letras"] = _to_string(premios_df["letras"])
+        premios_df["vendedor"] = _to_string(premios_df["vendedor"])
+        premios_df["ciudad"] = _to_string(premios_df["ciudad"])
+        premios_df["departamento"] = _to_string(premios_df["departamento"])
 
-        # Save and convert to .parquet files 
-        partition_prefix = f"{processed_prefix}year={year}/sorteo={numero_sorteo}"
+        # -----------------------
+        # Enforce SORTEOS schema (Silver)
+        # -----------------------
+
+        # Split reintegros into 3 columns (defensive)
+        if "reintegros" in sorteos_df.columns:
+            reintegro_split = sorteos_df["reintegros"].astype("string").str.split(",", expand=True)
+            # If the split produces fewer than 3 columns, pad them
+            while reintegro_split.shape[1] < 3:
+                reintegro_split[reintegro_split.shape[1]] = None
+
+            sorteos_df["reintegro_primer_premio"] = reintegro_split[0]
+            sorteos_df["reintegro_segundo_premio"] = reintegro_split[1]
+            sorteos_df["reintegro_tercer_premio"] = reintegro_split[2]
+
+            sorteos_df.drop(columns=["reintegros"], inplace=True, errors="ignore")
+        else:
+            sorteos_df["reintegro_primer_premio"] = None
+            sorteos_df["reintegro_segundo_premio"] = None
+            sorteos_df["reintegro_tercer_premio"] = None
+
+        # Convert reintegros to int
+        for col in [
+            "reintegro_primer_premio",
+            "reintegro_segundo_premio",
+            "reintegro_tercer_premio",
+        ]:
+            sorteos_df[col] = _to_int64(sorteos_df[col])
+
+        # Convert core numeric columns
+        sorteos_df["numero_sorteo"] = _to_int64(sorteos_df["numero_sorteo"], default=0)  # int64
+        sorteos_df["primer_premio"] = _to_int64(sorteos_df["primer_premio"])
+        sorteos_df["segundo_premio"] = _to_int64(sorteos_df["segundo_premio"])
+        sorteos_df["tercer_premio"] = _to_int64(sorteos_df["tercer_premio"])
+
+        # Convert dates (this is what enables ORDER BY, filters, and time features)
+        sorteos_df["fecha_sorteo"] = pd.to_datetime(
+            sorteos_df["fecha_sorteo"],
+            format="%d/%m/%Y",
+            errors="coerce",
+        )
+        sorteos_df["fecha_caducidad"] = pd.to_datetime(
+            sorteos_df["fecha_caducidad"],
+            format="%d/%m/%Y",
+            errors="coerce",
+        )
+
+        # Derive partition year safely
+        if sorteos_df["fecha_sorteo"].isna().all():
+            raise ValueError(f"Invalid fecha_sorteo for sorteo={numero_sorteo}. Cannot derive year partition.")
+
+        year = int(sorteos_df["fecha_sorteo"].dt.year.iloc[0])
+
+        # -----------------------
+        # Add partitions BEFORE writing Parquet (critical!)
+        # -----------------------
+        sorteos_df["year"] = year
+        sorteos_df["sorteo"] = numero_sorteo
+
+        premios_df["year"] = year
+        premios_df["sorteo"] = numero_sorteo
+
+        # Enforce partition dtypes
+        sorteos_df["year"] = sorteos_df["year"].astype("int32")
+        sorteos_df["sorteo"] = sorteos_df["sorteo"].astype("int64")
+
+        premios_df["year"] = premios_df["year"].astype("int32")
+        premios_df["sorteo"] = premios_df["sorteo"].astype("int64")
+
+        # -----------------------
+        # Write Parquet locally
+        # -----------------------
         sorteos_local_path = f"/tmp/sorteos_{numero_sorteo}.parquet"
         premios_local_path = f"/tmp/premios_{numero_sorteo}.parquet"
 
         sorteos_df.to_parquet(sorteos_local_path, index=False)
         premios_df.to_parquet(premios_local_path, index=False)
 
-        sorteos_key_simple = f"sorteos_{numero_sorteo}.parquet"
-        premios_key_simple = f"premios_{numero_sorteo}.parquet"
+        # -----------------------
+        # Upload to simple bucket (flat files) - optional but useful for notebooks
+        # -----------------------
+        sorteos_key_simple = f"{simple_prefix}sorteos_{numero_sorteo}.parquet"
+        premios_key_simple = f"{simple_prefix}premios_{numero_sorteo}.parquet"
 
-        # Save files in simple bucket 
-        upload_file_to_s3(sorteos_local_path, simple_bucket, f"{processed_prefix}{sorteos_key_simple}")
-        upload_file_to_s3(premios_local_path, simple_bucket, f"{processed_prefix}{premios_key_simple}")
+        upload_file_to_s3(sorteos_local_path, simple_bucket, sorteos_key_simple)
+        upload_file_to_s3(premios_local_path, simple_bucket, premios_key_simple)
 
-        sorteos_df["year"] = year
-        sorteos_df["sorteo"] = numero_sorteo
-        premios_df["year"] = year
-        premios_df["sorteo"] = numero_sorteo
-
-        # Save files in partitioned bucket
-        partitioned_sorteos_key = f"processed/sorteos/year={year}/sorteo={numero_sorteo}/sorteos.parquet"
-        partitioned_premios_key = f"processed/premios/year={year}/sorteo={numero_sorteo}/premios.parquet"
+        # -----------------------
+        # Upload to partitioned bucket (Silver - canonical)
+        # -----------------------
+        partitioned_sorteos_key = (
+            f"{silver_prefix}sorteos/year={year}/sorteo={numero_sorteo}/sorteos.parquet"
+        )
+        partitioned_premios_key = (
+            f"{silver_prefix}premios/year={year}/sorteo={numero_sorteo}/premios.parquet"
+        )
 
         upload_file_to_s3(sorteos_local_path, partitioned_bucket, partitioned_sorteos_key)
         upload_file_to_s3(premios_local_path, partitioned_bucket, partitioned_premios_key)
 
-        print(f"✅ Sorteo {numero_sorteo} procesado correctamente")
-        
-def main():
+        print(f"✅ Sorteo {numero_sorteo} processed successfully into Silver (year={year})")
+
+
+def main() -> None:
     """
     Entry point when running as a Glue Job.
-    If the parameters are not provided, it will fall back to the Secrets Manager values.
+    Parameters:
+      - SIMPLE_BUCKET
+      - PARTITIONED_BUCKET
+      - RAW_PREFIX
+      - PROCESSED_PREFIX (we will treat this as the *simple bucket prefix*)
     """
     args = getResolvedOptions(
         sys.argv,
         [
-            'SIMPLE_BUCKET', 
-            'PARTITIONED_BUCKET',
-            'RAW_PREFIX', 
-            'PROCESSED_PREFIX'
-        ]
+            "SIMPLE_BUCKET",
+            "PARTITIONED_BUCKET",
+            "RAW_PREFIX",
+            "PROCESSED_PREFIX",
+        ],
     )
-    
-    # Overwrites ONLY if they come in arguments (allows to continue testing locally)
-    if args.get('PARTITIONED_BUCKET'):
-        globals()['partitioned_bucket'] = args['PARTITIONED_BUCKET']
-    if args.get('SIMPLE_BUCKET'):
-        globals()['simple_bucket'] = args['SIMPLE_BUCKET']
 
-    raw_prefix       = args['RAW_PREFIX']
-    processed_prefix = args['PROCESSED_PREFIX']
-    
-    print(f"Starting Glue Job for bucket {partitioned_bucket}")
-    transform(partitioned_bucket, raw_prefix, processed_prefix)
+    # Allow runtime overrides
+    global partitioned_bucket, simple_bucket
+
+    if args.get("PARTITIONED_BUCKET"):
+        partitioned_bucket = args["PARTITIONED_BUCKET"]
+
+    if args.get("SIMPLE_BUCKET"):
+        simple_bucket = args["SIMPLE_BUCKET"]
+
+    raw_prefix = args["RAW_PREFIX"]
+    simple_prefix = args["PROCESSED_PREFIX"]  # treat as simple prefix
+
+    print(f"Starting Glue Job. Partitioned bucket: {partitioned_bucket}")
+    print(f"Raw prefix: {raw_prefix}")
+    print(f"Simple output prefix: {simple_prefix}")
+    print(f"Silver prefix: {SILVER_PREFIX_DEFAULT}")
+
+    transform(
+        bucket_name=partitioned_bucket,
+        raw_prefix=raw_prefix,
+        simple_prefix=simple_prefix,
+        silver_prefix=SILVER_PREFIX_DEFAULT,
+    )
+
     print("Glue Job finished!")
 
+
 if __name__ == "__main__":
-    # raw_prefix = "raw/"  # Carpeta donde están los archivos crudos
-    # processed_prefix = "processed/"  # Carpeta donde se subirán los archivos procesados
-    # print(f"Using raw bucket: {partitioned_bucket}")
-    # print("Starting dry test...")
-    # transform(partitioned_bucket, raw_prefix=raw_prefix, processed_prefix=processed_prefix)
-    # print("Dry test completed.")
     main()
