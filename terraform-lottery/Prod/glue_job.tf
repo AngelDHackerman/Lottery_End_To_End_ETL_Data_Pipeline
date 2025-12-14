@@ -12,6 +12,7 @@ resource "aws_glue_job" "lottery_transform" {
   }
 
   default_arguments = {
+    "--script-file"       = "transformer/transformer.py"
     "--PARTITIONED_BUCKET" = var.s3_bucket_partitioned_name
     "--SIMPLE_BUCKET"      = var.s3_bucket_simple_name
     "--RAW_PREFIX"         = "raw/"
