@@ -262,13 +262,16 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,linux,python,data
-.vscode
+
+# Editors / IDE
+.vscode/
 
 # Data
 /data/raw/*
 /data/processed/*
 /data/downloaded/
 /data/downloaded/*
+*.parquet
 
 # Terraform
 .terraform/
@@ -279,28 +282,10 @@ $RECYCLE.BIN/
 terraform.tfvars.json
 terraform.log
 crash.log
-terraform.tfstate
-terraform.tfstate.backup
-terraform.tfvars
-terraform.tfvars.*
-
-
 
 # AWS Credentials & CLI
 ~/.aws/
 .aws/
-
-# Python Virtual Environments & Dependencies
-.env
-.venv
-env/
-venv/
-
-# Data
-/data/raw/*
-/data/processed/*
-/data/downloaded/
-/data/downloaded/*
 
 # Logs
 *.log
@@ -309,19 +294,9 @@ venv/
 .dockerignore
 Dockerfile
 
-# build of lambdas
+# Build artifacts (lambdas / layers)
 build/
-lambda_package.zip
-lottery_transformer.zip
 *.zip
 *.dist-info/
-__pycache__/
-
 *.egg-info/
-*.pyc
-*.pyo
-.pytest_cache/
-# comment 
-code_only.zip
-deps_layer.zip
 layer/

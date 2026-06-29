@@ -750,7 +750,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 
 | PR | Title | Status | Link |
 |----|-------|--------|------|
-| 001 | Repo hygiene baseline | todo | — |
+| 001 | Repo hygiene baseline | in-progress | feat/PR-001-repo-hygiene-baseline |
 | 002 | Inventory + protect prod buckets | todo | — |
 | 003 | Bootstrap remote state backend | todo | — |
 | 004 | Move state to remote backend | todo | — |
