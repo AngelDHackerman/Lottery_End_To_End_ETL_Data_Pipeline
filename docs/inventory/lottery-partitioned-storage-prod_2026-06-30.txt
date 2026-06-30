@@ -1,0 +1,5 @@
+# Inventory snapshot for s3://lottery-partitioned-storage-prod
+# Generated (UTC): 2026-06-30T22:15:43Z
+# AWS account:     913524903233
+Total Objects: 582
+   Total Size: 7458122
