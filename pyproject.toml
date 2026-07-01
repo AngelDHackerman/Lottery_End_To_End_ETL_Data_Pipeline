@@ -1,0 +1,54 @@
+[project]
+name = "loteria-santa-lucia"
+version = "0.1.0"
+description = "Serverless data pipeline for the Loteria Santa Lucia de Guatemala (medallion architecture on AWS)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Angel Hernandez" }]
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+    "pandas",
+    "pyarrow",
+    "python-dateutil",
+    "boto3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "black",
+    "mypy",
+    "moto",
+    "great-expectations",
+    "nbstripout",
+    "pre-commit",
+]
+
+[tool.uv]
+# Not a buildable/installable package yet — the src/loteria layout lands in PR-016.
+# Until then treat this as a workspace/dependency manifest only.
+package = false
+# Dev dependencies are declared via the PEP 621 optional-dependencies "dev" group above.
+# Install with: uv sync --extra dev
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
