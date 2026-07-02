@@ -1,0 +1,18 @@
+# Backend configuration for the MAIN Terraform stack (terraform/), NOT this
+# bootstrap stack. Copy this file to `backend.hcl`, fill in the values from the
+# bootstrap outputs, and pass it to init:
+#
+#   cd terraform
+#   terraform init -backend-config=backend.hcl
+#
+# `backend.hcl` is gitignored (environment-specific); this .example is the template.
+# The values come from `terraform output` in terraform/bootstrap/ (see its README).
+
+bucket         = "loteria-tf-state-<AWS_ACCOUNT_ID>" # bootstrap output: state_bucket_name
+key            = "main/terraform.tfstate"            # main stack state path (wired up in PR-006)
+region         = "us-east-1"
+dynamodb_table = "loteria-tf-locks"                  # bootstrap output: lock_table_name
+encrypt        = true
+
+# Note: the legacy stack (terraform-lottery/Prod, migrated in PR-004) uses the
+# SAME bucket + lock table but a different key: "legacy/terraform.tfstate".

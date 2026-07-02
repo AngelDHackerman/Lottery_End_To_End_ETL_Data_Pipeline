@@ -751,8 +751,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | PR | Title | Status | Link |
 |----|-------|--------|------|
 | 001 | Repo hygiene baseline | merged | [PR #2](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/2) |
-| 002 | Inventory + protect prod buckets | in-progress | [PR #3](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/3) |
-| 003 | Bootstrap remote state backend | todo | — |
+| 002 | Inventory + protect prod buckets | merged | [PR #3](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/3) |
+| 003 | Bootstrap remote state backend | in-progress | feat/PR-003-bootstrap-remote-state |
 | 004 | Move state to remote backend | todo | — |
 | 005 | Import buckets + prevent_destroy | todo | — |
 | 006 | Module skeleton + root caller | todo | — |

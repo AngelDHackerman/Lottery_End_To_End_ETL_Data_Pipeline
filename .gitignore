@@ -282,6 +282,7 @@ $RECYCLE.BIN/
 terraform.tfvars.json
 terraform.log
 crash.log
+backend.hcl
 
 # AWS Credentials & CLI
 ~/.aws/
