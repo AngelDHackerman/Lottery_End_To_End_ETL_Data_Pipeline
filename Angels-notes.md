@@ -21,3 +21,9 @@
     * Per-bucket work: creates and inventory of items in the buckets, enables the versioning on both buckets, adds the "deny policy" on both buckets.
     * Deny Delte Rule applies to all the users except for the __Admin__ in the AWS account. 
     * This was wrote in `.sh` file because these are pre-existing buckets, so __Terraform__ is not very good handling existing items, that's why the changes were done using __Bash__ and __AWS__.
+
+**PR-003 - Move existing TF state to remote backend (no resource changes)**
+On this PR the "refactor" is the pre-step move the terraform state file to a remote backend is done. 
+* Created the `bootstrap/terrraform` directories in order to create the .tf files 
+* dyamodb.tf, main.tf, and so on were created in order to set a S3 bucket in AWS and DynamoDB for blocking stated (as a real life production project)
+* The local (as per now) is not scalable and just "toy project" like. HashiCorp's Cloud could be used but still we depend on "someone else's" service, so is a better idea to centralize everything in AWS with all the protection rules for that bucket and blcoking the state file with dynamoDB with a ver low cost. 
