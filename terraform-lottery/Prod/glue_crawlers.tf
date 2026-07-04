@@ -66,16 +66,19 @@ resource "aws_glue_crawler" "sorteos_crawler" {
 }
 
 # Execute the crawlers
-resource "null_resource" "run_glue_crawlers" {
-  provisioner "local-exec" {
-    command = <<EOT
-      aws glue start-crawler --name lottery-premios-crawler
-      aws glue start-crawler --name lottery-sorteos-crawler
-    EOT
-  }
-
-  depends_on = [ 
-    aws_glue_crawler.premios_crawler,
-    aws_glue_crawler.sorteos_crawler
-   ]
-}
+# TODO PR-012: null_resource cannot be imported (apply-time trigger, no cloud identity).
+# Left commented out so `terraform plan` stays a no-op during the PR-004 state
+# reconstruction. PR-012 deletes these anyway — the Step Function starts the crawlers.
+# resource "null_resource" "run_glue_crawlers" {
+#   provisioner "local-exec" {
+#     command = <<EOT
+#       aws glue start-crawler --name lottery-premios-crawler
+#       aws glue start-crawler --name lottery-sorteos-crawler
+#     EOT
+#   }
+#
+#   depends_on = [
+#     aws_glue_crawler.premios_crawler,
+#     aws_glue_crawler.sorteos_crawler
+#   ]
+# }

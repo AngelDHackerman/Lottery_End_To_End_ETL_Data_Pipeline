@@ -32,11 +32,15 @@ resource "aws_sagemaker_domain" "lottery_domain" {
 # -----------------------------
 # SageMaker User Profile
 # -----------------------------
-resource "aws_sagemaker_user_profile" "lottery_user" {
-  domain_id         = aws_sagemaker_domain.lottery_domain.id
-  user_profile_name = "lottery-analyst"
-
-  user_settings {
-    execution_role = var.lottery_sagemaker_execution_role_prod_arn
-  }
-}
+# TODO PR-015: aws_sagemaker_user_profile import fails with "arn: invalid prefix" on
+# aws provider v5.x (provider read-back bug, not a config issue). Left commented out so
+# `terraform plan` stays a no-op during the PR-004 state reconstruction. The domain
+# above imported fine. PR-015 makes SageMaker an opt-in module and can re-add this.
+# resource "aws_sagemaker_user_profile" "lottery_user" {
+#   domain_id         = aws_sagemaker_domain.lottery_domain.id
+#   user_profile_name = "lottery-analyst"
+#
+#   user_settings {
+#     execution_role = var.lottery_sagemaker_execution_role_prod_arn
+#   }
+# }
