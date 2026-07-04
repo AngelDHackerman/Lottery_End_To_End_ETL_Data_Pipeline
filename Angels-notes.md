@@ -1,5 +1,5 @@
 # Angel's Notes 
-> These are my personal notes, here I'll write the tecnica desicions of why or how the project was developed, in order to create some sort of documentation for this project as well as a learning note for myself. 
+> These are my personal notes, here I'll write the reason behind the tecnical desicions of why or how the project was developed, in order to create some sort of documentation for this project as well as a learning note for myself. 
 
 * Remove the idea of creating 2 envs like "dev" and "prod" this was an old idea to show my skills as "devOps" but I want to get more focused in Data Quality and MLOps rather than "Hard Code Cloud DevOps"
 
