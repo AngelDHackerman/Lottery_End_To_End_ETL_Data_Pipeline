@@ -27,3 +27,24 @@ On this PR the "refactor" is the pre-step move the terraform state file to a rem
 * Created the `bootstrap/terrraform` directories in order to create the .tf files 
 * dyamodb.tf, main.tf, and so on were created in order to set a S3 bucket in AWS and DynamoDB for blocking stated (as a real life production project)
 * The local (as per now) is not scalable and just "toy project" like. HashiCorp's Cloud could be used but still we depend on "someone else's" service, so is a better idea to centralize everything in AWS with all the protection rules for that bucket and blcoking the state file with dynamoDB with a ver low cost. 
+
+**PR-004 Move existing TF state to remote backend (no resource changes)**
+Because I moved from Guatemala city to Montevideo Uruguay, the computer where the project used to lived was formatter and left in Guatemala. 
+So there is no `terraform.tfstate` (the exact same reason why I was planning to move to S3) so there is no way to do a migration to AWS because there is nothing to migrate. 
+Now the plan changed, I need to do an import of all the resources in AWS. The infrastructure is still there in AWS working as usual, but I need to do the import and rebuild the `terraform.tfstate` file.  
+While doing the import and finding what is missing 5 blocks were unabled to be imported: 
+
+* null_resource.run_glue_crawlers
+* null_resource.run_silver_glue_crawlers
+* aws_iam_policy_attachment.glue_service_policy
+* aws_lakeformation_resource.athena_results_location
+* aws_sagemaker_user_profile.lottery_user
+
+So this points are going to be worked in the following PR in order to get a full control over them and make them reproduceble through Terraform. 
+
+    - The crawlers, they no longer exist in the current architecture. 
+    - `aws_iam_policy_attachment.glue_service_policy` cannot be imported by design, there is no way I can import this from AWS
+    - Lakeformation was deployed manually, at the time I was unable to do it through Terraform so I had to do it manually, impossible to import this one
+    - Sagemaker: import works, but a provider bug crashes the read-back
+
+After import the resources and comment the "unimportable" resources, the `terraform.tfstate` was rebuiled successfully!

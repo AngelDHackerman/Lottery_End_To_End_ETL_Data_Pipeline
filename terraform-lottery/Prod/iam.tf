@@ -309,11 +309,16 @@ resource "aws_iam_role_policy_attachment" "cloudwatch_logs_full_access" {
 }
 
 # Attach policy to AWS Glue Crawler
-resource "aws_iam_policy_attachment" "glue_service_policy" {
-  name       = "glue-service-policy"
-  roles      = [aws_iam_role.glue_crawler_role.name]
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
-}
+# TODO PR-009: aws_iam_policy_attachment has no `terraform import` support, and it's an
+# EXCLUSIVE attachment on an AWS-managed policy (it would detach that policy from every
+# other role not listed here — dangerous). Left commented out so `terraform plan` stays
+# a no-op during the PR-004 state reconstruction. The attachment still exists in AWS.
+# PR-009 replaces this with a safe aws_iam_role_policy_attachment.
+# resource "aws_iam_policy_attachment" "glue_service_policy" {
+#   name       = "glue-service-policy"
+#   roles      = [aws_iam_role.glue_crawler_role.name]
+#   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+# }
 
 resource "aws_iam_role_policy_attachment" "attach_glue_s3" {
   role          = aws_iam_role.glue_crawler_role.name

@@ -126,6 +126,15 @@ Do NOT migrate the existing terraform-lottery/Prod state yet — that's PR-004.
 ## PR-004 — Move existing TF state to remote backend (no resource changes)
 **Goal:** Same resources, remote state. Verify the `plan` is empty after migration.
 
+> **⚠️ Plan change during execution (2026-07-02):** the legacy `terraform-lottery/Prod`
+> state was found to be **lost** — gitignored (`*.tfstate`), never committed, no local
+> copy. The 67 resources still exist in AWS. So PR-004 became a **state reconstruction
+> via `terraform import`** instead of a state move. Deliverables: `backend.tf` (fresh
+> S3 backend, no `-migrate-state`), `scripts/reconstruct_legacy_state.sh` (idempotent
+> bulk import), and `docs/runbooks/PR-004-state-migration.md`. Three resources can't be
+> imported (2 `null_resource`, 1 `aws_iam_policy_attachment`) — commented out, handled
+> in PR-009/PR-012. Acceptance is unchanged: `terraform plan` == no-op after import.
+
 **Prompt:**
 ```
 Read PR-003's outputs (the state bucket + lock table).
@@ -752,8 +761,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 |----|-------|--------|------|
 | 001 | Repo hygiene baseline | merged | [PR #2](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/2) |
 | 002 | Inventory + protect prod buckets | merged | [PR #3](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/3) |
-| 003 | Bootstrap remote state backend | in-progress | feat/PR-003-bootstrap-remote-state |
-| 004 | Move state to remote backend | todo | — |
+| 003 | Bootstrap remote state backend | merged | [PR #4](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/4) |
+| 004 | Move state to remote backend | in-progress | feat/PR-004-state-migration |
 | 005 | Import buckets + prevent_destroy | todo | — |
 | 006 | Module skeleton + root caller | todo | — |
 | 007 | Migrate `storage` module | todo | — |
