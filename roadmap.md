@@ -763,8 +763,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 002 | Inventory + protect prod buckets | merged | [PR #3](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/3) |
 | 003 | Bootstrap remote state backend | merged | [PR #4](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/4) |
 | 004 | Move state to remote backend | merged | [PR #5](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/5) |
-| 005 | Import buckets + prevent_destroy | in-progress | feat/PR-005-bucket-import |
-| 006 | Module skeleton + root caller | todo | — |
+| 005 | Import buckets + prevent_destroy | merged | [PR #6](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/6) |
+| 006 | Module skeleton + root caller | in-progress | feat/PR-006-module-skeleton |
 | 007 | Migrate `storage` module | todo | — |
 | 008 | Migrate `network` module | todo | — |
 | 009 | Migrate `iam` module | todo | — |

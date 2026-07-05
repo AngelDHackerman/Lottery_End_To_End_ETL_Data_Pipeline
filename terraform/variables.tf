@@ -1,0 +1,38 @@
+# Root input variables for the main stack.
+#
+# Kept intentionally small in the PR-006 skeleton — only the foundational values
+# the provider/backend need. Each module adds its own inputs as it is migrated
+# (PR-007..PR-015); the root will thread the relevant ones through then.
+
+variable "aws_region" {
+  description = "AWS region for all resources."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "environment" {
+  description = "Deployment environment suffix used in resource names (e.g. \"prod\")."
+  type        = string
+  default     = "prod"
+}
+
+# --- Opt-in toggles (wired up in the PRs noted; declared early so the root plan
+#     is stable as modules land). ---
+
+variable "enable_internet" {
+  description = "Create the NAT/IGW egress path in the network module. TODO PR-008."
+  type        = bool
+  default     = false
+}
+
+variable "enable_sagemaker" {
+  description = "Create the optional SageMaker module. TODO PR-015."
+  type        = bool
+  default     = false
+}
+
+variable "alert_email" {
+  description = "Email for the SNS alerts subscription. Empty = no subscription. TODO PR-014/PR-028."
+  type        = string
+  default     = ""
+}
