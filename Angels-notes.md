@@ -61,3 +61,12 @@ Now they were officially imported to the terraform code and are managed by Terra
 | **After** | `aws_s3_bucket.lottery_partitioned` | `lottery-partitioned-storage-prod` ← *unchanged* |
 | **Before** | `aws_s3_bucket.lottery_data_simple` | `lottery-data-simple-prod` |
 | **After** | `aws_s3_bucket.lottery_simple` | `lottery-data-simple-prod` ← *unchanged* |
+
+**PR-006 — Module skeleton + terraform/ `root caller`**
+The original code structure was very messy, so in order to make it more professional and easy to navigate all the scaffolding has to be changed. 
+
+The way that terraform docs are organized doesn't affect the real infraestructure however, I have to be very carefull when moving the resources because if I only move one file to a new place and then I do `Terraform Apply` terraform will think that is a new resources and will destroy the original and create a new one identical (but empty if that is an S3 bucket). 
+
+For that I have to use the `terraform state mv` in order to keep the `terraform plan` empty and avoid a disaster when moving the resources to the new place. 
+
+
