@@ -48,3 +48,16 @@ So this points are going to be worked in the following PR in order to get a full
     - Sagemaker: import works, but a provider bug crashes the read-back
 
 After import the resources and comment the "unimportable" resources, the `terraform.tfstate` was rebuiled successfully!
+
+**PR-005 — Import existing buckets into Terraform with `prevent_destroy`** 
+When I started doing this project I cretaed several buckets manually one of those were `lottery-partitioned-storage-prod` and `lottery-data-simple-prod` one for "Hive-style" data (better to use with Athena and SQL queries) and the other one for "Simple checks" better for run notebooks and do manual verificationa about the extracted data of each weekly lottery. 
+The problem is that originally I didn't import them so I left the terraform code commented just to remember myself about that "buckets exist but were not created in here". 
+
+Now they were officially imported to the terraform code and are managed by Terraform and will "live" in the S3 remote backend. Also, for consistency the were renamed in the terraform code to:
+
+| | Terraform label (the address in HCL) | Real AWS bucket name (`bucket = "..."`) |
+|---|---|---|
+| **Before** | `aws_s3_bucket.lottery_raw_data` | `lottery-partitioned-storage-prod` |
+| **After** | `aws_s3_bucket.lottery_partitioned` | `lottery-partitioned-storage-prod` ← *unchanged* |
+| **Before** | `aws_s3_bucket.lottery_data_simple` | `lottery-data-simple-prod` |
+| **After** | `aws_s3_bucket.lottery_simple` | `lottery-data-simple-prod` ← *unchanged* |
