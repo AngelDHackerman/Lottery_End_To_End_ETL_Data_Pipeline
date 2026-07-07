@@ -8,10 +8,10 @@
 # orchestration -> lake-formation -> observability -> sagemaker.
 
 # --- PR-007: storage (imported data buckets + athena results + lambda code) ---
-# module "storage" {
-#   source      = "./modules/storage"
-#   environment = var.environment
-# }
+module "storage" {
+  source      = "./modules/storage"
+  environment = var.environment
+}
 
 # --- PR-008: network (VPC, subnets, endpoints, SGs; NAT gated by enable_internet) ---
 # module "network" {
