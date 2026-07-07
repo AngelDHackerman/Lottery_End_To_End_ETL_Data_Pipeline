@@ -3,7 +3,7 @@
 
 * Remove the idea of creating 2 envs like "dev" and "prod" this was an old idea to show my skills as "devOps" but I want to get more focused in Data Quality and MLOps rather than "Hard Code Cloud DevOps"
 
-**PR-001 — Repo hygiene baseline**
+## PR-001 — Repo hygiene baseline
 * Removed extra files in the "temp_files" that were test done previouly on this project.
 * removed duplicated data in gitignore file
 * added new virtual environment for python.
@@ -12,7 +12,7 @@
 * Added `.pre-commit-cofing.yaml` file in order to check the quality of the code in terraform, python and jupyterNotebooks before sending it to the repo.
 * Installed and enabled the command `gh` for "Git Hub CLI" so commands can be ran easly from the local terminal. 
 
-**PR-002 - Inventory and protect prod buckets (no Terraform yet)** 
+## PR-002 - Inventory and protect prod buckets (no Terraform yet)
 * The 2 json files in `/scripts/policies` are the bucket rules for protect the S3 buckets where the data is storage. 
 * The `.txt` files in `/docs/inventory` are snapshots of current status in AWS about the data extracted with a readme file that explains why they exist. 
 * Also, created a "safety belt" prior any refactor the file `scripts/00_inventory_and_protect.sh` 
@@ -22,13 +22,13 @@
     * Deny Delte Rule applies to all the users except for the __Admin__ in the AWS account. 
     * This was wrote in `.sh` file because these are pre-existing buckets, so __Terraform__ is not very good handling existing items, that's why the changes were done using __Bash__ and __AWS__.
 
-**PR-003 - Move existing TF state to remote backend (no resource changes)**
+## PR-003 - Move existing TF state to remote backend (no resource changes)
 On this PR the "refactor" is the pre-step move the terraform state file to a remote backend is done. 
 * Created the `bootstrap/terrraform` directories in order to create the .tf files 
 * dyamodb.tf, main.tf, and so on were created in order to set a S3 bucket in AWS and DynamoDB for blocking stated (as a real life production project)
 * The local (as per now) is not scalable and just "toy project" like. HashiCorp's Cloud could be used but still we depend on "someone else's" service, so is a better idea to centralize everything in AWS with all the protection rules for that bucket and blcoking the state file with dynamoDB with a ver low cost. 
 
-**PR-004 Move existing TF state to remote backend (no resource changes)**
+## PR-004 Move existing TF state to remote backend (no resource changes)
 Because I moved from Guatemala city to Montevideo Uruguay, the computer where the project used to lived was formatter and left in Guatemala. 
 So there is no `terraform.tfstate` (the exact same reason why I was planning to move to S3) so there is no way to do a migration to AWS because there is nothing to migrate. 
 Now the plan changed, I need to do an import of all the resources in AWS. The infrastructure is still there in AWS working as usual, but I need to do the import and rebuild the `terraform.tfstate` file.  
@@ -49,7 +49,7 @@ So this points are going to be worked in the following PR in order to get a full
 
 After import the resources and comment the "unimportable" resources, the `terraform.tfstate` was rebuiled successfully!
 
-**PR-005 — Import existing buckets into Terraform with `prevent_destroy`** 
+## PR-005 — Import existing buckets into Terraform with `prevent_destroy` 
 When I started doing this project I cretaed several buckets manually one of those were `lottery-partitioned-storage-prod` and `lottery-data-simple-prod` one for "Hive-style" data (better to use with Athena and SQL queries) and the other one for "Simple checks" better for run notebooks and do manual verificationa about the extracted data of each weekly lottery. 
 The problem is that originally I didn't import them so I left the terraform code commented just to remember myself about that "buckets exist but were not created in here". 
 
@@ -62,11 +62,46 @@ Now they were officially imported to the terraform code and are managed by Terra
 | **Before** | `aws_s3_bucket.lottery_data_simple` | `lottery-data-simple-prod` |
 | **After** | `aws_s3_bucket.lottery_simple` | `lottery-data-simple-prod` ← *unchanged* |
 
-**PR-006 — Module skeleton + terraform/ `root caller`**
+## PR-006 — Module skeleton + terraform/ `root caller`
 The original code structure was very messy, so in order to make it more professional and easy to navigate all the scaffolding has to be changed. 
 
 The way that terraform docs are organized doesn't affect the real infraestructure however, I have to be very carefull when moving the resources because if I only move one file to a new place and then I do `Terraform Apply` terraform will think that is a new resources and will destroy the original and create a new one identical (but empty if that is an S3 bucket). 
 
 For that I have to use the `terraform state mv` in order to keep the `terraform plan` empty and avoid a disaster when moving the resources to the new place. 
 
+## PR-007 — Migrate storage module (the imported buckets)
 
+Because the terraform.tfstate was deleted and now we are creating a brand new state file in S3 (Remote State File) and we are reorganizing the code infrastructure to something more "professional" and easy to read some steps needs to be taken: 
+
+1. Create the new infrastructure for the terraform code.
+2. Move the legacy code from the `S3.tf` file to the new `terraform/modules/storage/` directories 
+3. the command `terraform state mv` does not work here because I don't have the legacy state file so is needed for first import the bucket resources to the new terraform code like so: 
+```bash
+cd terraform/
+
+terraform import module.storage.aws_s3_bucket.lottery_partitioned                              lottery-partitioned-storage-prod
+terraform import module.storage.aws_s3_bucket_versioning.lottery_partitioned                   lottery-partitioned-storage-prod
+terraform import module.storage.aws_s3_bucket_server_side_encryption_configuration.lottery_partitioned lottery-partitioned-storage-prod
+terraform import module.storage.aws_s3_bucket_public_access_block.lottery_partitioned          lottery-partitioned-storage-prod
+```
+4. After the import removed or "make forget" the pointer of terraform from the legacy s3.tf file like so: 
+```bash
+cd ../terraform-lottery/Prod
+
+terraform state rm \
+  aws_s3_bucket.lottery_partitioned \
+  aws_s3_bucket_versioning.lottery_partitioned \
+  aws_s3_bucket_server_side_encryption_configuration.lottery_partitioned \
+  aws_s3_bucket_public_access_block.lottery_partitioned \
+  aws_s3_bucket.lottery_simple \
+  aws_s3_bucket_versioning.lottery_simple \
+  aws_s3_bucket_server_side_encryption_configuration.lottery_simple \
+  aws_s3_bucket_public_access_block.lottery_simple \
+  aws_s3_bucket.lambda_code_zip \
+  aws_s3_bucket.athena_results \
+  aws_s3_bucket_public_access_block.athena_results \
+  aws_s3_bucket_server_side_encryption_configuration.athena_results \
+  aws_s3_bucket_lifecycle_configuration.athena_results
+```
+
+After making sure that `terraform plan` does not alerts of any change when located in `terraform/` directory, and `cd ../terraform-lottery/Prod` `terraform plan` shows that there are no changes and infraestructure matches the configuration I could make sure this was working and migrated as expected. 
