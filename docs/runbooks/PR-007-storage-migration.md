@@ -80,8 +80,18 @@ needs no tfvars (`environment` defaults to `prod`).
 
 Sanity-check the main plan now:
 ```bash
-terraform plan   # expect: No changes. (all 13 imported, config matches)
+terraform plan   # expect: 0 to add, 1 to change, 0 to destroy
 ```
+
+**Expected in-place change:** `module.storage.aws_s3_bucket.athena_results` wants to set
+`force_destroy = true`. This is a **Terraform-only flag** (never stored in AWS), so import
+defaults it to `false` and the plan reconciles it to our config. Applying it makes no
+data-touching AWS call. Clear it so the plan is clean:
+```bash
+terraform apply   # only the force_destroy line; type yes
+terraform plan    # now: No changes.
+```
+(The two real data buckets show no diff — we deliberately don't set `force_destroy` on them.)
 
 ## Step 2 — Remove the same 13 from the LEGACY stack
 
@@ -121,9 +131,11 @@ cd ../terraform-lottery/Prod && terraform plan
 
 - ✅ Both empty → success. The buckets are now owned by `module.storage`; the legacy stack
   no longer references or tracks them.
-- ⚠️ On the **legacy** plan, a possible in-place diff on `aws_s3_object.lambda_package`
-  (etag vs the local `lambdas_path_local` zip) can appear — same pre-existing note as
-  PR-004, unrelated to this move. Safe to ignore/apply.
+- ⚠️ Acceptable in-place diffs (apply them — none touch data):
+  - **main:** `aws_s3_bucket.athena_results` → `force_destroy = true` (Terraform-only flag,
+    see Step 1).
+  - **legacy:** a possible diff on `aws_s3_object.lambda_package` (etag vs the local
+    `lambdas_path_local` zip) — same pre-existing note as PR-004, unrelated to this move.
 - ❌ Any **create / destroy / replace of a bucket** on either side → **STOP**. On main, a
   "create" means an import was missed (re-run it). On legacy, a "destroy" means the
   `state rm` didn't cover an address. Do not apply; reconcile first.
