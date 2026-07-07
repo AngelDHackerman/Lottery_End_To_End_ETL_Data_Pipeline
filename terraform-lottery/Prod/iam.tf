@@ -9,8 +9,8 @@ resource "aws_iam_policy" "sagemaker_s3_read_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect    = "Allow",
-        Action    = [
+        Effect = "Allow",
+        Action = [
           "s3:GetObject",
           "s3:ListBucket"
         ],
@@ -25,11 +25,11 @@ resource "aws_iam_policy" "sagemaker_s3_read_policy" {
 
 # Policy for Glue Crawler to S3 
 resource "aws_iam_policy" "glue_crawler_s3_policy" {
-  name            = "glue-crawler-s3-access"
-  description     = "Allow Glue crawler to access partitioned lottery bucket"
-  policy          = jsonencode({
-    Version       = "2012-10-17"
-    Statement     = [
+  name        = "glue-crawler-s3-access"
+  description = "Allow Glue crawler to access partitioned lottery bucket"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       {
         Effect = "Allow",
         Action = [
@@ -49,7 +49,7 @@ resource "aws_iam_policy" "glue_crawler_s3_policy" {
 }
 
 # Policy for access to S3 and Logs for Glue Job
-data "aws_iam_policy_document" "glue_job_policy"{
+data "aws_iam_policy_document" "glue_job_policy" {
   statement {
     sid    = "AllowS3Access"
     effect = "Allow"
@@ -80,9 +80,9 @@ data "aws_iam_policy_document" "glue_job_policy"{
   }
 
   statement {
-    sid    = "AllowSecretsManager"
-    effect = "Allow"
-    actions = ["secretsmanager:GetSecretValue"]
+    sid       = "AllowSecretsManager"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
     resources = ["arn:aws:secretsmanager:*:*:secret:*"]
   }
 
@@ -123,8 +123,8 @@ resource "aws_iam_role_policy_attachment" "glue_attach_policy" {
 
 # Policy for Athena Resutls 
 resource "aws_iam_policy" "athena_results_access" {
-  name              = "athena-results-s3-access"
-  policy            = jsonencode({
+  name = "athena-results-s3-access"
+  policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
       {
@@ -134,9 +134,11 @@ resource "aws_iam_policy" "athena_results_access" {
           "s3:PutObject",
           "s3:ListBucket"
         ],
+        # Bucket moved to the storage module in PR-007; reference by literal ARN
+        # (same value) so this legacy stack no longer depends on the moved resource.
         Resource = [
-          aws_s3_bucket.athena_results.arn,
-          "${aws_s3_bucket.athena_results.arn}/*"
+          "arn:aws:s3:::lottery-athena-results-${var.environment}",
+          "arn:aws:s3:::lottery-athena-results-${var.environment}/*"
         ]
       }
     ]
@@ -144,10 +146,10 @@ resource "aws_iam_policy" "athena_results_access" {
 }
 
 # Lambda Policy (S3 + Secrets Manager)
-data "aws_iam_policy_document" "lambda_custom_doc"{
+data "aws_iam_policy_document" "lambda_custom_doc" {
   statement {
-    sid     = "S3Access"
-    effect  = "Allow"
+    sid    = "S3Access"
+    effect = "Allow"
 
     actions = [
       "s3:GetObject",
@@ -162,7 +164,7 @@ data "aws_iam_policy_document" "lambda_custom_doc"{
       "arn:aws:s3:::${var.s3_bucket_simple_name}",
       "arn:aws:s3:::${var.s3_bucket_simple_name}/*"
     ]
-  } 
+  }
 
   statement {
     sid    = "SecretsManagerAccess"
@@ -186,12 +188,12 @@ resource "aws_iam_role" "sagemaker_execution_role" {
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement     = [{
-      Effect      = "Allow", 
-      Principal   = {
-        Service   = "sagemaker.amazonaws.com"
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Service = "sagemaker.amazonaws.com"
       },
-      Action    = "sts:AssumeRole"
+      Action = "sts:AssumeRole"
     }]
   })
 
@@ -239,12 +241,12 @@ resource "aws_iam_role" "glue_crawler_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Action      = "sts:AssumeRole",
-      Principal   = {
+      Action = "sts:AssumeRole",
+      Principal = {
         Service = "glue.amazonaws.com"
       },
-      Effect    = "Allow",
-      Sid       = ""
+      Effect = "Allow",
+      Sid    = ""
     }]
   })
 }
@@ -273,9 +275,9 @@ resource "aws_iam_role" "lambda_exec" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect      = "Allow",
-      Principal   = { Service = "lambda.amazonaws.com" },
-      Action      = "sts:AssumeRole"
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -321,8 +323,8 @@ resource "aws_iam_role_policy_attachment" "cloudwatch_logs_full_access" {
 # }
 
 resource "aws_iam_role_policy_attachment" "attach_glue_s3" {
-  role          = aws_iam_role.glue_crawler_role.name
-  policy_arn    = aws_iam_policy.glue_crawler_s3_policy.arn
+  role       = aws_iam_role.glue_crawler_role.name
+  policy_arn = aws_iam_policy.glue_crawler_s3_policy.arn
 }
 
 # Attach user santa_lucia_dev for athena results bucket
@@ -337,8 +339,8 @@ resource "aws_iam_user_policy_attachment" "attach_results_user_dev" {
 # Attach user angel_adming for athena results bucket
 data "aws_iam_user" "angel_adming" { user_name = "angel-adming" }
 resource "aws_iam_user_policy_attachment" "attach_results_user_adming" {
-  user        = data.aws_iam_user.angel_adming.user_name
-  policy_arn  = aws_iam_policy.athena_results_access.arn
+  user       = data.aws_iam_user.angel_adming.user_name
+  policy_arn = aws_iam_policy.athena_results_access.arn
 }
 
 # Attachment for lambda roles

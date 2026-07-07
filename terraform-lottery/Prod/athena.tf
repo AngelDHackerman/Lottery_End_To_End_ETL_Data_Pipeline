@@ -3,7 +3,9 @@ resource "aws_athena_workgroup" "lottery_wg" {
 
   configuration {
     result_configuration {
-      output_location = "s3://${aws_s3_bucket.athena_results.bucket}/"
+      # Bucket moved to the storage module in PR-007; reference by literal name
+      # (same value) so this legacy stack no longer depends on the moved resource.
+      output_location = "s3://lottery-athena-results-${var.environment}/"
     }
   }
 }
