@@ -112,3 +112,10 @@ __PR-008__ followed the same steps and workflow as the PR-007
 
 ---
 
+## PR-009 — Migrate `iam` module (clean up wildcards, parameterize users)
+
+This is the biggest migration so far. PR-009 moved 26 resources (6 roles + 8 policies + 10 role-attachments + 2 user-attachments) vs. 13 (storage) and 11 (network). It was also the first one with behavioral intent (tightening + gating), not just a pure move.
+
+Also, in the legacy code there were 2 user names hardcoded, it was a "temporary" solution but got stuck in here until now. They were removed and now the values for those users were removed because they are no longer needed. 
+
+Smoke test was done, using AWS CLI the SFN (Step Function) was started and I got the "SUCCEEDED" messag, meaning that I have the access from the new IAM module. 
