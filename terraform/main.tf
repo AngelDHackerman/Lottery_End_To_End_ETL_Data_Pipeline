@@ -14,11 +14,14 @@ module "storage" {
 }
 
 # --- PR-008: network (VPC, subnets, endpoints, SGs; NAT gated by enable_internet) ---
-# module "network" {
-#   source          = "./modules/network"
-#   environment     = var.environment
-#   enable_internet = var.enable_internet
-# }
+module "network" {
+  source                  = "./modules/network"
+  environment             = var.environment
+  aws_region              = var.aws_region
+  aws_availability_zone_a = var.aws_availability_zone_a
+  aws_availability_zone_b = var.aws_availability_zone_b
+  enable_internet         = var.enable_internet
+}
 
 # --- PR-009: iam (roles + policies; personal user attachments gated by a var) ---
 # module "iam" {

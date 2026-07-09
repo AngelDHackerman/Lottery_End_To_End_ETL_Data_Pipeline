@@ -16,6 +16,20 @@ variable "environment" {
   default     = "prod"
 }
 
+# Subnet AZs for the network module (PR-008). Defaults match the deployed prod
+# subnets; changing them would try to REPLACE the subnets, so keep them pinned.
+variable "aws_availability_zone_a" {
+  description = "AZ for the first private subnet and the public subnet."
+  type        = string
+  default     = "us-east-1a"
+}
+
+variable "aws_availability_zone_b" {
+  description = "AZ for the second private subnet."
+  type        = string
+  default     = "us-east-1b"
+}
+
 # --- Opt-in toggles (wired up in the PRs noted; declared early so the root plan
 #     is stable as modules land). ---
 
