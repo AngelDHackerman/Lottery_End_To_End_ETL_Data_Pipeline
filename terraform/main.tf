@@ -24,11 +24,23 @@ module "network" {
 }
 
 # --- PR-009: iam (roles + policies; personal user attachments gated by a var) ---
-# module "iam" {
-#   source      = "./modules/iam"
-#   environment = var.environment
-#   # secret_arn, bucket ARNs from module.storage, etc. wired in PR-009.
-# }
+module "iam" {
+  source      = "./modules/iam"
+  environment = var.environment
+  aws_region  = var.aws_region
+  secret_name = var.lottery_secret_name
+
+  # Bucket references from the storage module.
+  partitioned_bucket_name    = module.storage.partitioned_bucket_name
+  partitioned_bucket_arn     = module.storage.partitioned_bucket_arn
+  simple_bucket_name         = module.storage.simple_bucket_name
+  simple_bucket_arn          = module.storage.simple_bucket_arn
+  athena_results_bucket_name = module.storage.athena_results_bucket_name
+  lambda_code_bucket_name    = module.storage.lambda_code_bucket_name
+
+  # Empty by default; the owner sets their own users in a gitignored tfvars.
+  personal_iam_users = var.personal_iam_users
+}
 
 # --- PR-010: etl-lambda (extractor function) ---
 # module "etl_lambda" {

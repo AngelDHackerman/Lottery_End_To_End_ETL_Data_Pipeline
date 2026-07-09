@@ -50,3 +50,16 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+# --- iam module (PR-009) ---
+variable "lottery_secret_name" {
+  description = "Name of the lottery secret in Secrets Manager. Its ARN scopes the lambda/glue secretsmanager grants."
+  type        = string
+  default     = "lottery_secret_prod_2"
+}
+
+variable "personal_iam_users" {
+  description = "IAM user names granted the Athena-results policy. Empty = none (fresh-cloner default). The owner lists their own users in a gitignored tfvars."
+  type        = list(string)
+  default     = []
+}
