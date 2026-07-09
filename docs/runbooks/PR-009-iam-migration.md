@@ -141,19 +141,25 @@ terraform state rm \
 (The three `data.aws_iam_policy_document.*` and two `data.aws_iam_user.*` data sources drop
 automatically once the config no longer declares them — no `state rm` needed.)
 
-## Step 4 — Apply the tightening on MAIN, then verify no-op
+## Step 4 — Verify the MAIN plan (tightening)
 ```bash
 cd ../../terraform
 terraform plan
 ```
-**Expected:** `0 to add, 3 to change, 0 to destroy` — in-place updates to
+**Predicted:** `0 to add, 3 to change, 0 to destroy` — in-place updates to
 `module.iam.aws_iam_policy.glue_job_policy`, `.lambda_custom`, and `.sfn_execution_policy`
-(the secret + glue ARN narrowings). **No role, no attachment, nothing else** should change.
+(the secret + glue ARN narrowings), then `terraform apply` and re-plan to `No changes.`
 - ❌ Any **create** = a missed import (re-run it). Any **destroy/replace** = STOP.
-```bash
-terraform apply    # applies the 3 narrowings; type yes
-terraform plan     # now: No changes.
-```
+
+> **✅ ACTUAL outcome (owner ran 2026-07-08): `No changes.` — no apply needed.**
+> The live prod policies had **already** been narrowed by hand during the manual buildout
+> (secretsmanager → `lottery_secret_prod_2-NKfmAe`; SFN glue → the job + two silver crawler
+> ARNs). The legacy `.tf` showed stale `"*"` wildcards that never matched reality. Since the
+> module config equals the real (already-narrowed) policies, `import` produced a clean plan.
+> PR-009's real value here is **codifying** that narrowing in version control — the security
+> posture was already correct in AWS; it just wasn't captured (and was misrepresented) in
+> the repo. If your account's live policies still hold wildcards, you'd instead see the
+> predicted `3 to change` and would `apply`.
 
 ## Step 5 — Verify the LEGACY plan is a no-op
 ```bash
@@ -168,6 +174,9 @@ cd ../terraform-lottery/Prod && terraform plan
 Start the Step Function once (console or CLI) and confirm a full run succeeds — this proves
 the narrowed secret + glue grants still permit extractor Lambda → Glue job → both silver
 crawlers.
+
+> Now **optional/confirmatory**: since Step 4 was a no-op, the pipeline already runs under
+> these exact (already-narrowed) policies — nothing about its permissions changed.
 ```bash
 aws stepfunctions start-execution --state-machine-arn \
   arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
@@ -188,4 +197,6 @@ policy narrowings revert by re-applying the old wildcard config (the old policy 
   6 files' role references → literal ARNs; `lambdas.tf` drops the moved attachment from
   `depends_on`.
 - **State ops (owner):** import 24 (+2 opt-in) into main; `state rm` 26 from legacy.
-- **Live change (owner applies):** the 3 policy narrowings. No role/attachment recreated.
+- **Live change:** none, in this account — the 3 policy narrowings were already applied by
+  hand in prod, so the module just codifies them (see Step 4). In an account still holding
+  the wildcards, the owner would apply the 3 narrowings. No role/attachment recreated.
