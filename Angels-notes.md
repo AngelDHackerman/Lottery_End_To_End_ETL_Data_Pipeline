@@ -105,3 +105,10 @@ terraform state rm \
 ```
 
 After making sure that `terraform plan` does not alerts of any change when located in `terraform/` directory, and `cd ../terraform-lottery/Prod` `terraform plan` shows that there are no changes and infraestructure matches the configuration I could make sure this was working and migrated as expected. 
+
+---
+
+__PR-008__ followed the same steps and workflow as the PR-007
+
+---
+
