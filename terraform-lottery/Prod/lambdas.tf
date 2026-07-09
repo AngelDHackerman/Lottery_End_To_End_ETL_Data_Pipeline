@@ -19,7 +19,7 @@ resource "aws_lambda_function" "extractor_lambda" {
   runtime          = "python3.12"
   timeout          = 120
   memory_size      = 1024
-  role             = aws_iam_role.lambda_exec.arn
+  role             = "arn:aws:iam::913524903233:role/lottery-lambda-exec-roleprod" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
 
   environment {
     variables = {
@@ -29,9 +29,10 @@ resource "aws_lambda_function" "extractor_lambda" {
     }
   }
 
+  # PR-009: aws_iam_role_policy_attachment.lambda_basic moved to terraform/modules/iam;
+  # dropped from depends_on (the role + attachment already exist in AWS).
   depends_on = [
-    aws_s3_object.lambda_package,
-    aws_iam_role_policy_attachment.lambda_basic
+    aws_s3_object.lambda_package
   ]
 
   tags = {

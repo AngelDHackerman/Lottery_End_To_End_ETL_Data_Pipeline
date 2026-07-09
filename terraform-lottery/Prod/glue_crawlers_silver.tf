@@ -5,16 +5,16 @@
 
 # Crawler pointing to partitioned S3 bucket "Premios" section
 resource "aws_glue_crawler" "premios_silver_crawler" {
-  name              = "lottery-premios-silver-crawler"
-  role              = aws_iam_role.glue_crawler_role.arn
-  database_name     = aws_glue_catalog_database.lottery_db.name
-  table_prefix      = "silver_premios_"
+  name          = "lottery-premios-silver-crawler"
+  role          = "arn:aws:iam::913524903233:role/glue-crawler-role" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
+  database_name = aws_glue_catalog_database.lottery_db.name
+  table_prefix  = "silver_premios_"
 
   s3_target {
     path = "s3://lottery-partitioned-storage-prod/silver/premios/"
   }
 
-   configuration = jsonencode({
+  configuration = jsonencode({
     Version = 1.0,
     CrawlerOutput = {
       Partitions = {
@@ -37,7 +37,7 @@ resource "aws_glue_crawler" "premios_silver_crawler" {
 # Crawler pointing to partitioned S3 bucket "Sorteos" section
 resource "aws_glue_crawler" "sorteos_silver_crawler" {
   name          = "lottery-sorteos-silver-crawler"
-  role          = aws_iam_role.glue_crawler_role.arn
+  role          = "arn:aws:iam::913524903233:role/glue-crawler-role" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
   database_name = aws_glue_catalog_database.lottery_db.name
   table_prefix  = "silver_sorteos_"
 
