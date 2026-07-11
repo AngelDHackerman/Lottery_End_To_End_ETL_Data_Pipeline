@@ -51,6 +51,13 @@ variable "alert_email" {
   default     = ""
 }
 
+# --- etl-lambda module (PR-010) ---
+variable "lambda_zip_path" {
+  description = "Local path to the Lambda deployment zip (relative to terraform/). Pull the deployed artifact here so hashes match state — see docs/runbooks/PR-010-lambda-migration.md. Replaced by built artifacts in PR-019."
+  type        = string
+  default     = "lambda_package.zip"
+}
+
 # --- iam module (PR-009) ---
 variable "lottery_secret_name" {
   description = "Name of the lottery secret in Secrets Manager. Its ARN scopes the lambda/glue secretsmanager grants."
