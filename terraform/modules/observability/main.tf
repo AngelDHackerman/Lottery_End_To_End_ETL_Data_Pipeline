@@ -1,8 +1,21 @@
 # Module: observability
-# Intent: SNS alerts topic (PR-014), later fleshed out with CloudWatch dashboards + alarms in PR-024..PR-028.
+# SNS alerts topic + optional email subscription (PR-014). This is deliberately a
+# placeholder foundation: Phase 4 (PR-024..PR-028) adds the CloudWatch dashboard,
+# alarms, and custom metrics that publish to this topic.
 #
-# STATUS: placeholder skeleton (PR-006). No resources yet.
-# Resources are migrated here from terraform-lottery/Prod/ in PR-014 via
-# `terraform state mv` (no resource churn). See roadmap.md for the exact plan.
+# NEW resources — nothing existed in AWS to import.
 
-# TODO PR-014: move this module's resources in and wire the root caller.
+resource "aws_sns_topic" "alerts" {
+  name = "loteria-alerts-${var.environment}"
+}
+
+# Email subscription, only when an address is provided. NOTE: SNS email subscriptions
+# require the recipient to click the confirmation link AWS sends — Terraform cannot
+# confirm it (the subscription shows "pending confirmation" until then).
+resource "aws_sns_topic_subscription" "email_alerts" {
+  count = var.alert_email != "" ? 1 : 0
+
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}

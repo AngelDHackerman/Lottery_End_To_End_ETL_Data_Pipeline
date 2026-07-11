@@ -121,11 +121,11 @@ module "lake_formation" {
 }
 
 # --- PR-014: observability (SNS alerts; dashboards/alarms added PR-024..PR-028) ---
-# module "observability" {
-#   source      = "./modules/observability"
-#   environment = var.environment
-#   alert_email = var.alert_email
-# }
+module "observability" {
+  source      = "./modules/observability"
+  environment = var.environment
+  alert_email = var.alert_email
+}
 
 # --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---
 # module "sagemaker" {
