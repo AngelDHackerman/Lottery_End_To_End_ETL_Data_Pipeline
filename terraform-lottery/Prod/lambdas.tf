@@ -1,45 +1,9 @@
-# upload code to S3
-# NOTE: the lambda_code_zip bucket moved to the storage module in PR-007; reference it
-# by literal name (same value) so this legacy stack no longer depends on the moved
-# resource. This object + function move to the etl-lambda module in PR-010.
-resource "aws_s3_object" "lambda_package" {
-  bucket = "lambda-code-zip-${var.environment}"
-  key    = "lambda_package.zip"
-  source = var.lambdas_path_local
-  etag   = filemd5("${var.lambdas_path_local}")
-}
-
-# Lambda: Extractor 
-resource "aws_lambda_function" "extractor_lambda" {
-  function_name    = "lottery-extractor-${var.environment}"
-  s3_bucket        = "lambda-code-zip-${var.environment}"
-  s3_key           = aws_s3_object.lambda_package.key
-  source_code_hash = filebase64sha256("${var.lambdas_path_local}")
-  handler          = "extractor.lambda_handler.lambda_handler"
-  runtime          = "python3.12"
-  timeout          = 120
-  memory_size      = 1024
-  role             = "arn:aws:iam::913524903233:role/lottery-lambda-exec-roleprod" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
-
-  environment {
-    variables = {
-      PARTITIONED_BUCKET = var.s3_bucket_partitioned_data_storage_prod_arn
-      SIMPLE_BUCKET      = var.s3_bucket_simple_data_storage_prod_arn
-      REGION             = var.aws_region
-    }
-  }
-
-  # PR-009: aws_iam_role_policy_attachment.lambda_basic moved to terraform/modules/iam;
-  # dropped from depends_on (the role + attachment already exist in AWS).
-  depends_on = [
-    aws_s3_object.lambda_package
-  ]
-
-  tags = {
-    Name        = "lottery-extractor-${var.environment}"
-    Environment = var.environment
-    Project     = "Lottery ETL"
-    Owner       = "Angel Hackerman"
-  }
-}
-
+# MOVED in PR-010 → terraform/modules/etl-lambda/
+#
+# The extractor Lambda (aws_lambda_function.extractor_lambda) and its deployment
+# artifact (aws_s3_object.lambda_package) were migrated to the etl-lambda module via
+# cross-state `terraform state rm` (here) + `terraform import` (into the main stack).
+# The function was NOT recreated. See docs/runbooks/PR-010-lambda-migration.md.
+#
+# This file is intentionally left as a pointer; the whole terraform-lottery/Prod/ folder
+# is deleted in PR-015 once every module has migrated.

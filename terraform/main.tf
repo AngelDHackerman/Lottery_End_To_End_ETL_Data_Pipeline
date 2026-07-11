@@ -40,14 +40,28 @@ module "iam" {
 
   # Empty by default; the owner sets their own users in a gitignored tfvars.
   personal_iam_users = var.personal_iam_users
+
+  # PR-010: the lambda name now comes from the etl-lambda module (same value as the
+  # old default, so the narrowed InvokeFunction grant is unchanged).
+  extractor_lambda_name = module.etl_lambda.extractor_lambda_name
 }
 
 # --- PR-010: etl-lambda (extractor function) ---
-# module "etl_lambda" {
-#   source      = "./modules/etl-lambda"
-#   environment = var.environment
-#   # lambda_exec_role_arn, bucket names, secret_name wired in PR-010.
-# }
+module "etl_lambda" {
+  source      = "./modules/etl-lambda"
+  environment = var.environment
+  region      = var.aws_region
+
+  lambda_code_bucket = module.storage.lambda_code_bucket_name
+  lambda_zip_key     = "lambda_package.zip"
+  lambda_zip_path    = var.lambda_zip_path
+
+  lambda_exec_role_arn = module.iam.lambda_exec_role_arn
+
+  partitioned_bucket_name = module.storage.partitioned_bucket_name
+  simple_bucket_name      = module.storage.simple_bucket_name
+  secret_name             = var.lottery_secret_name
+}
 
 # --- PR-011: etl-glue (transform job; script_location parameterized) ---
 # module "etl_glue" {

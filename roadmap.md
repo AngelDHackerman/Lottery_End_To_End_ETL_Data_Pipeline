@@ -767,8 +767,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 006 | Module skeleton + root caller | merged | [PR #7](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/7) |
 | 007 | Migrate `storage` module | merged | [PR #8](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/8) |
 | 008 | Migrate `network` module | merged | [PR #9](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/9) |
-| 009 | Migrate `iam` module | in-progress | feat/PR-009-iam-module |
-| 010 | Migrate `etl-lambda` module | todo | — |
+| 009 | Migrate `iam` module | merged | [PR #10](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/10) |
+| 010 | Migrate `etl-lambda` module | in-progress | feat/PR-010-etl-lambda-module |
 | 011 | Migrate `etl-glue` module | todo | — |
 | 012 | Migrate `catalog` + `orchestration`, kill dup EventBridge | todo | — |
 | 013 | Codify Lake Formation | todo | — |
