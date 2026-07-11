@@ -163,7 +163,7 @@ This automated ETL project demonstrates expertise in data extraction, transforma
 
 ### 💻 Development & Runtime Environment
 - **Jupyter Notebooks (SageMaker Studio)** – For exploratory data analysis and chart prototyping.
-- **Terraform** – Infrastructure-as-code used to provision S3, IAM, SageMaker, Glue, etc.
+- **Terraform** – Infrastructure-as-code used to provision S3, IAM, SageMaker, Glue, etc. All infra lives under [`terraform/`](./terraform/) (modular layout: `storage`, `network`, `iam`, `etl-lambda`, `etl-glue`, `catalog`, `orchestration`, `lake-formation`, `observability`, and the opt-in `sagemaker`).
 - **ChromeDriver + Headless Chrome** – For scraping the official lottery website.
 
 ### 📊 Visualization & Analytics

@@ -44,6 +44,13 @@ module "iam" {
   # PR-010: the lambda name now comes from the etl-lambda module (same value as the
   # old default, so the narrowed InvokeFunction grant is unchanged).
   extractor_lambda_name = module.etl_lambda.extractor_lambda_name
+
+  # PR-011: same story for the glue job name.
+  glue_job_name = module.etl_glue.glue_job_name
+
+  # PR-012: and for the silver crawler names.
+  glue_crawler_premios_name = module.catalog.premios_silver_crawler_name
+  glue_crawler_sorteos_name = module.catalog.sorteos_silver_crawler_name
 }
 
 # --- PR-010: etl-lambda (extractor function) ---
@@ -64,41 +71,71 @@ module "etl_lambda" {
 }
 
 # --- PR-011: etl-glue (transform job; script_location parameterized) ---
-# module "etl_glue" {
-#   source      = "./modules/etl-glue"
-#   environment = var.environment
-#   # code_bucket, script_key, glue_job_role_arn wired in PR-011.
-# }
+module "etl_glue" {
+  source      = "./modules/etl-glue"
+  environment = var.environment
 
-# --- PR-012: catalog (Glue DB + silver/gold crawlers) ---
-# module "catalog" {
-#   source      = "./modules/catalog"
-#   environment = var.environment
-# }
+  code_bucket = module.storage.lambda_code_bucket_name
+  script_key  = "lottery_transformer.zip"
+
+  glue_job_role_arn = module.iam.glue_job_role_arn
+
+  partitioned_bucket_name = module.storage.partitioned_bucket_name
+  simple_bucket_name      = module.storage.simple_bucket_name
+}
+
+# --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---
+module "catalog" {
+  source      = "./modules/catalog"
+  environment = var.environment
+
+  glue_crawler_role_arn = module.iam.glue_crawler_role_arn
+
+  partitioned_bucket_name    = module.storage.partitioned_bucket_name
+  athena_results_bucket_name = module.storage.athena_results_bucket_name
+}
 
 # --- PR-012: orchestration (Step Functions + single weekly EventBridge trigger) ---
-# module "orchestration" {
-#   source      = "./modules/orchestration"
-#   environment = var.environment
-#   # references catalog crawler names + etl module outputs, wired in PR-012.
-# }
+module "orchestration" {
+  source      = "./modules/orchestration"
+  environment = var.environment
+
+  sfn_execution_role_arn      = module.iam.sfn_execution_role_arn
+  eventbridge_to_sfn_role_arn = module.iam.eventbridge_to_sfn_role_arn
+
+  extractor_lambda_arn = module.etl_lambda.extractor_lambda_arn
+  glue_job_name        = module.etl_glue.glue_job_name
+  premios_crawler_name = module.catalog.premios_silver_crawler_name
+  sorteos_crawler_name = module.catalog.sorteos_silver_crawler_name
+}
 
 # --- PR-013: lake-formation (permissions so crawlers need no console clicks) ---
-# module "lake_formation" {
-#   source      = "./modules/lake-formation"
-#   environment = var.environment
-# }
+module "lake_formation" {
+  source = "./modules/lake-formation"
+
+  partitioned_bucket_arn = module.storage.partitioned_bucket_arn
+  glue_crawler_role_arn  = module.iam.glue_crawler_role_arn
+  database_name          = module.catalog.db_name
+
+  enable_iam_allowed_principals_compat = var.enable_iam_allowed_principals_compat
+}
 
 # --- PR-014: observability (SNS alerts; dashboards/alarms added PR-024..PR-028) ---
-# module "observability" {
-#   source      = "./modules/observability"
-#   environment = var.environment
-#   alert_email = var.alert_email
-# }
+module "observability" {
+  source      = "./modules/observability"
+  environment = var.environment
+  alert_email = var.alert_email
+}
 
 # --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---
-# module "sagemaker" {
-#   source      = "./modules/sagemaker"
-#   count       = var.enable_sagemaker ? 1 : 0
-#   environment = var.environment
-# }
+module "sagemaker" {
+  source      = "./modules/sagemaker"
+  count       = var.enable_sagemaker ? 1 : 0
+  environment = var.environment
+
+  vpc_id            = module.network.vpc_id
+  subnet_ids        = module.network.private_subnet_ids
+  security_group_id = module.network.sagemaker_sg_id
+
+  sagemaker_execution_role_arn = module.iam.sagemaker_execution_role_arn
+}

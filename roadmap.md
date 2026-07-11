@@ -768,12 +768,12 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 007 | Migrate `storage` module | merged | [PR #8](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/8) |
 | 008 | Migrate `network` module | merged | [PR #9](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/9) |
 | 009 | Migrate `iam` module | merged | [PR #10](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/10) |
-| 010 | Migrate `etl-lambda` module | in-progress | feat/PR-010-etl-lambda-module |
-| 011 | Migrate `etl-glue` module | todo | — |
-| 012 | Migrate `catalog` + `orchestration`, kill dup EventBridge | todo | — |
-| 013 | Codify Lake Formation | todo | — |
-| 014 | Observability placeholder + SNS | todo | — |
-| 015 | SageMaker optional, delete old TF folder | todo | — |
+| 010 | Migrate `etl-lambda` module | merged | [PR #11](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/11) |
+| 011 | Migrate `etl-glue` module | merged | [PR #12](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/12) |
+| 012 | Migrate `catalog` + `orchestration`, kill dup EventBridge | merged | [PR #13](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/13) |
+| 013 | Codify Lake Formation | merged | [PR #14](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/14) |
+| 014 | Observability placeholder + SNS | merged | [PR #15](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/15) |
+| 015 | SageMaker optional, delete old TF folder | in-progress | feat/PR-015-sagemaker-optional |
 | 016 | `src/` consolidation | todo | — |
 | 017 | Parameterize hard-coded config | todo | — |
 | 018 | Structured JSON logging | todo | — |

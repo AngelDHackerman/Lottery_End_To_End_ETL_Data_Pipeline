@@ -51,6 +51,13 @@ variable "alert_email" {
   default     = ""
 }
 
+# --- lake-formation module (PR-013) ---
+variable "enable_iam_allowed_principals_compat" {
+  description = "Keep the IAMAllowedPrincipals LF database grant (Hybrid access mode compatibility). Disable only after moving to full LF enforcement."
+  type        = bool
+  default     = true
+}
+
 # --- etl-lambda module (PR-010) ---
 variable "lambda_zip_path" {
   description = "Local path to the Lambda deployment zip (relative to terraform/). Pull the deployed artifact here so hashes match state — see docs/runbooks/PR-010-lambda-migration.md. Replaced by built artifacts in PR-019."

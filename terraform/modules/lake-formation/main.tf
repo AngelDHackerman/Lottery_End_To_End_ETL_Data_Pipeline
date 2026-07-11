@@ -1,8 +1,67 @@
 # Module: lake-formation
-# Intent: Lake Formation resource registration + permissions so silver/gold crawlers run without manual console clicks.
+# Codifies the Lake Formation setup that was previously done by hand in the console
+# (see challanges_faced.md §5), so a fresh deploy needs ZERO console clicks before the
+# silver crawlers can run.
 #
-# STATUS: placeholder skeleton (PR-006). No resources yet.
-# Resources are migrated here from terraform-lottery/Prod/ in PR-013 via
-# `terraform state mv` (no resource churn). See roadmap.md for the exact plan.
+# NEW resources (PR-013): nothing here is imported — aws_lakeformation_resource has no
+# import support, and LF grants are additive. Applying over an account that already has
+# the equivalent manual grants is safe; see docs/runbooks/PR-013-lake-formation.md for
+# the one AlreadyExists caveat on the path registration.
 
-# TODO PR-013: move this module's resources in and wire the root caller.
+# Register the silver/ prefix of the partitioned bucket with Lake Formation, using the
+# AWSServiceRoleForLakeFormationDataAccess service-linked role (created on demand).
+resource "aws_lakeformation_resource" "silver" {
+  arn                     = "${var.partitioned_bucket_arn}/silver"
+  use_service_linked_role = true
+}
+
+# Database-level DDL for the crawler role: create/alter/drop/describe tables in the db.
+resource "aws_lakeformation_permissions" "crawler_database" {
+  principal   = var.glue_crawler_role_arn
+  permissions = ["CREATE_TABLE", "ALTER", "DROP", "DESCRIBE"]
+
+  database {
+    name = var.database_name
+  }
+}
+
+# Table-level access for the crawler role on ALL tables in the db. "ALL" (Super) matches
+# the grant that was made manually (challanges_faced.md §5) — a narrower grant here would
+# read back as drift against the live Super grant. Note: SELECT is a table-level (not
+# database-level) permission in LF, which is why the roadmap's "DESCRIBE+SELECT on the
+# database" lands on this wildcard-tables grant.
+resource "aws_lakeformation_permissions" "crawler_all_tables" {
+  principal   = var.glue_crawler_role_arn
+  permissions = ["ALL"]
+
+  table {
+    database_name = var.database_name
+    wildcard      = true
+  }
+}
+
+# S3 data-location access on the registered silver path for the crawler role.
+resource "aws_lakeformation_permissions" "crawler_silver_location" {
+  principal   = var.glue_crawler_role_arn
+  permissions = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = aws_lakeformation_resource.silver.arn
+  }
+}
+
+# IAMAllowedPrincipals compatibility grant. Required while the account runs LF in
+# "Hybrid access mode" (the default here — "Make Lake Formation permissions effective
+# immediately" unchecked), where Glue falls back to IAM-only authorization. Disable
+# (var = false) only after moving the account to full LF enforcement, i.e. once every
+# principal that queries the catalog has explicit LF grants.
+resource "aws_lakeformation_permissions" "iam_allowed_principals_compat" {
+  count = var.enable_iam_allowed_principals_compat ? 1 : 0
+
+  principal   = "IAM_ALLOWED_PRINCIPALS"
+  permissions = ["CREATE_TABLE", "ALTER", "DROP", "DESCRIBE"]
+
+  database {
+    name = var.database_name
+  }
+}

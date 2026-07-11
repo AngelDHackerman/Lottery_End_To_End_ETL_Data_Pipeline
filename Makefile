@@ -31,5 +31,5 @@ fmt: ## Format python + terraform (PR-039)
 tf-plan: ## terraform plan the main stack (PR-039)
 	@echo "TODO(PR-039): cd terraform && terraform plan -out=tfplan"
 
-sagemaker: ## Apply the optional SageMaker module (PR-015/PR-039)
-	@echo "TODO(PR-039): cd terraform && terraform apply -var=enable_sagemaker=true"
+sagemaker: ## Apply the optional SageMaker module (opt-in, see terraform/modules/sagemaker)
+	cd terraform && terraform apply -var=enable_sagemaker=true -target=module.sagemaker
