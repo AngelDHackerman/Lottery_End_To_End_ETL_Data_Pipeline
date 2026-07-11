@@ -44,6 +44,9 @@ module "iam" {
   # PR-010: the lambda name now comes from the etl-lambda module (same value as the
   # old default, so the narrowed InvokeFunction grant is unchanged).
   extractor_lambda_name = module.etl_lambda.extractor_lambda_name
+
+  # PR-011: same story for the glue job name.
+  glue_job_name = module.etl_glue.glue_job_name
 }
 
 # --- PR-010: etl-lambda (extractor function) ---
@@ -64,11 +67,18 @@ module "etl_lambda" {
 }
 
 # --- PR-011: etl-glue (transform job; script_location parameterized) ---
-# module "etl_glue" {
-#   source      = "./modules/etl-glue"
-#   environment = var.environment
-#   # code_bucket, script_key, glue_job_role_arn wired in PR-011.
-# }
+module "etl_glue" {
+  source      = "./modules/etl-glue"
+  environment = var.environment
+
+  code_bucket = module.storage.lambda_code_bucket_name
+  script_key  = "lottery_transformer.zip"
+
+  glue_job_role_arn = module.iam.glue_job_role_arn
+
+  partitioned_bucket_name = module.storage.partitioned_bucket_name
+  simple_bucket_name      = module.storage.simple_bucket_name
+}
 
 # --- PR-012: catalog (Glue DB + silver/gold crawlers) ---
 # module "catalog" {

@@ -1,31 +1,11 @@
-resource "aws_glue_job" "lottery_transform" {
-  name         = "lottery-transform-${var.environment}"
-  role_arn     = "arn:aws:iam::913524903233:role/glue-lottery-transform-role-prod" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
-  glue_version = "3.0"
-  max_capacity = 1 # 1 DPU: enough for this job
-
-  command {
-    name = "pythonshell" # Este es clave: tipo Python Shell
-    # script_location = "s3://${var.s3_code_zip}/${var.script_key}" # ZIP ya subido
-    script_location = "s3://lambda-code-zip-prod/lottery_transformer.zip"
-    python_version  = "3.9"
-  }
-
-  default_arguments = {
-    "--script-file"        = "transformer/transformer.py"
-    "--PARTITIONED_BUCKET" = var.s3_bucket_partitioned_name
-    "--SIMPLE_BUCKET"      = var.s3_bucket_simple_name
-    "--RAW_PREFIX"         = "raw/"
-    "--PROCESSED_PREFIX"   = "processed/"
-    "--job-language"       = "python"
-  }
-
-  execution_property {
-    max_concurrent_runs = 1
-  }
-
-  tags = {
-    Project     = "Loteria-Santa-Lucia"
-    Environment = var.environment
-  }
-}
+# MOVED in PR-011 → terraform/modules/etl-glue/
+#
+# The Glue transform job (aws_glue_job.lottery_transform) was migrated to the etl-glue
+# module via cross-state `terraform state rm` (here) + `terraform import` (into the main
+# stack). The job was NOT recreated. The hard-coded script_location
+# ("s3://lambda-code-zip-prod/lottery_transformer.zip") became
+# "s3://${code_bucket}/${script_key}" in the module (same value in prod).
+# See docs/runbooks/PR-011-glue-migration.md.
+#
+# This file is intentionally left as a pointer; the whole terraform-lottery/Prod/ folder
+# is deleted in PR-015 once every module has migrated.

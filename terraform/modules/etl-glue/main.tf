@@ -1,8 +1,44 @@
 # Module: etl-glue
-# Intent: The Glue transform job (bronze -> silver), with the script location parameterized (no hard-coded S3 path).
+# The Glue transform job (bronze -> silver). Migrated from
+# terraform-lottery/Prod/glue_job.tf in PR-011 via cross-state `terraform state rm`
+# (legacy) + `terraform import` (here) — the job is NOT recreated. See
+# docs/runbooks/PR-011-glue-migration.md.
 #
-# STATUS: placeholder skeleton (PR-006). No resources yet.
-# Resources are migrated here from terraform-lottery/Prod/ in PR-011 via
-# `terraform state mv` (no resource churn). See roadmap.md for the exact plan.
+# PR-011's cleanup: the script location is no longer the hard-coded
+# "s3://lambda-code-zip-prod/lottery_transformer.zip" — it is built from
+# var.code_bucket + var.script_key (same resulting string in prod, so the plan
+# stays a no-op).
+#
+# TODO PR-020: Glue 4.0 / Python 3.10 upgrade spike — bump the `glue_version` /
+# `python_version` defaults, run the job once in prod, keep or revert with evidence.
 
-# TODO PR-011: move this module's resources in and wire the root caller.
+resource "aws_glue_job" "lottery_transform" {
+  name         = "lottery-transform-${var.environment}"
+  role_arn     = var.glue_job_role_arn
+  glue_version = var.glue_version
+  max_capacity = 1 # 1 DPU: enough for this job
+
+  command {
+    name            = "pythonshell"
+    script_location = "s3://${var.code_bucket}/${var.script_key}"
+    python_version  = var.python_version
+  }
+
+  default_arguments = {
+    "--script-file"        = "transformer/transformer.py"
+    "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
+    "--SIMPLE_BUCKET"      = var.simple_bucket_name
+    "--RAW_PREFIX"         = "raw/"
+    "--PROCESSED_PREFIX"   = "processed/"
+    "--job-language"       = "python"
+  }
+
+  execution_property {
+    max_concurrent_runs = 1
+  }
+
+  tags = {
+    Project     = "Loteria-Santa-Lucia"
+    Environment = var.environment
+  }
+}
