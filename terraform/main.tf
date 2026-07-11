@@ -110,10 +110,15 @@ module "orchestration" {
 }
 
 # --- PR-013: lake-formation (permissions so crawlers need no console clicks) ---
-# module "lake_formation" {
-#   source      = "./modules/lake-formation"
-#   environment = var.environment
-# }
+module "lake_formation" {
+  source = "./modules/lake-formation"
+
+  partitioned_bucket_arn = module.storage.partitioned_bucket_arn
+  glue_crawler_role_arn  = module.iam.glue_crawler_role_arn
+  database_name          = module.catalog.db_name
+
+  enable_iam_allowed_principals_compat = var.enable_iam_allowed_principals_compat
+}
 
 # --- PR-014: observability (SNS alerts; dashboards/alarms added PR-024..PR-028) ---
 # module "observability" {

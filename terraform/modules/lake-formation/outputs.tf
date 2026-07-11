@@ -1,2 +1,6 @@
 # Outputs exposed by the "lake-formation" module.
-# TODO PR-013: expose the outputs the root caller / other modules consume.
+
+output "silver_location_arn" {
+  description = "ARN of the silver/ S3 path registered with Lake Formation."
+  value       = aws_lakeformation_resource.silver.arn
+}
