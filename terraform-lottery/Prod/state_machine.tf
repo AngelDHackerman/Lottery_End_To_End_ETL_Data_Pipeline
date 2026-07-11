@@ -1,47 +1,10 @@
-resource "aws_sfn_state_machine" "pipeline_state_machine" {
-  name     = "lottery-etl-pipeline-${var.environment}"
-  role_arn = "arn:aws:iam::913524903233:role/sfn-lottery-execution-role-prod" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
-
-  definition = jsonencode({
-    Comment = "Run ETL pipeline: extractor Lambda → transformer Glue → Glue Crawler",
-    StartAt = "RunExtractorLambda",
-    States = {
-      RunExtractorLambda = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::lambda:invoke",
-        Parameters = {
-          FunctionName = "arn:aws:lambda:${var.aws_region}:${var.aws_account_id}:function:${var.extractor_lambda_name}",
-          Payload      = {}
-        },
-        Next = "RunTransformerGlueJob"
-      },
-
-      RunTransformerGlueJob = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::glue:startJobRun.sync",
-        Parameters = {
-          JobName = var.glue_job_name
-        },
-        Next = "RunPremiosCrawler"
-      },
-
-      RunPremiosCrawler = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::aws-sdk:glue:startCrawler",
-        Parameters = {
-          Name = var.glue_crawler_premios
-        },
-        Next = "RunSorteosCrawler"
-      },
-
-      RunSorteosCrawler = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::aws-sdk:glue:startCrawler",
-        Parameters = {
-          Name = var.glue_crawler_sorteos
-        },
-        End = true
-      }
-    }
-  })
-}
+# MOVED in PR-012 → terraform/modules/orchestration/
+#
+# The state machine (aws_sfn_state_machine.pipeline_state_machine) was migrated to the
+# orchestration module via cross-state `terraform state rm` (here) + `terraform import`
+# (into the main stack). It was NOT recreated; its definition now references the catalog
+# module's crawler outputs (same names). See
+# docs/runbooks/PR-012-catalog-orchestration-migration.md.
+#
+# This file is intentionally left as a pointer; the whole terraform-lottery/Prod/ folder
+# is deleted in PR-015 once every module has migrated.

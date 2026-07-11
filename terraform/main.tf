@@ -47,6 +47,10 @@ module "iam" {
 
   # PR-011: same story for the glue job name.
   glue_job_name = module.etl_glue.glue_job_name
+
+  # PR-012: and for the silver crawler names.
+  glue_crawler_premios_name = module.catalog.premios_silver_crawler_name
+  glue_crawler_sorteos_name = module.catalog.sorteos_silver_crawler_name
 }
 
 # --- PR-010: etl-lambda (extractor function) ---
@@ -80,18 +84,30 @@ module "etl_glue" {
   simple_bucket_name      = module.storage.simple_bucket_name
 }
 
-# --- PR-012: catalog (Glue DB + silver/gold crawlers) ---
-# module "catalog" {
-#   source      = "./modules/catalog"
-#   environment = var.environment
-# }
+# --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---
+module "catalog" {
+  source      = "./modules/catalog"
+  environment = var.environment
+
+  glue_crawler_role_arn = module.iam.glue_crawler_role_arn
+
+  partitioned_bucket_name    = module.storage.partitioned_bucket_name
+  athena_results_bucket_name = module.storage.athena_results_bucket_name
+}
 
 # --- PR-012: orchestration (Step Functions + single weekly EventBridge trigger) ---
-# module "orchestration" {
-#   source      = "./modules/orchestration"
-#   environment = var.environment
-#   # references catalog crawler names + etl module outputs, wired in PR-012.
-# }
+module "orchestration" {
+  source      = "./modules/orchestration"
+  environment = var.environment
+
+  sfn_execution_role_arn      = module.iam.sfn_execution_role_arn
+  eventbridge_to_sfn_role_arn = module.iam.eventbridge_to_sfn_role_arn
+
+  extractor_lambda_arn = module.etl_lambda.extractor_lambda_arn
+  glue_job_name        = module.etl_glue.glue_job_name
+  premios_crawler_name = module.catalog.premios_silver_crawler_name
+  sorteos_crawler_name = module.catalog.sorteos_silver_crawler_name
+}
 
 # --- PR-013: lake-formation (permissions so crawlers need no console clicks) ---
 # module "lake_formation" {

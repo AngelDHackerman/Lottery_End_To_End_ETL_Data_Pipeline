@@ -769,8 +769,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 008 | Migrate `network` module | merged | [PR #9](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/9) |
 | 009 | Migrate `iam` module | merged | [PR #10](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/10) |
 | 010 | Migrate `etl-lambda` module | merged | [PR #11](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/11) |
-| 011 | Migrate `etl-glue` module | in-progress | feat/PR-011-etl-glue-module |
-| 012 | Migrate `catalog` + `orchestration`, kill dup EventBridge | todo | — |
+| 011 | Migrate `etl-glue` module | merged | [PR #12](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/12) |
+| 012 | Migrate `catalog` + `orchestration`, kill dup EventBridge | in-progress | feat/PR-012-catalog-orchestration |
 | 013 | Codify Lake Formation | todo | — |
 | 014 | Observability placeholder + SNS | todo | — |
 | 015 | SageMaker optional, delete old TF folder | todo | — |

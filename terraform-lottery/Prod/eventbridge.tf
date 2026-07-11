@@ -1,12 +1,11 @@
-resource "aws_cloudwatch_event_rule" "weekly_etl_trigger" {
-  name                = "lottery-etl-weekly-trigger-${var.environment}"
-  schedule_expression = "cron(0 18 ? * MON *)" # Todos los lunes a las 12:00 PM Guatemala
-  description         = "Trigger the lottery ETL Step Function every Monday at 12:00 PM GMT-6"
-}
-
-resource "aws_cloudwatch_event_target" "trigger_step_function" {
-  rule      = aws_cloudwatch_event_rule.weekly_etl_trigger.name
-  target_id = "StepFunctionLotteryETL"
-  arn       = aws_sfn_state_machine.pipeline_state_machine.arn
-  role_arn  = "arn:aws:iam::913524903233:role/eventbridge-to-sfn-role-prod" # PR-009: role moved to terraform/modules/iam (literal ARN, same value)
-}
+# MOVED in PR-012 → terraform/modules/orchestration/
+#
+# The weekly trigger (aws_cloudwatch_event_rule.weekly_etl_trigger, Mon 18:00 UTC) and
+# its target (aws_cloudwatch_event_target.trigger_step_function) were migrated to the
+# orchestration module via cross-state `terraform state rm` (here) + `terraform import`
+# (into the main stack). This is the rule that was KEPT; the duplicate Saturday rule
+# (cloudwatch_event_rule.tf / cloudwatch_event_target.tf) is destroyed.
+# See docs/runbooks/PR-012-catalog-orchestration-migration.md.
+#
+# This file is intentionally left as a pointer; the whole terraform-lottery/Prod/ folder
+# is deleted in PR-015 once every module has migrated.
