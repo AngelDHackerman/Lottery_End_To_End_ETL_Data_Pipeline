@@ -128,8 +128,14 @@ module "observability" {
 }
 
 # --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---
-# module "sagemaker" {
-#   source      = "./modules/sagemaker"
-#   count       = var.enable_sagemaker ? 1 : 0
-#   environment = var.environment
-# }
+module "sagemaker" {
+  source      = "./modules/sagemaker"
+  count       = var.enable_sagemaker ? 1 : 0
+  environment = var.environment
+
+  vpc_id            = module.network.vpc_id
+  subnet_ids        = module.network.private_subnet_ids
+  security_group_id = module.network.sagemaker_sg_id
+
+  sagemaker_execution_role_arn = module.iam.sagemaker_execution_role_arn
+}
