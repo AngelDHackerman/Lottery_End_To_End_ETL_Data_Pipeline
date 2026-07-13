@@ -25,14 +25,20 @@ resource "aws_lakeformation_permissions" "crawler_database" {
   }
 }
 
-# Table-level access for the crawler role on ALL tables in the db. "ALL" (Super) matches
-# the grant that was made manually (challanges_faced.md §5) — a narrower grant here would
-# read back as drift against the live Super grant. Note: SELECT is a table-level (not
-# database-level) permission in LF, which is why the roadmap's "DESCRIBE+SELECT on the
-# database" lands on this wildcard-tables grant.
+# Table-level access for the crawler role on every table in the db.
+#
+# Do NOT write `permissions = ["ALL"]` here. Lake Formation expands "ALL" (Super)
+# server-side into the six permissions below and reads them back expanded, so a config
+# saying ["ALL"] never matches its own read-back — Terraform then wants to REPLACE this
+# grant on every plan, forever (revoking + re-granting the crawler's access each apply).
+# Enumerating the same six permissions is equivalent and reads back cleanly.
+#
+# No `permissions_with_grant_option`: a grant option lets the principal re-grant a
+# permission to OTHER principals. A crawler only reads S3 and writes table metadata — it
+# never delegates — so grant options here would be privilege with no use case.
 resource "aws_lakeformation_permissions" "crawler_all_tables" {
   principal   = var.glue_crawler_role_arn
-  permissions = ["ALL"]
+  permissions = ["ALTER", "DELETE", "DESCRIBE", "DROP", "INSERT", "SELECT"]
 
   table {
     database_name = var.database_name
