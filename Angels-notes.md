@@ -119,3 +119,38 @@ This is the biggest migration so far. PR-009 moved 26 resources (6 roles + 8 pol
 Also, in the legacy code there were 2 user names hardcoded, it was a "temporary" solution but got stuck in here until now. They were removed and now the values for those users were removed because they are no longer needed. 
 
 Smoke test was done, using AWS CLI the SFN (Step Function) was started and I got the "SUCCEEDED" messag, meaning that I have the access from the new IAM module. 
+
+
+## PR-010, 011, 012, 013, 014, 015 - Done, LakeFormation "The Elephant in the room" 
+
+Everytyhing went ok from PR 10 to 15 except for one little thing the __PR-013__ "LakeFormation migration".
+The main problemas that almost 2 years ago since I'm writting this note I wasn't able to understand how to code with terraform the LK access that allowed the __glue crawlers__ to write and read form the S3 buckets where the data is storage, also, how to make athena read from those buckets and use partion projections instead of crawlers to read that important data. 
+
+So I went in the "easy mode" and I gave "full access" to the __glue-crawler-role__ that write the data in the buckets doing 2 things: 
+   - Ignoring the "least previlige" rule
+   - "Hardcoding" manually the needed access to allow the crawlers to write the data in the S3 buckets. 
+
+Because lakeformation can work with "granular access" provided by LF or with "IAM access" that also allows LF access I wasn't sure how that worked at the time so I did with the own LF granular access. 
+Now because the project is moving to a "Deploy and Replicate" mode, I have changed this to: 
+
+- The access to the crawlers are still given via __"LF granular permissions"__ and now it is codable and can be replicated with terraform using __LF grants__.
+- __Least privilege is real now:__ I removed the grant options (the right to re-grant permissions to others — a crawler never delegates) and the Super grant on the database (now just ALTER, CREATE_TABLE, DESCRIBE, DROP).
+- I also had to stop writing permissions = ["ALL"]. LF expands Super server-side, so Terraform could never match its own read-back and wanted to replace the grant on every plan — revoking + re-granting the crawler's access each apply. Enumerating the six permissions is equivalent and stable.
+- Smoke test was done and crawlers are running with no issues at all.
+
+
+## Phase 1 is done!
+
+Starting from a repo whose Terraform state had been lost and reconstructed, you now have:
+
+One root (terraform/) with 10 modules — storage, network, iam, etl-lambda, etl-glue, catalog, orchestration, lake-formation, observability, and opt-in sagemaker.
+Every resource under IaC, migrated without recreating a single one (all cross-state import + state rm).
+Least-privilege IAM and Lake Formation, both proven by a green end-to-end pipeline run rather than assumed.
+One weekly trigger instead of two — the pipeline was quietly running twice a week.
+No console clicks required for a fresh deploy.-
+
+---
+
+## PR- Single source of truth: src/ layout
+
+The legacy code was messy, splited between different directory files. Code was working just fine but it needed a better structure. Now all the code for the labmdas, extractor, parser and so on lives in one single "source of truth" that is `src/loteria` directory
