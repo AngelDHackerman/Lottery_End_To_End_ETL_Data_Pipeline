@@ -29,8 +29,10 @@ dev = [
 ]
 
 [tool.uv]
-# Not a buildable/installable package yet — the src/loteria layout lands in PR-016.
-# Until then treat this as a workspace/dependency manifest only.
+# PR-016 landed the src/loteria layout, but the deployment artifacts are zips built by
+# scripts/build_{lambda,glue}_package.sh (which copy src/loteria into the zip root) — the
+# package is never pip-installed into Lambda or Glue. So there is still nothing to build:
+# this stays a dependency manifest, and tests import `loteria` via tool.pytest pythonpath.
 package = false
 # Dev dependencies are declared via the PEP 621 optional-dependencies "dev" group above.
 # Install with: uv sync --extra dev
@@ -38,9 +40,13 @@ package = false
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["loteria"]
 
 [tool.black]
 line-length = 100
@@ -52,3 +58,5 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The package is not installed (see [tool.uv] above), so put src/ on sys.path for tests.
+pythonpath = ["src"]

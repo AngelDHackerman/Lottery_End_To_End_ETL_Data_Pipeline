@@ -11,7 +11,13 @@ See `docs/runbooks/PR-010-lambda-migration.md` for the exact commands.
 The function's environment variables now carry bucket **names** (not ARNs) plus
 `LOTERIA_SECRET_NAME`. This shows up as one in-place update on first apply. It is safe:
 the extractor code currently reads all its config from Secrets Manager
-(`lambda/extractor/aws_secrets.py`); PR-017 switches the code to consume these env vars.
+(`src/loteria/common/aws_secrets.py`); PR-017 switches the code to consume these env vars.
+
+**PR-016:** the deployment zip now carries the `loteria` package at its root, so
+`handler` is `loteria.extractor.lambda_handler.lambda_handler` (was
+`extractor.lambda_handler.lambda_handler`). Rebuild the zip with
+`scripts/build_lambda_package.sh` **before** applying — see
+`docs/runbooks/PR-016-src-consolidation.md`.
 
 ## Inputs / outputs
 

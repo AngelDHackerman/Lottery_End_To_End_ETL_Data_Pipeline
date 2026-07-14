@@ -20,21 +20,21 @@ import re
 import pandas as pd
 from awsglue.utils import getResolvedOptions
 
-from parser.parser import (
+from loteria.parser.parser import (
     split_header_body,
     process_header,
     process_body,
     split_vendido_por_column,
 )
 
-from extractor.s3_utils import (
+from loteria.common.s3_utils import (
     list_files_in_s3,
     list_processed_sorteos_in_partitioned_bucket,
     download_file_from_s3,
     upload_file_to_s3,
 )
 
-from extractor.aws_secrets import get_secrets
+from loteria.common.aws_secrets import get_secrets
 
 
 # -----------------------

@@ -6,8 +6,8 @@ import urllib.parse
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 
-from extractor.aws_secrets import get_secrets
-from extractor.s3_utils import upload_to_s3, check_if_sorteo_exists
+from loteria.common.aws_secrets import get_secrets
+from loteria.common.s3_utils import upload_to_s3, check_if_sorteo_exists
 
 # -----------------------
 # Config 

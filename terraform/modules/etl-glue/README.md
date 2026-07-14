@@ -13,6 +13,20 @@ The module builds it as `s3://${code_bucket}/${script_key}` — in prod that res
 exact same string, so the migration plan is a no-op, but the module is now portable to any
 account/bucket.
 
+## PR-016: script path inside the zip
+
+The job zip now carries the `loteria` package at its root, so `--script-file` is
+`loteria/transformer/transformer.py` (was `transformer/transformer.py`). Terraform does
+**not** manage the `lottery_transformer.zip` S3 object, so it must be rebuilt and uploaded
+by hand *before* applying:
+
+```bash
+bash scripts/build_glue_package.sh
+aws s3 cp dist/lottery_transformer.zip s3://lambda-code-zip-prod/lottery_transformer.zip
+```
+
+See `docs/runbooks/PR-016-src-consolidation.md`.
+
 ## Inputs / outputs
 
 - Inputs: `code_bucket`, `script_key` (default `lottery_transformer.zip`),

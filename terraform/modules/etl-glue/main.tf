@@ -25,7 +25,10 @@ resource "aws_glue_job" "lottery_transform" {
   }
 
   default_arguments = {
-    "--script-file"        = "transformer/transformer.py"
+    # PR-016: the zip now carries the `loteria` package at its root, so the script path
+    # gains the package prefix. Rebuild + upload lottery_transformer.zip
+    # (scripts/build_glue_package.sh) BEFORE applying — see the PR-016 runbook.
+    "--script-file"        = "loteria/transformer/transformer.py"
     "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
     "--SIMPLE_BUCKET"      = var.simple_bucket_name
     "--RAW_PREFIX"         = "raw/"
