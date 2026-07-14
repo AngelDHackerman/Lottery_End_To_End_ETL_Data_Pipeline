@@ -1,4 +1,5 @@
-from extractor.scraping import extract_lottery_data
+from loteria.extractor.scraping import extract_lottery_data
+
 
 def lambda_handler(event, context):
     lottery_number = event.get("lottery_number")  # None -> scrape último

@@ -106,7 +106,7 @@ Each stage will eventually run inside its own **AWS Lambda** function, but you c
 | Item | Details |
 |------|---------|
 | **Tool** | Selenium + Python |
-| **Script** | [`modules/ETL/extract.py`](modules/ETL/extract.py) |
+| **Script** | [`src/loteria/extractor/scraping.py`](src/loteria/extractor/scraping.py) |
 | **Flow** | 1. Open awards page → dismiss pop-up<br>2. Choose ID (or latest) → click link<br>3. Parse header/body, infer real draw number & date<br>4. Write `results_raw_lottery_id_<ID>_<title>.txt`<br>5. Upload to both buckets (simple & partitioned) |
 | **Idempotence** | Before scraping, the script checks `processed/year=<YYYY>/sorteo=<N>/sorteos.parquet`; if it exists, the draw is skipped. |
 
@@ -117,7 +117,7 @@ Each stage will eventually run inside its own **AWS Lambda** function, but you c
 | Item | Details |
 |------|---------|
 | **Tool** | Pandas, PyArrow, Boto3 |
-| **Script** | [`modules/ETL/transformer.py`](modules/ETL/transformer.py) |
+| **Script** | [`src/loteria/transformer/transformer.py`](src/loteria/transformer/transformer.py) |
 | **Flow** | 1. List raw `.txt` files in partitioned bucket<br>2. Skip draws already processed<br>3. Download → split HEADER/BODY<br>4. Create two DataFrames:<br>   • **sorteos** (metadata + prize digits)<br>   • **premios** (ticket, letters, amount, vendor, city, depto.)<br>5. Write Parquet to **simple bucket** (`premios_<N>.parquet`, `sorteos_<N>.parquet`)<br>6. Write partitioned Parquet (`processed/premios/`, `processed/sorteos/`) to **partitioned bucket** |
 | **Data model** | Columns are strongly typed; extra columns (`year`, `sorteo`) are added before partition write. |
 

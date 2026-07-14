@@ -25,7 +25,11 @@ resource "aws_glue_job" "lottery_transform" {
   }
 
   default_arguments = {
-    "--script-file"        = "transformer/transformer.py"
+    # NOTE: "--script-file" is inert — Glue never reads it. The job artifact is a zip, and
+    # Glue runs it as `python lottery_transformer.zip` (a zipapp), so the real entry point
+    # is the __main__.py at the ZIP ROOT, which build_glue_package.sh puts there. Kept
+    # only as documentation of where the job's code lives; changing it has no effect.
+    "--script-file"        = "loteria/transformer/transformer.py"
     "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
     "--SIMPLE_BUCKET"      = var.simple_bucket_name
     "--RAW_PREFIX"         = "raw/"

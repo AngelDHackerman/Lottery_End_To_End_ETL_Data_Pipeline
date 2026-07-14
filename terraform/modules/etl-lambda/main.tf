@@ -25,11 +25,15 @@ resource "aws_lambda_function" "extractor_lambda" {
   s3_bucket        = var.lambda_code_bucket
   s3_key           = aws_s3_object.lambda_package.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
-  handler          = "extractor.lambda_handler.lambda_handler"
-  runtime          = "python3.12"
-  timeout          = 120
-  memory_size      = 1024
-  role             = var.lambda_exec_role_arn
+
+  # PR-016: the zip now carries the `loteria` package at its root (was a bare
+  # `extractor/`), so the handler path gains the package prefix. Rebuild + upload the
+  # zip (scripts/build_lambda_package.sh) BEFORE applying — see the PR-016 runbook.
+  handler     = "loteria.extractor.lambda_handler.lambda_handler"
+  runtime     = "python3.12"
+  timeout     = 120
+  memory_size = 1024
+  role        = var.lambda_exec_role_arn
 
   environment {
     variables = {

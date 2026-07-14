@@ -1,3 +1,0 @@
-selenium==4.5.0
-pandas==1.4.0
-pymysql==1.0.2
