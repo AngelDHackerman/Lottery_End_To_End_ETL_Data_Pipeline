@@ -26,12 +26,17 @@ rm -rf "$BUILD_DIR" "$OUT_ZIP"
 mkdir -p "$BUILD_DIR" "$(dirname "$OUT_ZIP")"
 
 cp -r src/loteria "$BUILD_DIR/loteria"
+
+# Glue runs the artifact as `python lottery_transformer.zip`, i.e. as a zipapp, so Python
+# needs a __main__.py at the zip ROOT. (`--script-file` does not select the entry point.)
+cp scripts/glue_zip_main.py "$BUILD_DIR/__main__.py"
+
 find "$BUILD_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 (cd "$BUILD_DIR" && python3 "$REPO_ROOT/scripts/_zipdir.py" "$OUT_ZIP")
 
 echo "✅  lottery_transformer.zip ready -> $OUT_ZIP"
-echo "    --script-file: loteria/transformer/transformer.py"
+echo "    entry point: __main__.py at the zip root -> loteria.transformer.transformer:main"
 echo
 echo "    Upload it (Terraform does not manage this object):"
 echo "      aws s3 cp $OUT_ZIP s3://${CODE_BUCKET}/lottery_transformer.zip"
