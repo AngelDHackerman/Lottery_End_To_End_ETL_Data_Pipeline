@@ -151,6 +151,7 @@ No console clicks required for a fresh deploy.-
 
 ---
 
-## PR- Single source of truth: src/ layout
+## PR-16 Single source of truth: src/ layout
 
 The legacy code was messy, splited between different directory files. Code was working just fine but it needed a better structure. Now all the code for the labmdas, extractor, parser and so on lives in one single "source of truth" that is `src/loteria` directory
+
