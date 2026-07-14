@@ -14,28 +14,26 @@ Important:
 - Partitions (year, sorteo) must be added BEFORE writing Parquet.
 """
 
-import sys
 import os
 import re
+import sys
+
 import pandas as pd
 from awsglue.utils import getResolvedOptions
 
-from loteria.parser.parser import (
-    split_header_body,
-    process_header,
-    process_body,
-    split_vendido_por_column,
-)
-
+from loteria.common.aws_secrets import get_secrets
 from loteria.common.s3_utils import (
+    download_file_from_s3,
     list_files_in_s3,
     list_processed_sorteos_in_partitioned_bucket,
-    download_file_from_s3,
     upload_file_to_s3,
 )
-
-from loteria.common.aws_secrets import get_secrets
-
+from loteria.parser.parser import (
+    process_body,
+    process_header,
+    split_header_body,
+    split_vendido_por_column,
+)
 
 # -----------------------
 # Config
@@ -110,7 +108,7 @@ def transform(
         local_path = f"/tmp/{os.path.basename(raw_file)}"
         download_file_from_s3(bucket_name, raw_file, local_path)
 
-        with open(local_path, "r", encoding="utf-8") as f:
+        with open(local_path, encoding="utf-8") as f:
             file_content = f.read()
 
         header_lines, body_lines = split_header_body(file_content.splitlines())
@@ -139,7 +137,15 @@ def transform(
 
         # Keep only the columns you want in Silver
         premios_df = premios_df[
-            ["numero_sorteo", "numero_premiado", "letras", "monto", "vendedor", "ciudad", "departamento"]
+            [
+                "numero_sorteo",
+                "numero_premiado",
+                "letras",
+                "monto",
+                "vendedor",
+                "ciudad",
+                "departamento",
+            ]
         ]
 
         # -----------------------
@@ -148,7 +154,7 @@ def transform(
         premios_df.replace({"N/A": None, "n/a": None, "": None}, inplace=True)
 
         premios_df["numero_sorteo"] = _to_int64(premios_df["numero_sorteo"], default=0)  # int64
-        premios_df["numero_premiado"] = _to_int64(premios_df["numero_premiado"])         # nullable Int64
+        premios_df["numero_premiado"] = _to_int64(premios_df["numero_premiado"])  # nullable Int64
         premios_df["monto"] = _to_float64(premios_df["monto"], default=0.0)
 
         premios_df["letras"] = _to_string(premios_df["letras"])
@@ -205,7 +211,9 @@ def transform(
 
         # Derive partition year safely
         if sorteos_df["fecha_sorteo"].isna().all():
-            raise ValueError(f"Invalid fecha_sorteo for sorteo={numero_sorteo}. Cannot derive year partition.")
+            raise ValueError(
+                f"Invalid fecha_sorteo for sorteo={numero_sorteo}. Cannot derive year partition."
+            )
 
         year = int(sorteos_df["fecha_sorteo"].dt.year.iloc[0])
 
