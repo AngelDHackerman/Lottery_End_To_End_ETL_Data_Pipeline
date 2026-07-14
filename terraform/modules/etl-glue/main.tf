@@ -35,6 +35,12 @@ resource "aws_glue_job" "lottery_transform" {
     "--RAW_PREFIX"         = "raw/"
     "--PROCESSED_PREFIX"   = "processed/"
     "--job-language"       = "python"
+    # PR-017: pass the secret name so the code isn't pinned to a hard-coded default.
+    # Glue delivers job arguments on the command line (sys.argv), NOT as env vars, so the
+    # zipapp entry point (scripts/glue_zip_main.py) copies this into os.environ as
+    # LOTERIA_SECRET_NAME before importing the transformer, which is where
+    # loteria.common.aws_secrets.get_secrets() reads it.
+    "--LOTERIA_SECRET_NAME" = var.secret_name
   }
 
   execution_property {

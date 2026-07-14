@@ -6,9 +6,10 @@
 #
 # PR-010 also changes the function's environment on purpose (an in-place update, not a
 # no-op): the PARTITIONED_BUCKET / SIMPLE_BUCKET values switch from bucket ARNs to bucket
-# NAMES, and LOTERIA_SECRET_NAME is added. Safe today because the extractor code reads
-# its config from Secrets Manager, not from these env vars; PR-017 switches the code to
-# consume them.
+# NAMES, and LOTERIA_SECRET_NAME is added. As of PR-017 the extractor code consumes
+# LOTERIA_SECRET_NAME (via loteria.common.aws_secrets.get_secrets()) to locate the
+# Secrets Manager secret; the region comes from AWS_REGION, which the Lambda runtime
+# sets automatically.
 
 # The deployment artifact, uploaded from a local zip. The owner keeps the local file in
 # sync with the deployed object (see runbook) so `etag` / `source_code_hash` match state.
@@ -37,8 +38,9 @@ resource "aws_lambda_function" "extractor_lambda" {
 
   environment {
     variables = {
-      # PR-010: bucket NAMES (not ARNs) + the secret name. The code reads config from
-      # Secrets Manager until PR-017 teaches it to prefer these.
+      # PR-010: bucket NAMES (not ARNs) + the secret name (LOTERIA_SECRET_NAME, which
+      # the code reads as of PR-017). REGION is retained for reference; get_secrets()
+      # reads the region from AWS_REGION, which the Lambda runtime sets automatically.
       PARTITIONED_BUCKET  = var.partitioned_bucket_name
       SIMPLE_BUCKET       = var.simple_bucket_name
       REGION              = var.region

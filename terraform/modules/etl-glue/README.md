@@ -27,10 +27,20 @@ aws s3 cp dist/lottery_transformer.zip s3://lambda-code-zip-prod/lottery_transfo
 
 See `docs/runbooks/PR-016-src-consolidation.md`.
 
+## PR-017: parameterized secret name
+
+The job now receives the Secrets Manager secret name as the `--LOTERIA_SECRET_NAME`
+argument (from the `secret_name` input). Glue delivers job arguments on the command line,
+not as env vars, so the zipapp entry point (`scripts/glue_zip_main.py`) copies it into
+`os.environ` before importing the transformer — that's where
+`loteria.common.aws_secrets.get_secrets()` reads it. Cloning into a new account only needs
+the secret name changed in one place (root `var.lottery_secret_name`). Rebuild + reupload
+the zip after this change.
+
 ## Inputs / outputs
 
 - Inputs: `code_bucket`, `script_key` (default `lottery_transformer.zip`),
-  `partitioned_bucket_name`, `simple_bucket_name`, `glue_job_role_arn`,
+  `partitioned_bucket_name`, `simple_bucket_name`, `glue_job_role_arn`, `secret_name`,
   `glue_version` (default `"3.0"`), `python_version` (default `"3.9"`), `environment`.
 - Outputs: `glue_job_name`, `glue_job_arn`.
 
