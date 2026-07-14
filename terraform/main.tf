@@ -82,6 +82,7 @@ module "etl_glue" {
 
   partitioned_bucket_name = module.storage.partitioned_bucket_name
   simple_bucket_name      = module.storage.simple_bucket_name
+  secret_name             = var.lottery_secret_name
 }
 
 # --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---

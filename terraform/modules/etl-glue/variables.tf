@@ -23,6 +23,12 @@ variable "glue_job_role_arn" {
   type        = string
 }
 
+# --- Secrets Manager ---
+variable "secret_name" {
+  description = "Name of the lottery secret in Secrets Manager, passed to the job as the LOTERIA_SECRET_NAME argument (which the code reads as an env var)."
+  type        = string
+}
+
 # --- Job arguments ---
 variable "partitioned_bucket_name" {
   description = "Name of the partitioned (raw/silver/gold) data bucket."
