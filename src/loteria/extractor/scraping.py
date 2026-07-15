@@ -13,7 +13,10 @@ from loteria.common.s3_utils import check_if_sorteo_exists, upload_to_s3
 # -----------------------
 # Config
 # -----------------------
-logging.basicConfig(level=logging.INFO)
+# NOTE: no logging.basicConfig here — the JSON root handler is installed by
+# configure_logging() from the entry point (lambda_handler). This module just logs to a
+# named logger and lets records propagate.
+logger = logging.getLogger(__name__)
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
 simple_bucket = buckets["simple"]
@@ -31,7 +34,7 @@ def fetch_via_proxy(target_url: str) -> requests.Response:
     )
 
     resp = requests.get(proxy_url, timeout=25)
-    logging.info(
+    logger.info(
         "[PROXY] %s -> HTTP %s | Preview: %.300s",
         target_url,
         resp.status_code,
@@ -51,10 +54,10 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):
 
     # 2. Get the link of the "sorteo" (lastest one, or one in specific)
     if lottery_number:
-        logging.info(f"🎯 Extracting data for lottery ID: {lottery_number}")
+        logger.info(f"🎯 Extracting data for lottery ID: {lottery_number}")
         sorteo_link = soup.find("a", href=lambda href: href and f"id={lottery_number}" in href)
     else:
-        logging.info("🎯 Extracting data for the latest lottery.")
+        logger.info("🎯 Extracting data for the latest lottery.")
         sorteo_link = soup.select_one(
             "div.container a[href*='id=']"
         )  # first sorteo available, this is the best locator I could find
@@ -105,14 +108,14 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):
         fecha_sorteo_text = fecha_match.group(1)
         try:
             year = int(fecha_sorteo_text.split("/")[-1])
-        except:
+        except (ValueError, IndexError):
             year = "unknown"
     else:
         year = "unknown"
 
     # Verificar si ya fue procesado
     if check_if_sorteo_exists(partitioned_bucket, year, numero_sorteo_real):
-        logging.warning(
+        logger.warning(
             f"⚠️ Sorteo {numero_sorteo_real} has already been processed. Canceling extraction."
         )
         return None
@@ -140,7 +143,7 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):
             file.write("CENTENARES\n")
         file.write(body_results)
 
-    logging.info(f"💾 Data extracted and saved to: {output_path}")
+    logger.info(f"💾 Data extracted and saved to: {output_path}")
 
     # 7. Dual upload to S3
     # Hive-style path
@@ -151,5 +154,5 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):
     s3_key_simple = f"raw/sorteo_{numero_sorteo_real}.txt"
     upload_to_s3(output_path, simple_bucket, s3_key_simple)
 
-    logging.info(f"✅ Sorteo {numero_sorteo_real} subido a ambos buckets.")
+    logger.info(f"✅ Sorteo {numero_sorteo_real} subido a ambos buckets.")
     return output_path

@@ -24,7 +24,11 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Resource = "arn:aws:states:::lambda:invoke",
         Parameters = {
           FunctionName = var.extractor_lambda_arn,
-          Payload      = {}
+          # PR-018: pass the execution name as CORRELATION_ID so every Lambda + Glue log
+          # line in this run shares one id. The Lambda handler reads it from the payload.
+          Payload = {
+            "CORRELATION_ID.$" = "$$.Execution.Name"
+          }
         },
         Next = "RunTransformerGlueJob"
       },
@@ -33,7 +37,13 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Type     = "Task",
         Resource = "arn:aws:states:::glue:startJobRun.sync",
         Parameters = {
-          JobName = var.glue_job_name
+          JobName = var.glue_job_name,
+          # PR-018: same correlation id, delivered as a Glue job argument. The zipapp
+          # entry point (scripts/glue_zip_main.py) bridges --CORRELATION_ID into the
+          # environment, where configure_logging() reads it.
+          Arguments = {
+            "--CORRELATION_ID.$" = "$$.Execution.Name"
+          }
         },
         Next = "RunPremiosCrawler"
       },

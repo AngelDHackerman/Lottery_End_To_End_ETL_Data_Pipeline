@@ -542,14 +542,18 @@ Add aws_cloudwatch_metric_alarm resources, each notifying SNS topic from PR-014:
 3. Lambda_Errors: AWS/Lambda Errors > 0 over 5 min for the extractor
 4. Glue_JobFailed: AWS/Glue Job.failure > 0
 5. Crawler_Failed: AWS/Glue glue.driver.aggregate.numFailedTasks > 0 on each silver/gold crawler
+6. ScrapeDo_Failed: alarm on the "ScraperHttpStatus" custom metric from PR-026 when any non-200 StatusCode is emitted (esp. 401/402/429 — auth/quota/rate-limit). scrape.do is a third-party proxy on the FREE TIER; if the free plan ends or the quota is hit, the weekly run breaks. Today this only surfaces indirectly (fetch_via_proxy raises on non-200 → Lambda_Errors + SFN_ExecutionFailed fire), so this dedicated alarm names the real cause instead of a generic Lambda error. Depends on PR-026's metric — if ordering, land PR-026 first.
 ```
 
 ## PR-026 — Scraper response-code custom metric
 **Prompt:**
 ```
 In src/loteria/extractor/scraping.py, after each fetch_via_proxy call, emit a CloudWatch custom metric "ScraperHttpStatus" with dimension StatusCode=<code>. Use boto3 cloudwatch.put_metric_data with a 1-count value.
+Emit the status BEFORE raising on non-200, so a failed proxy call (401/402/429 etc.) still produces a metric data point to alarm on.
 Update the dashboard from PR-024 to include this metric.
 Update IAM in etl-lambda module to allow cloudwatch:PutMetricData.
+
+NOTE: this metric is what PR-025's ScrapeDo_Failed alarm watches. Rationale: scrape.do is a third-party proxy used on the FREE TIER — there is no guarantee how long it stays free. When the free plan lapses or the quota is exceeded, the proxy returns auth/quota/rate-limit codes (401/402/429) and the weekly scrape silently degrades to "Lambda error." A scrape.do-specific alarm gives an early, unambiguous heads-up (e.g. "start paying / swap proxy") instead of a generic failure.
 ```
 
 ## PR-027 — (Optional) S3 object-count emitter
@@ -775,8 +779,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 014 | Observability placeholder + SNS | merged | [PR #15](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/15) |
 | 015 | SageMaker optional, delete old TF folder | merged | [PR #16](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/16) |
 | 016 | `src/` consolidation | merged | [PR #18](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/18) |
-| 017 | Parameterize hard-coded config | in-progress | — |
-| 018 | Structured JSON logging | todo | — |
+| 017 | Parameterize hard-coded config | merged | [PR #19](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/19) |
+| 018 | Structured JSON logging | in-progress | — |
 | 019 | Lambda Layer for deps | todo | — |
 | 020 | Glue 4.0 / Py 3.10 upgrade spike | todo | — |
 | 021 | Gold SQL files | todo | — |

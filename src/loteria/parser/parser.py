@@ -1,4 +1,7 @@
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 
 def split_header_body(content_lines):
@@ -16,9 +19,8 @@ def split_header_body(content_lines):
         header_start = content_cleaned.index("HEADER")
         body_start = content_cleaned.index("BODY")
     except ValueError:
-        print("Content does not contain 'HEADER' or 'BODY'. Debugging content:")
-        # print(content_cleaned)  # Imprime el contenido para depuración
-        raise ValueError("The file does not contain expected HEADER or BODY sections.")
+        logger.error("Content does not contain 'HEADER' or 'BODY' sections")
+        raise ValueError("The file does not contain expected HEADER or BODY sections.") from None
 
     header = content_cleaned[
         header_start + 1 : body_start
@@ -49,7 +51,7 @@ def process_header(header):
         primer_premio, segundo_premio, tercer_premio = premios.groups()
         reintegros = re.search(r"REINTEGROS ([\d, ]+)", " ".join(header)).group(1).replace(" ", "")
     except AttributeError as e:
-        print("An error occurred while processing the HEADER.")
+        logger.error("An error occurred while processing the HEADER")
         raise ValueError("The HEADER does not contain the expected format.") from e
 
     return {
@@ -75,13 +77,13 @@ def process_body(body):
     premios_data = []
     last_premio_index = None  # Índice del último premio procesado
 
-    print("Processing BODY:")  # Que hace este codigo?
+    logger.debug("Processing BODY section")
     for line in body:
         line = line.strip()
         if not line:
             continue
 
-        print(f"Processing line: {line}")
+        logger.debug("Processing line", extra={"line": line})
 
         # Intentar coincidir con una línea de premio
         match = re.match(r"(\d+)\s+(\w+)\s+\.+\s+([\d,]+\.?\d*)", line)
@@ -118,9 +120,9 @@ def process_body(body):
 
         else:
             # Ignorar las líneas que no coinciden (para depuración)
-            print(f"Ignored line: {line}")
+            logger.debug("Ignored line", extra={"line": line})
 
-    print(f"Premios processed: {len(premios_data)}")
+    logger.info("Premios processed", extra={"premios_count": len(premios_data)})
     return premios_data
 
 

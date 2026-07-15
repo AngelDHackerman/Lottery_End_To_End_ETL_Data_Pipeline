@@ -1,13 +1,16 @@
+import logging
 import re
 
 import boto3
 from botocore.exceptions import ClientError
 
+logger = logging.getLogger(__name__)
+
 
 def upload_to_s3(local_file_path, s3_bucket, s3_key):
     s3 = boto3.client("s3")
     s3.upload_file(local_file_path, s3_bucket, s3_key)
-    print(f"📤 File uploaded to S3: s3://{s3_bucket}/{s3_key}")
+    logger.info("File uploaded to S3", extra={"s3_uri": f"s3://{s3_bucket}/{s3_key}"})
 
 
 def check_if_sorteo_exists(s3_bucket, year, sorteo_number):
@@ -15,7 +18,7 @@ def check_if_sorteo_exists(s3_bucket, year, sorteo_number):
     key = f"processed/year={year}/sorteo={sorteo_number}/sorteos.parquet"
     try:
         s3.head_object(Bucket=s3_bucket, Key=key)
-        print(f"🔁 Sorteo {sorteo_number} ya existe en {key}")
+        logger.info("Sorteo already exists", extra={"sorteo_number": sorteo_number, "s3_key": key})
         return True
     except ClientError as e:
         if e.response["Error"]["Code"] == "404":
@@ -61,7 +64,7 @@ def download_file_from_s3(bucke_name, s3_key, local_path):
     """
     s3 = boto3.client("s3")
     s3.download_file(bucke_name, s3_key, local_path)
-    print(f"Downloaded {s3_key} to {local_path}")
+    logger.info("Downloaded file from S3", extra={"s3_key": s3_key, "local_path": local_path})
 
 
 def upload_file_to_s3(local_path, bucket_name, s3_key):
@@ -70,4 +73,7 @@ def upload_file_to_s3(local_path, bucket_name, s3_key):
     """
     s3 = boto3.client("s3")
     s3.upload_file(local_path, bucket_name, s3_key)
-    print(f"Uploaded {local_path} to s3://{bucket_name}/{s3_key}")
+    logger.info(
+        "Uploaded file to S3",
+        extra={"local_path": local_path, "s3_uri": f"s3://{bucket_name}/{s3_key}"},
+    )
