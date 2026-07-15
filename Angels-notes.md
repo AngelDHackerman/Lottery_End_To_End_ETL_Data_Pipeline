@@ -155,3 +155,18 @@ No console clicks required for a fresh deploy.-
 
 The legacy code was messy, splited between different directory files. Code was working just fine but it needed a better structure. Now all the code for the labmdas, extractor, parser and so on lives in one single "source of truth" that is `src/loteria` directory
 
+## PR-017 — Parameterize hard-coded config
+
+Before the change there use to be a very weak way to extract the data from the AWS Secrets Manager in the file [aws_secrets.py](./src/loteria/common/aws_secrets.py).
+
+1) The name of the secret was hardcoded so trying to clone this repo into a new AWS Account would mean to editing python code, so now the name of the secret is parameterized. Same as the region, now can be set using a variable value and not hardcoded.
+
+2) The ARN was beging extracted just "by accident" any value that only had ":::" was valid and being able to be considered as an ARN, that code was replaced by a real regex like so: `^arn:aws[a-z-]*:s3:::(?P<bucket>[^/]+)$` this one only extracts the value of the data only if it is an ARN and cannot be mistaken with "Scrape Do" token. (Scrape Do is a third party proxy server that helps to get the data using a Guatemala IP)
+
+## PR-018 — Structured JSON logging
+
+Previously in the code located in [src/loteria](./src/loteria/) had only a `print()` code in order to alert or notify the status of the process of the pipeline. This was changed by a logger using __stdlib-only__ (in order to make as simple as possible the code chage in Lambda and the code in general). 
+
+Prints were replace using the script [logging_steup.py](./src/loteria/common/logging_setup.py).
+
+[Step Function](./terraform/modules/orchestration/main.tf) passes its execution as `CORRELATION_ID` into both the Lambda payload and the Glue arguments, so every log line in one weekly run shares one id.
