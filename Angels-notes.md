@@ -165,7 +165,7 @@ Before the change there use to be a very weak way to extract the data from the A
 
 ## PR-018 — Structured JSON logging
 
-Previously in the code located in [src/loteria](./src/loteria/) had only a `print()` code in order to alert or notify the status of the process of the pipeline. This was changed by a logger using __stdlib-only__ (in order to make as simple as possible the code chage in Lambda and the code in general). 
+Previously in the code located in [./src/loteria/](./src/loteria/) had only a `print()` code in order to alert or notify the status of the process of the pipeline. This was changed by a logger using __stdlib-only__ (in order to make as simple as possible the code chage in Lambda and the code in general). 
 
 Prints were replace using the script [logging_steup.py](./src/loteria/common/logging_setup.py).
 
