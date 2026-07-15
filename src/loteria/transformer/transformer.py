@@ -7,13 +7,15 @@ Goal:
 - Enforce a *stable Silver schema* (types + partitions)
 - Write Parquet to:
   - Partitioned bucket (Silver): silver/{dataset}/year=YYYY/sorteo=NNNN/{dataset}.parquet
-  - Simple bucket (optional, flat files): <SIMPLE_PREFIX>/sorteos_<NNNN>.parquet, premios_<NNNN>.parquet
+  - Simple bucket (optional, flat files):
+    <SIMPLE_PREFIX>/sorteos_<NNNN>.parquet, premios_<NNNN>.parquet
 
 Important:
 - NEVER mix schemas in the same S3 prefix.
 - Partitions (year, sorteo) must be added BEFORE writing Parquet.
 """
 
+import logging
 import os
 import re
 import sys
@@ -22,6 +24,7 @@ import pandas as pd
 from awsglue.utils import getResolvedOptions
 
 from loteria.common.aws_secrets import get_secrets
+from loteria.common.logging_setup import configure_logging
 from loteria.common.s3_utils import (
     download_file_from_s3,
     list_files_in_s3,
@@ -34,6 +37,8 @@ from loteria.parser.parser import (
     split_header_body,
     split_vendido_por_column,
 )
+
+logger = logging.getLogger(__name__)
 
 # -----------------------
 # Config
@@ -79,7 +84,8 @@ def transform(
     silver_prefix: str = SILVER_PREFIX_DEFAULT,
 ) -> None:
     """
-    Transforms raw lottery .txt files stored in S3 and uploads clean Silver Parquet files back to S3.
+    Transforms raw lottery .txt files stored in S3 and uploads clean Silver Parquet
+    files back to S3.
     """
 
     # ✅ Idempotency check must be against SILVER (not legacy/processed)
@@ -90,19 +96,25 @@ def transform(
 
     raw_files = list_files_in_s3(bucket_name, raw_prefix)
 
-    print(f"Found {len(raw_files)} raw files in S3 under prefix: {raw_prefix}")
-    print(f"Found {len(processed_sorteos)} sorteos already processed in Silver")
+    logger.info(
+        "Scanned raw + Silver layers",
+        extra={
+            "raw_files": len(raw_files),
+            "processed_sorteos": len(processed_sorteos),
+            "raw_prefix": raw_prefix,
+        },
+    )
 
     for raw_file in raw_files:
         # Expect: raw/year=YYYY/sorteo=NNNN/<file>.txt
         match = re.search(r"sorteo=(\d+)/", raw_file)
         if not match:
-            print(f"Skipping file with unexpected structure: {raw_file}")
+            logger.warning("Skipping file with unexpected structure", extra={"raw_file": raw_file})
             continue
 
         numero_sorteo = int(match.group(1))
         if numero_sorteo in processed_sorteos:
-            print(f"Skipping already processed sorteo {numero_sorteo}")
+            logger.info("Skipping already processed sorteo", extra={"sorteo_number": numero_sorteo})
             continue
 
         local_path = f"/tmp/{os.path.basename(raw_file)}"
@@ -248,7 +260,10 @@ def transform(
         upload_file_to_s3(sorteos_local_path, partitioned_bucket, partitioned_sorteos_key)
         upload_file_to_s3(premios_local_path, partitioned_bucket, partitioned_premios_key)
 
-        print(f"✅ Sorteo {numero_sorteo} processed successfully into Silver (year={year})")
+        logger.info(
+            "Sorteo processed successfully into Silver",
+            extra={"sorteo_number": numero_sorteo, "year": year},
+        )
 
 
 def main() -> None:
@@ -260,6 +275,13 @@ def main() -> None:
       - RAW_PREFIX
       - PROCESSED_PREFIX (we will treat this as the *simple bucket prefix*)
     """
+    # Configure JSON logging here (not in transformer/__main__.py) because the REAL Glue
+    # entry point is the zip-root __main__.py from scripts/glue_zip_main.py, which imports
+    # this main() directly — so this is the one place both entry paths pass through. The
+    # correlation_id is read from the CORRELATION_ID env var, which glue_zip_main.py has
+    # already bridged from the --CORRELATION_ID job argument.
+    configure_logging("transformer")
+
     args = getResolvedOptions(
         sys.argv,
         [
@@ -282,10 +304,15 @@ def main() -> None:
     raw_prefix = args["RAW_PREFIX"]
     simple_prefix = args["PROCESSED_PREFIX"]  # treat as simple prefix
 
-    print(f"Starting Glue Job. Partitioned bucket: {partitioned_bucket}")
-    print(f"Raw prefix: {raw_prefix}")
-    print(f"Simple output prefix: {simple_prefix}")
-    print(f"Silver prefix: {SILVER_PREFIX_DEFAULT}")
+    logger.info(
+        "Starting Glue Job",
+        extra={
+            "partitioned_bucket": partitioned_bucket,
+            "raw_prefix": raw_prefix,
+            "simple_prefix": simple_prefix,
+            "silver_prefix": SILVER_PREFIX_DEFAULT,
+        },
+    )
 
     transform(
         bucket_name=partitioned_bucket,
@@ -294,7 +321,7 @@ def main() -> None:
         silver_prefix=SILVER_PREFIX_DEFAULT,
     )
 
-    print("Glue Job finished!")
+    logger.info("Glue Job finished")
 
 
 if __name__ == "__main__":

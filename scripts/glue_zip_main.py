@@ -13,27 +13,32 @@ here rather than in src/loteria/ because it is packaging glue, not library code:
 import os
 import sys
 
+# Job arguments that must be visible to the code as environment variables. Glue delivers
+# arguments on the command line (``sys.argv``), NOT as env vars, but the code reads these
+# from the environment (get_secrets() reads LOTERIA_SECRET_NAME at import time; PR-017,
+# and configure_logging() reads CORRELATION_ID; PR-018). So this bridge must run BEFORE
+# the transformer is imported below.
+_ARGS_TO_BRIDGE = ("LOTERIA_SECRET_NAME", "CORRELATION_ID")
 
-def _bridge_secret_name_arg_to_env() -> None:
-    """Copy the ``--LOTERIA_SECRET_NAME`` job argument into ``os.environ`` (PR-017).
 
-    Glue delivers job arguments on the command line (``sys.argv``), not as environment
-    variables, but ``loteria.common.aws_secrets.get_secrets()`` reads the secret name
-    from ``LOTERIA_SECRET_NAME`` in the environment — and does so at *import* time. So
-    this bridge must run BEFORE the transformer is imported below. ``setdefault`` lets a
-    real environment variable win if one is ever set.
+def _bridge_args_to_env() -> None:
+    """Copy selected ``--NAME value`` job arguments into ``os.environ``.
+
+    ``setdefault`` lets a real environment variable win if one is ever set.
     """
     argv = sys.argv
-    for i, token in enumerate(argv):
-        if token == "--LOTERIA_SECRET_NAME" and i + 1 < len(argv):
-            os.environ.setdefault("LOTERIA_SECRET_NAME", argv[i + 1])
-            return
-        if token.startswith("--LOTERIA_SECRET_NAME="):
-            os.environ.setdefault("LOTERIA_SECRET_NAME", token.split("=", 1)[1])
-            return
+    for name in _ARGS_TO_BRIDGE:
+        flag = f"--{name}"
+        for i, token in enumerate(argv):
+            if token == flag and i + 1 < len(argv):
+                os.environ.setdefault(name, argv[i + 1])
+                break
+            if token.startswith(f"{flag}="):
+                os.environ.setdefault(name, token.split("=", 1)[1])
+                break
 
 
-_bridge_secret_name_arg_to_env()
+_bridge_args_to_env()
 
 from loteria.transformer.transformer import main  # noqa: E402
 
