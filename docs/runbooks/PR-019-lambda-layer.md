@@ -108,6 +108,30 @@ Consequence: **old versions are deleted** once nothing references them (no
 `skip_destroy`). That's intentional — the S3 object is versioned and the zip is
 reproducible from a pinned requirements file, so there's nothing to recover.
 
+## ⚠️ This apply carries PR-017 and PR-018 with it
+
+PR-017 and PR-018 were merged but **never applied**, so the prod account is three PRs
+behind the code. Confirmed 2026-07-16:
+
+- Deployed `lambda_package.zip` = 903 KB, 2026-07-14T01:39Z → the **PR-016** fat zip. The
+  extractor has never run PR-017's parameterized config or PR-018's JSON logging.
+- Deployed `lottery_transformer.zip` = PR-017 state: it has the `LOTERIA_SECRET_NAME`
+  bridge but **not** the `CORRELATION_ID` one, and is missing `logging_setup.py`
+  entirely. The PR-017 Glue re-upload happened; the PR-018 one did not.
+
+So this apply also lands the Glue job's `--LOTERIA_SECRET_NAME` argument (PR-017) and the
+Step Function's `CORRELATION_ID.$` payload (PR-018), and the Lambda jumps three PRs of
+code in one step.
+
+**Is that safe? Yes — verified by reading the deployed artifact.** The deployed
+`__main__.py` only scans `sys.argv` for `--LOTERIA_SECRET_NAME`; the new
+`--CORRELATION_ID` argument is simply ignored, with no validation to trip over. The job
+keeps running exactly as it does today.
+
+But "doesn't crash" isn't "works": **re-upload the Glue zip**, or PR-018's JSON logging
+reaches the Lambda and not Glue, and a run's logs won't correlate — which was the whole
+point of PR-018.
+
 ## Deploy order
 
 Both artifact paths are read at plan time by `filemd5` / `filebase64sha256`. If the files
@@ -115,23 +139,44 @@ are missing, **the plan fails** — it does not silently skip them. So build fir
 
 ```bash
 # 1. Build everything. Terraform manages both Lambda artifacts; it does NOT manage the
-#    Glue zip (unchanged by this PR, but `make build` rebuilds it too).
+#    Glue zip.
 make build
 #    -> terraform/lambda_layer.zip     (python/lib/python3.12/site-packages/)
 #    -> terraform/lambda_package.zip   (loteria/ only)
-#    -> dist/lottery_transformer.zip   (unchanged)
+#    -> dist/lottery_transformer.zip   (carries PR-018's CORRELATION_ID bridge)
 
-# 2. Apply.
+# 2. Upload the Glue zip yourself — Terraform will not do this for you. Owed since PR-018.
+aws s3 cp dist/lottery_transformer.zip s3://lambda-code-zip-prod/lottery_transformer.zip
+
+# 3. Apply.
 cd terraform && terraform plan
 terraform apply
 ```
 
-Expected plan: **2 to add, 2 to change, 0 to destroy**
+Either order is safe — uploading the new Glue zip before the Step Function passes
+`CORRELATION_ID` just means `configure_logging()` falls back to a generated UUID for one
+run — but the sequence above leaves the account consistent in a single pass.
 
-- add `aws_s3_object.lambda_layer` (new object)
-- add `aws_lambda_layer_version.loteria_deps` (version 1)
-- change `aws_s3_object.lambda_package` (etag — the zip got much smaller)
-- change `aws_lambda_function.extractor_lambda` (`source_code_hash` + `layers`)
+Expected plan **against a prod account already caught up on PR-017/PR-018**: `2 to add,
+2 to change, 0 to destroy` — the layer object + layer version added, and
+`aws_s3_object.lambda_package` (etag) + `aws_lambda_function.extractor_lambda`
+(`source_code_hash` + `layers`) changed.
+
+**Against the actual account as of 2026-07-16: `2 to add, 4 to change, 0 to destroy`** —
+the two above plus `aws_glue_job.lottery_transform` (PR-017's argument) and
+`aws_sfn_state_machine.pipeline_state_machine` (PR-018's payload). Both are debt from
+earlier PRs, not this one.
+
+**Verifying the deployed Glue zip.** `scripts/_zipdir.py` builds deterministically, so a
+local rebuild is byte-identical to a matching deployment — the etag is a real equality
+check, not an approximation:
+
+```bash
+bash scripts/build_glue_package.sh
+md5sum dist/lottery_transformer.zip
+aws s3api head-object --bucket lambda-code-zip-prod --key lottery_transformer.zip \
+  --query ETag --output text
+```
 
 The function's code and layer attachment update in the same
 `UpdateFunctionCode`/`UpdateFunctionConfiguration` pair. If the apply dies *between*
