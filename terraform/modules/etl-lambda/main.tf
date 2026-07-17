@@ -11,13 +11,47 @@
 # Secrets Manager secret; the region comes from AWS_REGION, which the Lambda runtime
 # sets automatically.
 
-# The deployment artifact, uploaded from a local zip. The owner keeps the local file in
-# sync with the deployed object (see runbook) so `etag` / `source_code_hash` match state.
+# PR-019 splits the single fat artifact in two: `loteria/` ships in the function zip and
+# its third-party deps (requests, beautifulsoup4) ship in a layer. Build both with
+# `make build` BEFORE applying — see docs/runbooks/PR-019-lambda-layer.md.
+
+# The function's code-only artifact, uploaded from the locally built zip.
 resource "aws_s3_object" "lambda_package" {
   bucket = var.lambda_code_bucket
   key    = var.lambda_zip_key
   source = var.lambda_zip_path
   etag   = filemd5(var.lambda_zip_path)
+}
+
+# The dependency layer's artifact. Separate S3 object so a code change no longer
+# re-uploads the deps, and vice versa.
+resource "aws_s3_object" "lambda_layer" {
+  bucket = var.lambda_code_bucket
+  key    = var.lambda_layer_zip_key
+  source = var.lambda_layer_zip_path
+  etag   = filemd5(var.lambda_layer_zip_path)
+}
+
+# Layer versions are immutable: a new source_code_hash publishes version N+1 rather than
+# mutating N. `create_before_destroy` makes Terraform publish the new version and repoint
+# the function BEFORE deleting the old one — the default destroy-then-create order would
+# briefly delete the version the live function is still using.
+resource "aws_lambda_layer_version" "loteria_deps" {
+  layer_name = "loteria-deps-${var.environment}"
+  s3_bucket  = var.lambda_code_bucket
+  s3_key     = aws_s3_object.lambda_layer.key
+  # Publish from the object we just uploaded, not whatever S3 held before this apply.
+  source_code_hash = filebase64sha256(var.lambda_layer_zip_path)
+
+  compatible_runtimes = ["python3.12"]
+  # The layer vendors a mypyc-compiled .so (charset_normalizer), so it is arch-specific.
+  compatible_architectures = ["x86_64"]
+
+  description = "requests + beautifulsoup4 for the extractor (pinned in requirements/extractor.txt)"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Lambda: Extractor
@@ -27,14 +61,17 @@ resource "aws_lambda_function" "extractor_lambda" {
   s3_key           = aws_s3_object.lambda_package.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
 
-  # PR-016: the zip now carries the `loteria` package at its root (was a bare
-  # `extractor/`), so the handler path gains the package prefix. Rebuild + upload the
-  # zip (scripts/build_lambda_package.sh) BEFORE applying — see the PR-016 runbook.
+  # PR-016: the zip carries the `loteria` package at its root (was a bare `extractor/`),
+  # so the handler path gains the package prefix. Rebuild the zip (`make build`) BEFORE
+  # applying.
   handler     = "loteria.extractor.lambda_handler.lambda_handler"
   runtime     = "python3.12"
   timeout     = 120
   memory_size = 1024
   role        = var.lambda_exec_role_arn
+
+  # PR-019: requests/beautifulsoup4 now arrive via the layer, mounted at /opt.
+  layers = [aws_lambda_layer_version.loteria_deps.arn]
 
   environment {
     variables = {
