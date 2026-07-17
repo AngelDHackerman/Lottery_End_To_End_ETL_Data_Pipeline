@@ -780,8 +780,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 015 | SageMaker optional, delete old TF folder | merged | [PR #16](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/16) |
 | 016 | `src/` consolidation | merged | [PR #18](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/18) |
 | 017 | Parameterize hard-coded config | merged | [PR #19](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/19) |
-| 018 | Structured JSON logging | in-progress | — |
-| 019 | Lambda Layer for deps | todo | — |
+| 018 | Structured JSON logging | merged | [PR #20](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/20) |
+| 019 | Lambda Layer for deps | in-progress | — |
 | 020 | Glue 4.0 / Py 3.10 upgrade spike | todo | — |
 | 021 | Gold SQL files | todo | — |
 | 022 | Wire Gold into Step Function | todo | — |

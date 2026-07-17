@@ -63,6 +63,10 @@ module "etl_lambda" {
   lambda_zip_key     = "lambda_package.zip"
   lambda_zip_path    = var.lambda_zip_path
 
+  # PR-019: deps ship in a layer, so the zip above is code-only.
+  lambda_layer_zip_key  = "lambda_layer.zip"
+  lambda_layer_zip_path = var.lambda_layer_zip_path
+
   lambda_exec_role_arn = module.iam.lambda_exec_role_arn
 
   partitioned_bucket_name = module.storage.partitioned_bucket_name

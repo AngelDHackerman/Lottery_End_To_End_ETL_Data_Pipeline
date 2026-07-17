@@ -58,11 +58,17 @@ variable "enable_iam_allowed_principals_compat" {
   default     = true
 }
 
-# --- etl-lambda module (PR-010) ---
+# --- etl-lambda module (PR-010; artifacts split in PR-019) ---
 variable "lambda_zip_path" {
-  description = "Local path to the Lambda deployment zip (relative to terraform/). Pull the deployed artifact here so hashes match state — see docs/runbooks/PR-010-lambda-migration.md. Replaced by built artifacts in PR-019."
+  description = "Local path to the code-only Lambda zip (relative to terraform/). Produced by `make build` — no longer hand-synced from S3."
   type        = string
   default     = "lambda_package.zip"
+}
+
+variable "lambda_layer_zip_path" {
+  description = "Local path to the dependency layer zip (relative to terraform/). Produced by `make build`."
+  type        = string
+  default     = "lambda_layer.zip"
 }
 
 # --- iam module (PR-009) ---

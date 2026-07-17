@@ -23,7 +23,19 @@ variable "lambda_zip_key" {
 }
 
 variable "lambda_zip_path" {
-  description = "Local path to the Lambda deployment zip (uploaded + hashed). Keep it in sync with the deployed artifact — see the PR-010 runbook."
+  description = "Local path to the code-only Lambda zip (uploaded + hashed). Built by scripts/build_lambda_function.sh via `make build`."
+  type        = string
+}
+
+# --- Dependency layer (PR-019) ---
+variable "lambda_layer_zip_key" {
+  description = "S3 key of the dependency layer zip."
+  type        = string
+  default     = "lambda_layer.zip"
+}
+
+variable "lambda_layer_zip_path" {
+  description = "Local path to the dependency layer zip (uploaded + hashed). Built by scripts/build_lambda_layer.sh via `make build`."
   type        = string
 }
 
