@@ -44,7 +44,10 @@ resource "aws_lambda_layer_version" "loteria_deps" {
   source_code_hash = filebase64sha256(var.lambda_layer_zip_path)
 
   compatible_runtimes = ["python3.12"]
-  # The layer vendors a mypyc-compiled .so (charset_normalizer), so it is arch-specific.
+  # charset_normalizer is the only non-pure-python dep, and pip resolves its wheel for
+  # the *build host*. Its mypyc .so is therefore x86_64-linux-specific; declaring the
+  # arch keeps this layer off arm64 functions, where that .so is dead weight and the
+  # package silently falls back to its slower pure-python path.
   compatible_architectures = ["x86_64"]
 
   description = "requests + beautifulsoup4 for the extractor (pinned in requirements/extractor.txt)"

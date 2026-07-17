@@ -46,12 +46,49 @@ import requests, bs4; print(requests.__version__, bs4.__version__)
 "
 ```
 
-## Architecture pin
+## Build host: why Linux x86_64
 
-The layer vendors a mypyc-compiled `.so` (`charset_normalizer`), so it is **not**
-arch-portable. `compatible_architectures = ["x86_64"]` pins it to match the function.
-Build on Linux x86_64 (WSL is fine). Building the layer on macOS/arm and shipping it
-would produce import errors in prod.
+**Build the layer on Linux x86_64. WSL2 counts — it is a real Linux kernel.** Native
+Windows and macOS do not, and the distinction is easy to miss ("it works on my Windows
+machine" usually means "it works in my WSL shell").
+
+`pip` resolves wheels by tags matching the **machine running pip**, not the deploy
+target. `--target` changes *where* packages land, not *which* wheels are downloaded.
+What this layer actually pulls:
+
+| Package | Wheel tag |
+|---|---|
+| requests, beautifulsoup4, certifi, idna, urllib3, soupsieve, typing_extensions | `py3-none-any` |
+| charset_normalizer | `cp312-cp312-manylinux_2_17_x86_64` |
+
+Seven of eight are pure Python and build identically from any host. **`charset_normalizer`
+is the only compiled dependency**, shipping three `.so` files (~490 KB, mypyc-compiled).
+
+### The failure is silent, not loud
+
+A macOS-built layer does **not** break. Verified by renaming the `.so` files to darwin
+names and importing on Linux: `charset_normalizer` imports fine, falls back to `cd.py`,
+and encoding detection still works. The wheel ships the pure-python sources *alongside*
+the compiled ones, so Python's import machinery skips the non-matching binary.
+
+So the real cost of building on the wrong host is **degradation, not failure**:
+`charset_normalizer` runs interpreted instead of mypyc-compiled, and the layer carries
+dead `.so` weight. Nothing errors, nothing logs. That is arguably worse than a crash —
+an `ImportError` you would catch on the first invoke.
+
+`compatible_architectures = ["x86_64"]` therefore documents intent and keeps this layer
+off arm64 functions; it is not what prevents a breakage.
+
+### If the build ever leaves a Linux x86_64 host
+
+Force target-platform resolution rather than host resolution:
+
+```bash
+pip install -r requirements/extractor.txt --target "$SITE_PACKAGES" \
+  --platform manylinux2014_x86_64 --only-binary=:all: --python-version 3.12
+```
+
+Not done here — see "Out of scope".
 
 `boto3` stays out of both artifacts — the Python 3.12 runtime ships it. That is why
 `requirements/extractor.txt` lists only `beautifulsoup4` and `requests`.
@@ -145,6 +182,9 @@ destroyed but the layer itself; no data is touched.
   the Glue job uses. Harmless at 16 KB, and pruning it would re-couple the build to the
   package layout PR-016 just settled.
 - `requirements/extractor.txt` is installed with a plain `pip install --target`, same as
-  the old script. A cross-platform build (`--platform manylinux2014_x86_64
-  --only-binary=:all:`) would be stricter, but it is a behavior change and this PR is a
-  packaging move. Noted for whenever the build moves into CI (PR-034).
+  the old script, so the build is host-sensitive (see "Build host" above). Pinning
+  `--platform manylinux2014_x86_64 --only-binary=:all:` would make it reproducible from
+  any machine, but it is a behavior change and this PR is a packaging move. It stops
+  mattering once the build runs in CI on Linux x86_64 (**PR-034**) — that is the right
+  moment to decide, since CI makes the host constant instead of "whatever the owner is
+  sitting at".

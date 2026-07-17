@@ -40,6 +40,13 @@ Layer versions are immutable — changing `requirements/extractor.txt` publishes
 N+1 rather than mutating N. `create_before_destroy` keeps the live function pointed at a
 valid version throughout the swap.
 
+**Build the layer on Linux x86_64** (WSL2 qualifies; native Windows and macOS do not).
+`pip` resolves wheels for the machine running it, and `charset_normalizer` is the one
+dependency here that is not pure Python. Building elsewhere does not break the layer —
+`charset_normalizer` falls back to its pure-python path — it just runs slower and carries
+a dead `.so`. The failure is silent, which is why `compatible_architectures` is pinned.
+See the runbook for the full story.
+
 `boto3` is deliberately absent from both artifacts: the Python 3.12 runtime already
 ships it.
 
