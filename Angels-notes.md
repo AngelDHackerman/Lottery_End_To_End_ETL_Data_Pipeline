@@ -170,3 +170,10 @@ Previously in the code located in [./src/loteria/](./src/loteria/) had only a `p
 Prints were replace using the script [logging_steup.py](./src/loteria/common/logging_setup.py).
 
 [Step Function](./terraform/modules/orchestration/main.tf) passes its execution as `CORRELATION_ID` into both the Lambda payload and the Glue arguments, so every log line in one weekly run shares one id.
+
+## PR-019 — Lambda Layer for heavy deps
+Basically this was just an split between the lambda code and the dependencies (deps) this change does not makes more fast or slower the code or the lambda function. This is more "hygiene" of structure. Also, I discover that one of the dependencies (`charset_normalizer`) used for my lambda code was compiled just for Linux, so if this project by the time I'm writting this note, is clone into a Mac or Windows machine (assuming they are not using WSL2) the code won't really work. 
+
+In my case it didn't show an error it was just digradated, the size of the file got bigger than it should but this was just look no the rule, this would actually break the thing is that `charset_normalizer` has serveral fallbacks, (now I'm running from a Windows machine) so that's why this still worked but it was just luck. 
+
+This problem will be complete resolved in __PR-034__  so any OS will be able to compile this code with no issues related to deps.
