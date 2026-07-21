@@ -9,19 +9,29 @@
 # var.code_bucket + var.script_key (same resulting string in prod, so the plan
 # stays a no-op).
 #
-# TODO PR-020: Glue 4.0 / Python 3.10 upgrade spike — bump the `glue_version` /
-# `python_version` defaults, run the job once in prod, keep or revert with evidence.
+# PR-020 (Glue runtime spike) — CONCLUSION: stay on Python Shell 3.9. The roadmap's
+# target of "Glue 4.0 / Python 3.10" is not reachable for this job type:
+#   - Python Shell supports ONLY Python 3.6 or 3.9 (3.6 EOL 2026-03-01), so there is no
+#     3.10 to move to; 3.9 is the sole current runtime.
+#   - `glue_version` is INERT for Python Shell — AWS stores the value (this job reads back
+#     "3.0") but ignores it at runtime. "Glue 4.0/5.0" are Spark-runtime versions and do
+#     not apply here.
+# Reaching a newer Python / a "4.0" runtime would require changing the job TYPE from
+# pythonshell to a Spark (glueetl) or Ray job — a transformer rewrite, not a version bump.
+# Tracked as a deferred item, not PR-020. See docs/runbooks/PR-020-glue-runtime-spike.md.
 
 resource "aws_glue_job" "lottery_transform" {
-  name         = "lottery-transform-${var.environment}"
-  role_arn     = var.glue_job_role_arn
+  name     = "lottery-transform-${var.environment}"
+  role_arn = var.glue_job_role_arn
+  # Inert for pythonshell (see the module note above). Kept at the imported value "3.0" so
+  # the plan stays a no-op; the real runtime is pinned by command.python_version below.
   glue_version = var.glue_version
   max_capacity = 1 # 1 DPU: enough for this job
 
   command {
     name            = "pythonshell"
     script_location = "s3://${var.code_bucket}/${var.script_key}"
-    python_version  = var.python_version
+    python_version  = var.python_version # 3.9 — the only supported Python Shell runtime
   }
 
   default_arguments = {

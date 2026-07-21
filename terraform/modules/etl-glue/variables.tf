@@ -40,15 +40,15 @@ variable "simple_bucket_name" {
   type        = string
 }
 
-# --- Runtime versions (TODO PR-020: upgrade spike to 4.0 / 3.10) ---
+# --- Runtime versions (PR-020 spike: stay on Python Shell 3.9; see main.tf note) ---
 variable "glue_version" {
-  description = "Glue runtime version."
+  description = "INERT for a pythonshell job — AWS stores it but ignores it at runtime (the live job reads back \"3.0\"). Not a Spark glue_version. Kept at \"3.0\" to match imported state; the runtime is set by python_version."
   type        = string
   default     = "3.0"
 }
 
 variable "python_version" {
-  description = "Python version for the pythonshell job."
+  description = "Python version for the pythonshell job. Only \"3.6\" (EOL 2026-03-01) and \"3.9\" are supported; \"3.9\" is the sole current runtime. Reaching 3.10+ requires migrating the job type away from pythonshell."
   type        = string
   default     = "3.9"
 }

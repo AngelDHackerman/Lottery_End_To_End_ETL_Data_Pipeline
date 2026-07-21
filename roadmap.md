@@ -446,6 +446,14 @@ Update terraform/modules/etl-lambda and etl-glue to pass LOTERIA_SECRET_NAME as 
 Acceptance: Glue 4.0 / Py 3.10 is on, or we have a documented reason to stay on 3.0/3.9.
 ```
 
+> **OUTCOME (2026-07-21): documented stay on Python Shell 3.9.** The target is invalid for
+> this job type. The transform is a **Python Shell** job, which supports only Python 3.6/3.9
+> (3.6 EOL 2026-03-01) — there is no 3.10 — and `glue_version` is **ignored** for Python
+> Shell (AWS stores it, the live job reads back `"3.0"`, but "Glue 4.0/5.0" are Spark-only).
+> A newer runtime would require migrating the job **type** to Spark (`glueetl`) or Ray — a
+> transformer rewrite, filed as a deferred item (see L6 below), not a version bump. Docs-only
+> change; `terraform plan` stays a no-op. Runbook: `docs/runbooks/PR-020-glue-runtime-spike.md`.
+
 ---
 
 # Phase 3 — Gold layer (Athena CTAS)
@@ -754,6 +762,7 @@ These are deliberately *not* on the path to "hiring-manager-ready". Capture once
 | L3 | ML / forecasting feature | Predict winning-number distribution, vendor performance. Showcases MLOps later. |
 | L4 | QuickSight asset-as-code | The TF provider for QS is rough. Snapshot dashboard JSON until it improves. |
 | L5 | Iceberg / Apache Hudi for Silver | If we ever need MERGE/UPSERT semantics. |
+| L6 | Migrate transform off Python Shell (→ Spark `glueetl` or Ray) | The only path to Python 3.10+ / a "Glue 4.0/5.0" runtime — Python Shell caps at 3.9 (see PR-020 outcome). Requires rewriting `loteria.transformer` to PySpark, a new DPU/billing model, and reworked IAM/logging. AWS now publishes a "Migrate from Python shell jobs" guide, so this is the sanctioned long-term direction. Do only when a concrete need (scale, a 3.10-only lib) appears. |
 
 ---
 
@@ -781,8 +790,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 016 | `src/` consolidation | merged | [PR #18](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/18) |
 | 017 | Parameterize hard-coded config | merged | [PR #19](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/19) |
 | 018 | Structured JSON logging | merged | [PR #20](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/20) |
-| 019 | Lambda Layer for deps | in-progress | — |
-| 020 | Glue 4.0 / Py 3.10 upgrade spike | todo | — |
+| 019 | Lambda Layer for deps | merged | [PR #21](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/21) |
+| 020 | Glue runtime spike (stay on Python Shell 3.9) | in-progress | — |
 | 021 | Gold SQL files | todo | — |
 | 022 | Wire Gold into Step Function | todo | — |
 | 023 | Log retention | todo | — |
