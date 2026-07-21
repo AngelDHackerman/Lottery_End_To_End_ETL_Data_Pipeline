@@ -69,11 +69,22 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
   })
 }
 
-# The one weekly trigger: every Monday 18:00 UTC (12:00 Guatemala).
+# The one weekly trigger: every Thursday 18:00 UTC (12:00 Guatemala).
+#
+# Moved off Monday: the Saturday draws (especially high-stakes ones like the
+# extraordinario) drive a surge of traffic that keeps loteria.org.gt behind a Cloudflare
+# Waiting Room for days afterward. A Monday scrape lands squarely in that window and comes
+# back with the queue page instead of the results (the proxy still returns HTTP 200, so
+# the extractor fails at the sorteo-link selector). Thursday is the calm point of the
+# week — well after the post-draw surge and before the next Saturday's — so the scrape is
+# far likelier to reach the real page. The site still shows only the latest sorteo on
+# Thursday, so no data is skipped; it is read at a quieter time. This lowers the odds of a
+# Cloudflare hit but does not remove the single-run-per-week SPOF — see PR-026/PR-031 for
+# retry/detection follow-ups.
 resource "aws_cloudwatch_event_rule" "weekly_etl_trigger" {
   name                = "lottery-etl-weekly-trigger-${var.environment}"
-  schedule_expression = "cron(0 18 ? * MON *)"
-  description         = "Trigger the lottery ETL Step Function every Monday at 12:00 PM GMT-6"
+  schedule_expression = "cron(0 18 ? * THU *)"
+  description         = "Trigger the lottery ETL Step Function every Thursday at 12:00 PM GMT-6"
 }
 
 resource "aws_cloudwatch_event_target" "trigger_step_function" {

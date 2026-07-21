@@ -20,6 +20,15 @@ after the weekend draws) and its name/description were the intentional, newer pa
 rules meant the pipeline ran twice a week for no reason. The Saturday rule + its target are
 destroyed via the legacy stack (the one deliberate destroy in this whole migration).
 
+> **Schedule changed to Thursday (post-PR-012).** The kept rule now fires
+> `cron(0 18 ? * THU *)` — Thu 12:00 Guatemala — not Monday. The Saturday draws (the
+> extraordinario in particular) keep loteria.org.gt behind a Cloudflare Waiting Room for
+> days, and a Monday scrape lands in that window: the proxy returns HTTP 200 with the
+> queue page, and the extractor fails at the sorteo-link selector. Thursday is the calm
+> point of the week, so the scrape is far likelier to reach the real page. The site still
+> exposes only the latest sorteo mid-week, so nothing is skipped. This lowers the odds of
+> a Cloudflare hit; it does not remove the single-run-per-week SPOF (see PR-026/PR-031).
+
 ## Wiring
 
 The Step Function's crawler names come from `module.catalog` outputs, the lambda ARN from
