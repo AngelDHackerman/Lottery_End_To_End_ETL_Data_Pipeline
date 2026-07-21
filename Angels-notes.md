@@ -177,3 +177,5 @@ Basically this was just an split between the lambda code and the dependencies (d
 In my case it didn't show an error it was just digradated, the size of the file got bigger than it should but this was just look no the rule, this would actually break the thing is that `charset_normalizer` has serveral fallbacks, (now I'm running from a Windows machine) so that's why this still worked but it was just luck. 
 
 This problem will be complete resolved in __PR-034__  so any OS will be able to compile this code with no issues related to deps.
+
+Also, while doing some smoke test I notice that "today" July 20th an extraordinary lottery was played on last saturday, so the traffic in the loteria satalucia's web page has increace over the last days, so now we only get the CloudFlair's waiting room. As a quick fix for this kind of scenario I'm changing the extraction day from Monday to Thrusday. The best practice will be to create a fallback when this page is showing up in the Loteria's server, this is going to be done in __PR-026__ and __PR-031__.
