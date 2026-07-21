@@ -179,3 +179,9 @@ In my case it didn't show an error it was just digradated, the size of the file 
 This problem will be complete resolved in __PR-034__  so any OS will be able to compile this code with no issues related to deps.
 
 Also, while doing some smoke test I notice that "today" July 20th an extraordinary lottery was played on last saturday, so the traffic in the loteria satalucia's web page has increace over the last days, so now we only get the CloudFlair's waiting room. As a quick fix for this kind of scenario I'm changing the extraction day from Monday to Thrusday. The best practice will be to create a fallback when this page is showing up in the Loteria's server, this is going to be done in __PR-026__ and __PR-031__.
+
+## PR-020 — Glue Job upgrade spike (Glue 4.0 / Python 3.10)
+
+In the [Roadmap](./roadmap.md) file I originally approved the idea to move the __glue version to 4.0__ and the __python version to 3.10__ this was one of the suggestions of Claude Opus 4.8, however when I was working on this the question surge like "Why move to this when python shell if the perfect fit?" Then I discover that this upgrade was going to make the transformer even slower rather than better of faster. This is prove that even when Claude suggest something is my responsability to dont just "copy/past" or code whatever Claude suggest. 
+
+No changes done, the python shell job stays as it is. 
