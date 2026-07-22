@@ -185,3 +185,14 @@ Also, while doing some smoke test I notice that "today" July 20th an extraordina
 In the [Roadmap](./roadmap.md) file I originally approved the idea to move the __glue version to 4.0__ and the __python version to 3.10__ this was one of the suggestions of Claude Opus 4.8, however when I was working on this the question surge like "Why move to this when python shell if the perfect fit?" Then I discover that this upgrade was going to make the transformer even slower rather than better of faster. This is prove that even when Claude suggest something is my responsability to dont just "copy/past" or code whatever Claude suggest. 
 
 No changes done, the python shell job stays as it is. 
+
+## Phase 2 is done! 
+
+
+## PR-021 — Gold table SQL definitions
+The bronze layer are the `.txt.` files extracted each week form the lottery, the silver layer are the `.parquet` files obtained from the `.txt` files through a python job with the code of @transformer.py (which was refactor several months ago in order to create the silver gold). 
+
+As a reminder the bronze layer is created with the extractor (the web scrapper) then the silver layer is created with then __transformer.py__ that creates the parquet files, and then a glue crawler scans the new data in order to annex it to AWS Athena and make the silver data queryable. 
+
+So now using CTAS (Create Table As Select) 7 `sql` files were created and I'll ran manually in AWS CLI.
+Then in PR-022 will be automated the process of reading and creating the tables for the gold layer.
