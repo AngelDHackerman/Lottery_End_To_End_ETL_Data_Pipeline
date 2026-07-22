@@ -41,10 +41,19 @@ the zip after this change.
 
 - Inputs: `code_bucket`, `script_key` (default `lottery_transformer.zip`),
   `partitioned_bucket_name`, `simple_bucket_name`, `glue_job_role_arn`, `secret_name`,
-  `glue_version` (default `"3.0"`), `python_version` (default `"3.9"`), `environment`.
+  `glue_version` (inert — see below), `python_version` (default `"3.9"`), `environment`.
 - Outputs: `glue_job_name`, `glue_job_arn`.
 
-## TODO
+## PR-020: runtime spike — staying on Python Shell 3.9
 
-- **PR-020:** Glue 4.0 / Python 3.10 upgrade spike (bump the version defaults, run the
-  job once, keep or revert with the failure log).
+The roadmap's "Glue 4.0 / Python 3.10 upgrade" is **not achievable for this job**, because
+it is a **Python Shell** job (`command.name = "pythonshell"`), not a Spark job:
+
+- Python Shell supports only Python **3.6 or 3.9** (3.6 EOL 2026-03-01). There is no 3.10.
+- `glue_version` is **inert** for Python Shell — AWS stores it (the live job reads back
+  `"3.0"`) but ignores it at runtime. "Glue 4.0/5.0" are Spark-runtime versions.
+
+So we stay on Python Shell 3.9, the only current runtime. A genuinely newer Python/runtime
+would mean migrating the job **type** to Spark (`glueetl`) or Ray — a transformer rewrite,
+captured as a deferred item, not a version bump. Full reasoning and the AWS-doc evidence:
+`docs/runbooks/PR-020-glue-runtime-spike.md`.
