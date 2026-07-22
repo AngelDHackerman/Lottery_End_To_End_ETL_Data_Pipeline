@@ -783,7 +783,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 018 | Structured JSON logging | merged | [PR #20](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/20) |
 | 019 | Lambda Layer for deps | in-progress | — |
 | 020 | Glue 4.0 / Py 3.10 upgrade spike | todo | — |
-| 021 | Gold SQL files | todo | — |
+| 021 | Gold SQL files | in-progress | [PR #24](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/24) |
 | 022 | Wire Gold into Step Function | todo | — |
 | 023 | Log retention | todo | — |
 | 024 | CloudWatch dashboard | todo | — |
