@@ -86,6 +86,13 @@ resource "aws_athena_workgroup" "lottery_wg" {
   name = "lottery-wg"
 
   configuration {
+    # Must be false so the Gold CTAS queries (PR-021) can set their own
+    # `external_location` (s3://<partitioned>/gold/<name>/). With the AWS default
+    # (true), the workgroup enforces the central output_location below and Athena
+    # rejects any CTAS that carries an external_location. SELECT results still
+    # default to output_location — only client overrides become allowed.
+    enforce_workgroup_configuration = false
+
     result_configuration {
       output_location = "s3://${var.athena_results_bucket_name}/"
     }
