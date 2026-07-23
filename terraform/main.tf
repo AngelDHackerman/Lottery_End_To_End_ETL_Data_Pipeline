@@ -132,6 +132,10 @@ module "lake_formation" {
   glue_crawler_role_arn  = module.iam.glue_crawler_role_arn
   database_name          = module.catalog.db_name
 
+  # PR-022: gold automation roles need LF grants (DROP for purge, CREATE_TABLE for CTAS).
+  sfn_execution_role_arn     = module.iam.sfn_execution_role_arn
+  gold_purge_lambda_role_arn = module.iam.gold_purge_lambda_role_arn
+
   enable_iam_allowed_principals_compat = var.enable_iam_allowed_principals_compat
 }
 

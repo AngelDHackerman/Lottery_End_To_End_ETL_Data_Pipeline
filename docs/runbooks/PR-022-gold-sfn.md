@@ -90,12 +90,28 @@ If guaranteed-fresh gold matters, a follow-up should insert a `GetCrawler`-poll 
 (`State != RUNNING`) after each `startCrawler`, or switch to a crawler-completion callback.
 Left out of PR-022 to keep it atomic and aligned with the roadmap's sequencing.
 
-## Lake Formation note
+## Lake Formation grants (required — hybrid mode is NOT enough)
 
-The database is in **hybrid access mode** (`enable_iam_allowed_principals_compat = true`,
-PR-013), so the IAM grants added here are sufficient for the SFN role to create the gold
-tables — no Lake Formation grants for the SFN role are required. If that compat flag is
-ever disabled (full LF enforcement), the SFN role will additionally need LF
-`CREATE_TABLE` on the database + `DATA_LOCATION_ACCESS` on the `gold/` path, and the
-purge Lambda role will need LF `DROP`. See the `lake-formation` module + the
-LF-gotchas note.
+Initial assumption was that hybrid access mode (`enable_iam_allowed_principals_compat =
+true`) let IAM alone govern the gold tables. **That was wrong.** The gold tables live in
+the LF-governed `lottery_santalucia_db`, and the manual PR-021 CTAS runs created `gold_*`
+tables owned by the console admin — so the automation roles had no LF rights on them. The
+first purge invoke failed with:
+
+```
+AccessDeniedException: Insufficient Lake Formation permission(s): Required Drop on gold_draw_summary
+```
+
+Fixed by codifying LF grants in `terraform/modules/lake-formation/` (same pattern as the
+crawler grants):
+
+- **gold-purge Lambda role** → `DROP` + `DESCRIBE` on all tables in the db (drops each
+  gold table, including the pre-existing manual ones).
+- **SFN execution role** → `CREATE_TABLE`/`ALTER`/`DROP`/`DESCRIBE` on the db + table
+  wildcard `SELECT`/`DESCRIBE`/… (reads silver, registers each fresh gold table).
+
+`gold/` is **not** registered with LF (only `silver/` is), so writing the gold Parquet is
+governed by the SFN role's IAM `s3:PutObject` — no `DATA_LOCATION_ACCESS` grant is needed.
+
+After adding these, re-`apply` and re-run the purge invoke — it should return the
+`CREATE` statement and report the dropped objects.
