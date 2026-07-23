@@ -394,7 +394,10 @@ resource "aws_iam_policy" "gold_purge_lambda_policy" {
         Effect = "Allow",
         Action = [
           "s3:GetObject",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          # ListBucketVersions: the purge enumerates object versions + delete-markers to
+          # hard-empty the gold prefix on this versioned bucket.
+          "s3:ListBucketVersions"
         ],
         Resource = [
           var.partitioned_bucket_arn,
@@ -405,7 +408,10 @@ resource "aws_iam_policy" "gold_purge_lambda_policy" {
         Sid    = "EmptyGoldPrefix",
         Effect = "Allow",
         Action = [
-          "s3:DeleteObject"
+          "s3:DeleteObject",
+          # DeleteObjectVersion: remove the actual versions (not just add a delete-marker)
+          # so Athena CTAS sees a physically empty location. Gold is reproducible.
+          "s3:DeleteObjectVersion"
         ],
         # Only the gold/ prefix — the purge never touches raw/ or silver/.
         Resource = "${var.partitioned_bucket_arn}/gold/*"

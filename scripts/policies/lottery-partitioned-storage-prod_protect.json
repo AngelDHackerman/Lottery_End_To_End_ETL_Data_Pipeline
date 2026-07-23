@@ -15,7 +15,10 @@
       ],
       "Condition": {
         "StringNotEquals": {
-          "aws:PrincipalArn": "arn:aws:iam::913524903233:root"
+          "aws:PrincipalArn": [
+            "arn:aws:iam::913524903233:root",
+            "arn:aws:iam::913524903233:role/lottery-gold-purge-role-prod"
+          ]
         }
       }
     }

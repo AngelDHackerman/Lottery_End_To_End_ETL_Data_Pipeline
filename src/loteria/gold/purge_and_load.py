@@ -63,20 +63,42 @@ def _extract_create_statement(sql: str) -> str:
 
 
 def _empty_prefix(bucket: str, prefix: str) -> int:
-    """Delete every current object under s3://bucket/prefix. Returns the count deleted.
+    """Permanently delete every version + delete-marker under s3://bucket/prefix.
 
-    Idempotent: a prefix that is already empty deletes nothing and returns 0.
+    The bucket has versioning on (PR-002/005), so a plain delete would only add
+    delete-markers and leave the underlying objects — and Athena CTAS then still fails
+    with HIVE_PATH_ALREADY_EXISTS at a location that "looks" empty. Gold is derived,
+    reproducible data (rebuilt from silver each run), so hard-deleting its versions is
+    safe and keeps the location physically empty for the CTAS.
+
+    Raises RuntimeError if S3 refuses any delete (e.g. the PR-002 bucket Deny policy), so
+    a blocked purge fails loudly here instead of silently under-deleting and letting the
+    downstream CTAS hit a non-empty location. Idempotent: an already-empty prefix
+    deletes nothing and returns 0.
     """
-    paginator = s3.get_paginator("list_objects_v2")
+    paginator = s3.get_paginator("list_object_versions")
     deleted = 0
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        keys = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
-        if not keys:
-            continue
-        # delete_objects caps at 1000 keys; list_objects_v2 pages at 1000, so one
-        # delete call per page stays within the limit.
-        s3.delete_objects(Bucket=bucket, Delete={"Objects": keys, "Quiet": True})
-        deleted += len(keys)
+        targets = [
+            {"Key": o["Key"], "VersionId": o["VersionId"]}
+            for o in page.get("Versions", []) + page.get("DeleteMarkers", [])
+        ]
+        # delete_objects caps at 1000 entries per call; list_object_versions pages at
+        # 1000 combined, so one delete call per page stays within the limit.
+        for start in range(0, len(targets), 1000):
+            batch = targets[start : start + 1000]
+            if not batch:
+                continue
+            resp = s3.delete_objects(Bucket=bucket, Delete={"Objects": batch, "Quiet": True})
+            errors = resp.get("Errors", [])
+            if errors:
+                first = errors[0]
+                raise RuntimeError(
+                    f"Failed to delete {len(errors)} object version(s) under "
+                    f"s3://{bucket}/{prefix}: {first.get('Code')} {first.get('Message')} "
+                    f"(key={first.get('Key')})"
+                )
+            deleted += len(batch)
     return deleted
 
 
