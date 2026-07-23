@@ -10,13 +10,69 @@
 #
 # The crawler names come from the catalog module's outputs (not var strings), so the
 # Step Function always references real, managed resources.
+#
+# PR-022 (Gold): three things are added here.
+#   1. The 7 CTAS files in sql/gold/ are uploaded to s3://<partitioned>/sql/gold/.
+#   2. A single-file "gold-purge" Lambda drops each gold table + empties its S3 prefix,
+#      then returns the CREATE statement (Athena runs one statement per call, and a CTAS
+#      onto a non-empty location fails — see src/loteria/gold/purge_and_load.py).
+#   3. A `BuildGold` Map state (one iteration per SQL file) runs purge -> CTAS.
+# No gold crawler: Athena CTAS `CREATE TABLE` registers the gold_* tables (and their
+# partitions) in the Glue catalog itself, so a crawler would be redundant. See the
+# catalog module README for the reasoning behind skipping roadmap step 4.
+
+locals {
+  gold_sql_dir = "${path.module}/../../../sql/gold"
+  # Baked at plan time: the Map iterates this static list, so the state machine never
+  # has to list S3 at runtime. Each item feeds one purge -> CTAS iteration.
+  gold_sql_keys = [
+    for f in fileset(local.gold_sql_dir, "*.sql") : { sqlKey = "sql/gold/${f}" }
+  ]
+}
+
+# Upload the CTAS SQL (authored in PR-021) to the partitioned bucket. The purge Lambda
+# reads each file from here at run time.
+resource "aws_s3_object" "gold_sql" {
+  for_each = fileset(local.gold_sql_dir, "*.sql")
+
+  bucket = var.partitioned_bucket_name
+  key    = "sql/gold/${each.value}"
+  source = "${local.gold_sql_dir}/${each.value}"
+  etag   = filemd5("${local.gold_sql_dir}/${each.value}")
+}
+
+# The gold-purge Lambda ships as a single .py zipped by Terraform — it only needs boto3,
+# which the Lambda runtime already provides, so it skips the extractor's build pipeline.
+data "archive_file" "gold_purge" {
+  type        = "zip"
+  source_file = "${path.module}/../../../src/loteria/gold/purge_and_load.py"
+  output_path = "${path.module}/build/gold_purge_and_load.zip"
+}
+
+resource "aws_lambda_function" "gold_purge" {
+  function_name    = "lottery-gold-purge-${var.environment}"
+  filename         = data.archive_file.gold_purge.output_path
+  source_code_hash = data.archive_file.gold_purge.output_base64sha256
+  handler          = "purge_and_load.handler"
+  runtime          = "python3.12"
+  timeout          = 120
+  memory_size      = 256
+  role             = var.gold_purge_lambda_role_arn
+
+  tags = {
+    Name        = "lottery-gold-purge-${var.environment}"
+    Environment = var.environment
+    Project     = "Lottery ETL"
+    Owner       = "Angel Hackerman"
+  }
+}
 
 resource "aws_sfn_state_machine" "pipeline_state_machine" {
   name     = "lottery-etl-pipeline-${var.environment}"
   role_arn = var.sfn_execution_role_arn
 
   definition = jsonencode({
-    Comment = "Run ETL pipeline: extractor Lambda → transformer Glue → Glue Crawler",
+    Comment = "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → gold CTAS",
     StartAt = "RunExtractorLambda",
     States = {
       RunExtractorLambda = {
@@ -62,6 +118,60 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Resource = "arn:aws:states:::aws-sdk:glue:startCrawler",
         Parameters = {
           Name = var.sorteos_crawler_name
+        },
+        Next = "PrepGold"
+      },
+
+      # Inject the (plan-time) list of gold SQL keys into the state so the Map can
+      # iterate it. Kept as a Pass state (rather than a JSONata literal) so the machine
+      # stays in the default JSONPath language, consistent with the states above.
+      PrepGold = {
+        Type       = "Pass",
+        Result     = { sqlKeys = local.gold_sql_keys },
+        ResultPath = "$.gold",
+        Next       = "BuildGold"
+      },
+
+      # One iteration per gold table: purge (drop table + empty S3 prefix, returns the
+      # CREATE statement) -> run the CTAS. MaxConcurrency caps parallel Athena CTAS; the
+      # 7 tables are independent (all read only silver_*), so parallelism is safe.
+      BuildGold = {
+        Type           = "Map",
+        ItemsPath      = "$.gold.sqlKeys",
+        MaxConcurrency = 3,
+        Iterator = {
+          StartAt = "PurgeAndLoad",
+          States = {
+            PurgeAndLoad = {
+              Type     = "Task",
+              Resource = "arn:aws:states:::lambda:invoke",
+              Parameters = {
+                FunctionName = aws_lambda_function.gold_purge.arn,
+                Payload = {
+                  "bucket"           = var.partitioned_bucket_name,
+                  "sqlKey.$"         = "$.sqlKey",
+                  "correlation_id.$" = "$$.Execution.Name"
+                }
+              },
+              # Lift the Lambda's return out of the invoke envelope for the CTAS step.
+              ResultSelector = {
+                "queryString.$" = "$.Payload.queryString"
+              },
+              Next = "RunCTAS"
+            },
+            RunCTAS = {
+              Type     = "Task",
+              Resource = "arn:aws:states:::athena:startQueryExecution.sync",
+              Parameters = {
+                "QueryString.$" = "$.queryString",
+                WorkGroup       = var.athena_workgroup_name,
+                QueryExecutionContext = {
+                  Database = var.database_name
+                }
+              },
+              End = true
+            }
+          }
         },
         End = true
       }

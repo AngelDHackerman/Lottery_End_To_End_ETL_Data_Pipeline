@@ -36,3 +36,24 @@ variable "sorteos_crawler_name" {
   description = "Name of the silver sorteos crawler."
   type        = string
 }
+
+# --- Gold layer (PR-022) ---
+variable "partitioned_bucket_name" {
+  description = "Name of the partitioned bucket. Gold SQL is uploaded to its sql/gold/ prefix; the purge Lambda reads from there and empties gold/<name>/ before each CTAS."
+  type        = string
+}
+
+variable "database_name" {
+  description = "Glue catalog database the CTAS statements target (from module.catalog.db_name)."
+  type        = string
+}
+
+variable "athena_workgroup_name" {
+  description = "Athena workgroup the gold CTAS runs in (from module.catalog.athena_workgroup_name)."
+  type        = string
+}
+
+variable "gold_purge_lambda_role_arn" {
+  description = "Execution role ARN for the gold-purge Lambda (from module.iam)."
+  type        = string
+}

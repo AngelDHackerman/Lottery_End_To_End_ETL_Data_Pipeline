@@ -51,6 +51,10 @@ module "iam" {
   # PR-012: and for the silver crawler names.
   glue_crawler_premios_name = module.catalog.premios_silver_crawler_name
   glue_crawler_sorteos_name = module.catalog.sorteos_silver_crawler_name
+
+  # PR-022: scope the SFN role's gold CTAS grants (glue tables + athena workgroup).
+  database_name         = module.catalog.db_name
+  athena_workgroup_name = module.catalog.athena_workgroup_name
 }
 
 # --- PR-010: etl-lambda (extractor function) ---
@@ -112,6 +116,12 @@ module "orchestration" {
   glue_job_name        = module.etl_glue.glue_job_name
   premios_crawler_name = module.catalog.premios_silver_crawler_name
   sorteos_crawler_name = module.catalog.sorteos_silver_crawler_name
+
+  # PR-022: Gold layer — upload sql/gold/, run the purge Lambda + CTAS Map.
+  partitioned_bucket_name    = module.storage.partitioned_bucket_name
+  database_name              = module.catalog.db_name
+  athena_workgroup_name      = module.catalog.athena_workgroup_name
+  gold_purge_lambda_role_arn = module.iam.gold_purge_lambda_role_arn
 }
 
 # --- PR-013: lake-formation (permissions so crawlers need no console clicks) ---

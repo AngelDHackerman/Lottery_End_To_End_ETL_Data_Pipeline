@@ -31,3 +31,8 @@ output "sagemaker_execution_role_arn" {
   description = "ARN of the SageMaker Studio execution role."
   value       = aws_iam_role.sagemaker_execution_role.arn
 }
+
+output "gold_purge_lambda_role_arn" {
+  description = "ARN of the gold-purge Lambda execution role (PR-022)."
+  value       = aws_iam_role.gold_purge_lambda.arn
+}

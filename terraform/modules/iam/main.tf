@@ -33,6 +33,13 @@ locals {
     "arn:aws:glue:${var.aws_region}:${local.account_id}:crawler/${var.glue_crawler_sorteos_name}",
   ]
   state_machine_arn = "arn:aws:states:${var.aws_region}:${local.account_id}:stateMachine:lottery-etl-pipeline-${var.environment}"
+
+  # PR-022 gold layer ARNs.
+  gold_purge_lambda_arn = "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:lottery-gold-purge-${var.environment}"
+  athena_workgroup_arn  = "arn:aws:athena:${var.aws_region}:${local.account_id}:workgroup/${var.athena_workgroup_name}"
+  glue_catalog_arn      = "arn:aws:glue:${var.aws_region}:${local.account_id}:catalog"
+  glue_database_arn     = "arn:aws:glue:${var.aws_region}:${local.account_id}:database/${var.database_name}"
+  glue_tables_arn       = "arn:aws:glue:${var.aws_region}:${local.account_id}:table/${var.database_name}/*"
 }
 
 # ===========================================================================
@@ -140,6 +147,22 @@ resource "aws_iam_role" "eventbridge_to_sfn_role" {
         Action = "sts:AssumeRole"
       }
     ]
+  })
+}
+
+# Role for the gold-purge Lambda (PR-022): drops each gold table + empties its S3 prefix
+# before the CTAS. Separate from the extractor role so its blast radius is just the gold
+# prefix + the catalog tables it recreates.
+resource "aws_iam_role" "gold_purge_lambda" {
+  name = "lottery-gold-purge-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
   })
 }
 
@@ -357,6 +380,53 @@ resource "aws_iam_policy" "athena_results_access" {
   })
 }
 
+# Gold-purge Lambda policy (PR-022): read the SQL under sql/gold/, empty the gold/<name>/
+# prefix, and drop the gold table from the catalog. Scoped to the partitioned bucket +
+# this database's tables.
+resource "aws_iam_policy" "gold_purge_lambda_policy" {
+  name = "lottery-gold-purge-policy-${var.environment}"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "ReadGoldSqlAndData",
+        Effect = "Allow",
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket"
+        ],
+        Resource = [
+          var.partitioned_bucket_arn,
+          "${var.partitioned_bucket_arn}/*"
+        ]
+      },
+      {
+        Sid    = "EmptyGoldPrefix",
+        Effect = "Allow",
+        Action = [
+          "s3:DeleteObject"
+        ],
+        # Only the gold/ prefix — the purge never touches raw/ or silver/.
+        Resource = "${var.partitioned_bucket_arn}/gold/*"
+      },
+      {
+        Sid    = "DropGoldTable",
+        Effect = "Allow",
+        Action = [
+          "glue:GetTable",
+          "glue:DeleteTable"
+        ],
+        Resource = [
+          local.glue_catalog_arn,
+          local.glue_database_arn,
+          local.glue_tables_arn
+        ]
+      }
+    ]
+  })
+}
+
 # Step Function execution policy (glue actions narrowed in PR-009)
 resource "aws_iam_policy" "sfn_execution_policy" {
   name = "sfn-lottery-policy-${var.environment}"
@@ -404,6 +474,71 @@ resource "aws_iam_policy" "sfn_execution_policy" {
         ],
         # TODO PR-023: scope to the SFN log-group ARN once created explicitly.
         Resource = "*"
+      },
+
+      # --- PR-022 Gold layer ---
+      # Invoke the gold-purge Lambda (one call per gold table in the BuildGold Map).
+      {
+        Sid : "AllowInvokeGoldPurgeLambda",
+        Effect : "Allow",
+        Action : [
+          "lambda:InvokeFunction"
+        ],
+        Resource : local.gold_purge_lambda_arn
+      },
+      # Run the CTAS via Athena (.sync polls GetQueryExecution until done).
+      {
+        Sid : "AllowGoldCtasAthena",
+        Effect : "Allow",
+        Action : [
+          "athena:StartQueryExecution",
+          "athena:StopQueryExecution",
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults"
+        ],
+        Resource : local.athena_workgroup_arn
+      },
+      # Athena CTAS creates/replaces the gold tables in the Glue catalog. The purge Lambda
+      # already dropped them; these let Athena register the fresh table + partitions.
+      {
+        Sid : "AllowGoldCatalogWrites",
+        Effect : "Allow",
+        Action : [
+          "glue:GetDatabase",
+          "glue:GetTable",
+          "glue:GetTables",
+          "glue:CreateTable",
+          "glue:UpdateTable",
+          "glue:DeleteTable",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:BatchCreatePartition",
+          "glue:CreatePartition",
+          "glue:UpdatePartition"
+        ],
+        Resource : [
+          local.glue_catalog_arn,
+          local.glue_database_arn,
+          local.glue_tables_arn
+        ]
+      },
+      # Athena runs as this role: read silver + the uploaded SQL, write gold Parquet, and
+      # read/write its own query metadata under the results bucket.
+      {
+        Sid : "AllowGoldDataS3",
+        Effect : "Allow",
+        Action : [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ],
+        Resource : [
+          var.partitioned_bucket_arn,
+          "${var.partitioned_bucket_arn}/*",
+          "arn:aws:s3:::${var.athena_results_bucket_name}",
+          "arn:aws:s3:::${var.athena_results_bucket_name}/*"
+        ]
       }
     ]
   })
@@ -483,6 +618,17 @@ resource "aws_iam_role_policy_attachment" "sfn_execution_policy_attachment" {
 resource "aws_iam_role_policy_attachment" "eventbridge_to_sfn_policy_attachment" {
   role       = aws_iam_role.eventbridge_to_sfn_role.name
   policy_arn = aws_iam_policy.eventbridge_to_sfn_policy.arn
+}
+
+# Gold-purge Lambda (PR-022): CloudWatch Logs basics + the scoped S3/Glue policy.
+resource "aws_iam_role_policy_attachment" "gold_purge_basic" {
+  role       = aws_iam_role.gold_purge_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "gold_purge_custom" {
+  role       = aws_iam_role.gold_purge_lambda.name
+  policy_arn = aws_iam_policy.gold_purge_lambda_policy.arn
 }
 
 # ---------------------------------------------------------------------------
