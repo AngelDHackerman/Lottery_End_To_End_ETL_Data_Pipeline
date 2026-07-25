@@ -186,7 +186,7 @@ In the [Roadmap](./roadmap.md) file I originally approved the idea to move the _
 
 No changes done, the python shell job stays as it is. 
 
-## Phase 2 is done! 
+## Phase 2 Is Completed! 
 
 
 ## PR-021 — Gold table SQL definitions
@@ -198,7 +198,14 @@ So now using CTAS (Create Table As Select) 7 `sql` files were created and I'll r
 Then in PR-022 will be automated the process of reading and creating the tables for the gold layer.
 
 
+## PR-022 — Wire Gold into Step Function
+The CTAS were uploaded to S3 bucket in `sql/gold/` partition but now every time the pipeline runs the CTAS needs to be ran again in order to update the catalog, therefore a stepFuction was added in order to trigger a SQL that will drop the data and the table then, it runs the sql query for CTAS code. For query optimization the Gold layer also uses the `parquet` file. 
+
+> Note 1: __Athena does not look a the extention file__, it actually reads from the end of the file content and looks at the firm with `PAR1` which is the parquet firm and then looks for the needed columns. 
 
 
+> Note 2: __Why Lake Formation failed and the Gold run kept breaking?__ Because `silver/` is a registered LF location, Athena doesn't read those Parquet files with the role's own `s3:GetObject` — it asks LF to vend scoped temporary credentials, so every gold CTAS died on the read. The error wording is the tell: `no identity-based policy allows` means the IAM action is missing, whereas `Insufficient Lake Formation permission(s)` means the grant is. Fixing that alone wasn't enough, though — live prod showed the earlier `HIVE_PATH_ALREADY_EXISTS` fix had never been applied (stale Lambda code, no `DeleteObjectVersion`, bucket policy still exempting only root), so the failure would have simply moved back to the path check. The warning was __no identity-based policy allows__ so a `GetDataAccess` was required for the gold layer, so it was applied and now is working.
 
-sacar los apuntes del chat de claude sobre el PR-022
+> Note 3: __What to do if I would have 1TB of data in the silver layer rather than a few MB?__ At that volume the full rebuild stops making sense: seven CTAS each scanning 1TB is ~$35 per run to re-read history you already computed, and the purge Lambda can't page through millions of object versions within its timeout. Iceberg replaces the whole drop-then-recreate dance with `MERGE INTO` / `INSERT OVERWRITE`, rewriting only the partitions the new sorteo actually touched — which deletes three moving parts outright: the purge Lambda, the PR-002 Deny exemption, and the S3 version hard-delete. Snapshot isolation also closes the window where the table simply doesn't exist between DROP and CTAS, and gives queryable time travel instead of approximating it with S3 versioning. The real cost is operational, not technical: Iceberg needs scheduled compaction and snapshot expiration or small files degrade the metadata, and silver must be partitioned by draw date so the engine can actually prune. Sensible trigger to migrate: when a run exceeds ~10 minutes or scanning reaches tens of GB.
+
+## Phase 3 Is Completed!
