@@ -212,12 +212,13 @@ dropped its table in each of the three concurrent iterations, then all three CTA
 (iteration 2 denied, the other two aborted by the Map). That is expected and self-heals —
 a clean run recreates all 7.
 
-## Checklist before the next re-run (both halves of the two-apply are still pending)
+## Deploy checklist — the fix needs TWO steps, one of them outside Terraform
 
 Reading live prod while diagnosing the `GetDataAccess` denial turned up that the
-`HIVE_PATH_ALREADY_EXISTS` fix above (commit `c773c26`) **was never applied** — so fixing
-only Lake Formation would just move the failure back to the path check. Both steps below
-are required for a green run; each has a read-only check.
+`HIVE_PATH_ALREADY_EXISTS` fix above (commit `c773c26`) had **never been applied** — so
+fixing only Lake Formation would have moved the failure straight back to the path check.
+Both steps below are required for a green run; each has a read-only check. Ran clean on
+2026-07-25 once both were in place (see *Verified run* at the end).
 
 **1. `terraform apply`** — carries three in-place updates: the new
 `lakeformation:GetDataAccess` + multipart grants, plus the still-unapplied
@@ -229,9 +230,9 @@ cd terraform && terraform plan   # expect exactly: 0 to add, 3 to change, 0 to d
 terraform apply
 ```
 
-**2. The bucket-policy exemption** — *not* Terraform-managed. The live policy on
-`lottery-partitioned-storage-prod` still exempts only `…:root` from
-`Phase0DenyDeleteExceptRoot`, so the purge's version-deletes are still denied:
+**2. The bucket-policy exemption** — *not* Terraform-managed, so `apply` alone leaves the
+purge's version-deletes denied by `Phase0DenyDeleteExceptRoot` (which out of the box exempts
+only `…:root`). This step is easy to forget precisely because Terraform reports success:
 
 ```bash
 aws s3api put-bucket-policy --bucket lottery-partitioned-storage-prod \
@@ -241,11 +242,33 @@ aws s3api get-bucket-policy --bucket lottery-partitioned-storage-prod --query Po
   --output text | python3 -m json.tool | grep gold-purge
 ```
 
-Three gold prefixes still hold live object versions (`draw_summary`,
-`winning_number_frequency`, `time_series`) — those are exactly the CTAS that would fail on
-the path check if step 2 is skipped. After both steps, start one execution and check:
+Any gold prefix still holding live object versions is exactly a CTAS that fails on the path
+check if step 2 is skipped. After both steps, start one execution and check:
 
 ```bash
 aws glue get-tables --database-name lottery_santalucia_db \
   --query "TableList[?starts_with(Name,'gold_')].Name"   # expect all 7
 ```
+
+## Verified run (2026-07-25)
+
+Execution `pr022-verify-20260725-143058` — **SUCCEEDED** end to end in 4m15s. All 7 CTAS
+reported `State: SUCCEEDED`; all 7 `gold_*` tables registered by Athena itself, no crawler:
+
+| Table | Cols | Partitions registered |
+|---|---|---|
+| `gold_draw_summary` | 10 | — |
+| `gold_winning_number_frequency` | 4 | — |
+| `gold_terminations` | 3 | — |
+| `gold_letters_distribution` | 3 | — |
+| `gold_geo_winnings` | 4 | `year=2024/2025/2026` |
+| `gold_vendor_leaderboard` | 3 | `year=2024/2025/2026` |
+| `gold_time_series` | 4 | `year=2024/2025/2026` |
+
+Two things this confirms beyond "it ran":
+
+- **CTAS registers partitions too**, which is the load-bearing assumption behind skipping the
+  gold crawler — `glue get-partitions` returns all three years for each partitioned table.
+- **The purge's hard-delete works**: every gold prefix holds exactly its current objects
+  (1 for unpartitioned, 3 for the year-partitioned ones) with **zero delete-markers**, i.e.
+  the versions are physically gone rather than shadowed — which is what CTAS needs to see.
