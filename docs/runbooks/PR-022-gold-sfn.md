@@ -10,7 +10,7 @@ run. No manual Athena-console clicks after this lands.
 | SQL upload | `terraform/modules/orchestration/main.tf` | `aws_s3_object.gold_sql` uploads `sql/gold/*.sql` → `s3://<partitioned>/sql/gold/` |
 | Purge Lambda | `src/loteria/gold/purge_and_load.py` + `main.tf` | single-file, boto3-only Lambda zipped by `archive_file` |
 | Gold states | `terraform/modules/orchestration/main.tf` | `RunSorteosCrawler` → `PrepGold` (Pass) → `BuildGold` (Map) |
-| SFN IAM | `terraform/modules/iam/main.tf` | athena + glue-table + gold-S3 + invoke-purge grants added to `sfn_execution_policy` |
+| SFN IAM | `terraform/modules/iam/main.tf` | athena + glue-table + gold-S3 (incl. multipart) + `lakeformation:GetDataAccess` + invoke-purge grants added to `sfn_execution_policy` |
 | Purge IAM | `terraform/modules/iam/main.tf` | new `gold_purge_lambda` role + scoped S3/Glue policy |
 | Wiring | `terraform/main.tf` | new inputs threaded to `iam` + `orchestration` |
 | Provider | `terraform/provider.tf` | `hashicorp/archive ~> 2.4` added |
@@ -157,3 +157,95 @@ governed by the SFN role's IAM `s3:PutObject` — no `DATA_LOCATION_ACCESS` gran
 
 After adding these, re-`apply` and re-run the purge invoke — it should return the
 `CREATE` statement and report the dropped objects.
+
+## Troubleshooting: `lakeformation:GetDataAccess` denied on the silver tables
+
+With the LF grants above in place, the next full run got **past** the purge and failed in
+`RunCTAS` instead (`BuildGold` iteration 2, `gold_terminations`):
+
+```
+com.amazonaws.services.lakeformation.model.AccessDeniedException: User:
+arn:aws:sts::…:assumed-role/sfn-lottery-execution-role-prod/… is not authorized to perform:
+lakeformation:GetDataAccess on resource:
+arn:aws:glue:us-east-1:…:table/lottery_santalucia_db/silver_premios_premios
+because no identity-based policy allows the lakeformation:GetDataAccess action
+```
+
+**Read the error shape before touching grants** — the two LF failure modes look alike but
+have opposite fixes:
+
+| Message | Missing piece | Fix in |
+|---|---|---|
+| `Insufficient Lake Formation permission(s): Required <PERM> on <table>` | the **LF grant** | `modules/lake-formation` |
+| `no identity-based policy allows the lakeformation:… action` | the **IAM action** | `modules/iam` |
+
+This one is the second: the LF `SELECT` grant on the table wildcard was already there and
+already covers both silver tables (verify with
+`aws lakeformation list-permissions --query "PrincipalResourcePermissions[?contains(Principal.DataLakePrincipalIdentifier,'sfn-lottery')]"`
+— LF reports it as two rows, `Table/ALL_TABLES` for the five non-SELECT perms and
+`TableWithColumns/ALL_TABLES` with a column wildcard for `SELECT`; that split is LF's own
+read-back, not drift).
+
+**Under Lake Formation a read needs BOTH halves:**
+
+1. the **LF grant** — *who* may read the table, and
+2. the **IAM action** `lakeformation:GetDataAccess` — whether this principal may ask LF to
+   vend credentials at all.
+
+Because `silver/` is a registered LF location, Athena never reads those Parquet files with
+the role's own `s3:GetObject`; it calls LF for scoped temporary credentials. The role's
+broad S3 grant on the bucket is therefore irrelevant to this failure — which is why the
+denial appears on a `glue:…:table/…` ARN rather than an S3 one.
+
+**Fix:** `AllowGoldLakeFormationDataAccess` in `sfn_execution_policy` (`modules/iam`).
+`Resource` must be `"*"` — Lake Formation actions support no resource types in IAM, so
+per-table scoping lives entirely in the LF grants. The same apply also adds the multipart
+actions (`s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`,
+`s3:AbortMultipartUpload`) to `AllowGoldDataS3`: Athena writes CTAS output with multipart
+uploads, so those would be the next wall once the read is unblocked.
+
+The gold-purge Lambda role needs **no** `GetDataAccess` — it calls `glue:DeleteTable`
+directly and never reads table data.
+
+Note this run left the catalog with only **one** `gold_*` table registered: the purge
+dropped its table in each of the three concurrent iterations, then all three CTAS failed
+(iteration 2 denied, the other two aborted by the Map). That is expected and self-heals —
+a clean run recreates all 7.
+
+## Checklist before the next re-run (both halves of the two-apply are still pending)
+
+Reading live prod while diagnosing the `GetDataAccess` denial turned up that the
+`HIVE_PATH_ALREADY_EXISTS` fix above (commit `c773c26`) **was never applied** — so fixing
+only Lake Formation would just move the failure back to the path check. Both steps below
+are required for a green run; each has a read-only check.
+
+**1. `terraform apply`** — carries three in-place updates: the new
+`lakeformation:GetDataAccess` + multipart grants, plus the still-unapplied
+`s3:DeleteObjectVersion`/`s3:ListBucketVersions` on the purge policy and the fixed purge
+Lambda code (live `CodeSha256` still matches the pre-fix zip).
+
+```bash
+cd terraform && terraform plan   # expect exactly: 0 to add, 3 to change, 0 to destroy
+terraform apply
+```
+
+**2. The bucket-policy exemption** — *not* Terraform-managed. The live policy on
+`lottery-partitioned-storage-prod` still exempts only `…:root` from
+`Phase0DenyDeleteExceptRoot`, so the purge's version-deletes are still denied:
+
+```bash
+aws s3api put-bucket-policy --bucket lottery-partitioned-storage-prod \
+  --policy file://scripts/policies/lottery-partitioned-storage-prod_protect.json
+# verify the role is in the exemption list:
+aws s3api get-bucket-policy --bucket lottery-partitioned-storage-prod --query Policy \
+  --output text | python3 -m json.tool | grep gold-purge
+```
+
+Three gold prefixes still hold live object versions (`draw_summary`,
+`winning_number_frequency`, `time_series`) — those are exactly the CTAS that would fail on
+the path check if step 2 is skipped. After both steps, start one execution and check:
+
+```bash
+aws glue get-tables --database-name lottery_santalucia_db \
+  --query "TableList[?starts_with(Name,'gold_')].Name"   # expect all 7
+```

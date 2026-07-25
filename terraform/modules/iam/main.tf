@@ -528,8 +528,33 @@ resource "aws_iam_policy" "sfn_execution_policy" {
           local.glue_tables_arn
         ]
       },
+      # Lake Formation credential vending. silver/ IS registered with Lake Formation
+      # (see the lake-formation module), so Athena does not read those Parquet files with
+      # this role's own S3 rights — it asks LF to vend scoped temporary credentials, which
+      # requires lakeformation:GetDataAccess on the caller's identity policy. Without it
+      # every gold CTAS dies with:
+      #   AccessDeniedException: ... not authorized to perform: lakeformation:GetDataAccess
+      #   on resource: .../table/lottery_santalucia_db/silver_premios_premios
+      # even with the LF SELECT grant in place — under LF BOTH halves are required, the
+      # LF grant (who may read) and this IAM action (may this principal ask LF at all).
+      #
+      # Resource must be "*": Lake Formation actions support no resource types in IAM, so
+      # the table-level scoping lives entirely in the LF grants, not here.
+      {
+        Sid : "AllowGoldLakeFormationDataAccess",
+        Effect : "Allow",
+        Action : [
+          "lakeformation:GetDataAccess"
+        ],
+        Resource : "*"
+      },
       # Athena runs as this role: read silver + the uploaded SQL, write gold Parquet, and
       # read/write its own query metadata under the results bucket.
+      #
+      # The multipart actions are not optional padding: Athena writes CTAS output (and its
+      # result manifest) with multipart uploads and needs to list/abort its own parts, so
+      # omitting them fails the write rather than the read. The PR-002 bucket Deny only
+      # covers s3:DeleteObject*/DeleteBucket, so none of these are denied for this role.
       {
         Sid : "AllowGoldDataS3",
         Effect : "Allow",
@@ -537,7 +562,10 @@ resource "aws_iam_policy" "sfn_execution_policy" {
           "s3:GetObject",
           "s3:PutObject",
           "s3:ListBucket",
-          "s3:GetBucketLocation"
+          "s3:GetBucketLocation",
+          "s3:ListBucketMultipartUploads",
+          "s3:ListMultipartUploadParts",
+          "s3:AbortMultipartUpload"
         ],
         Resource : [
           var.partitioned_bucket_arn,
