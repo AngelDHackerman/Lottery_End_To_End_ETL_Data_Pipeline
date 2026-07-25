@@ -196,3 +196,9 @@ As a reminder the bronze layer is created with the extractor (the web scrapper) 
 
 So now using CTAS (Create Table As Select) 7 `sql` files were created and I'll ran manually in AWS CLI.
 Then in PR-022 will be automated the process of reading and creating the tables for the gold layer.
+
+
+
+
+
+sacar los apuntes del chat de claude sobre el PR-022

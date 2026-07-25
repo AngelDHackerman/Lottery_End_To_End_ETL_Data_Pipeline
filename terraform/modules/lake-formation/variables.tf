@@ -20,3 +20,19 @@ variable "enable_iam_allowed_principals_compat" {
   type        = bool
   default     = true
 }
+
+# --- Gold layer roles (PR-022) ---
+# Hybrid mode does NOT exempt these from LF: tables created under an LF-governed database
+# (like the gold_* tables from the manual PR-021 runs) require explicit LF grants for a
+# principal to DROP/CREATE them, regardless of IAM. Without these, the gold-purge Lambda
+# fails DeleteTable ("Insufficient Lake Formation permission(s): Required Drop") and the
+# SFN CTAS fails CreateTable.
+variable "sfn_execution_role_arn" {
+  description = "ARN of the Step Functions execution role — runs the gold CTAS (needs LF CREATE_TABLE on the db + SELECT on silver)."
+  type        = string
+}
+
+variable "gold_purge_lambda_role_arn" {
+  description = "ARN of the gold-purge Lambda role — drops each gold table before its CTAS (needs LF DROP)."
+  type        = string
+}

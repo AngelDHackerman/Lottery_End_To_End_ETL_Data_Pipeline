@@ -25,6 +25,16 @@ glue_crawlers_silver.tf, athena.tf}` via cross-state `terraform state rm` (legac
 - Outputs: `db_name`, `premios_silver_crawler_name`, `sorteos_silver_crawler_name`,
   `athena_workgroup_name`.
 
-## Later
+## PR-022 decision: no gold crawler
 
-- **PR-022** adds the gold crawler (`s3://<partitioned>/gold/`).
+The roadmap's PR-022 step 4 planned a `RunGoldCrawler` over `s3://<partitioned>/gold/`.
+**It was deliberately skipped.** Athena CTAS `CREATE TABLE` registers each `gold_*` table
+— including its partition metadata — directly in this database. Because the gold build
+fully drops and recreates every table on each run (see the orchestration module's
+`BuildGold` Map + the `gold-purge` Lambda), the catalog is always current the moment the
+CTAS finishes. A crawler would only re-scan data CTAS already registered — pure runtime
+cost with no benefit.
+
+A crawler would earn its place only if the gold build switched from *recreate* to
+`INSERT INTO` (append), where newly written partitions would need discovery. That is not
+the current design; revisit if it changes.

@@ -36,6 +36,15 @@ UTC_DATE="$(date -u +%Y-%m-%d)"
 UTC_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 POLICY_SID="Phase0DenyDeleteExceptRoot"
 
+# Extra principals (beyond account root) exempted from the delete-Deny, per bucket.
+# PR-022: the gold-purge Lambda role must delete under gold/ on the partitioned bucket to
+# rebuild the (reproducible, silver-derived) gold layer before each Athena CTAS. Its IAM
+# policy already scopes it to gold/* only, so exempting it here does not widen its reach
+# to raw/ or silver/. Value is the ARN suffix after "arn:aws:iam::<account>:".
+declare -A EXTRA_EXEMPT_PRINCIPALS=(
+  ["lottery-partitioned-storage-prod"]="role/lottery-gold-purge-role-prod"
+)
+
 # Mode: dry-run unless --apply / APPLY=1
 MODE="dry-run"
 if [[ "${APPLY:-0}" == "1" ]]; then MODE="apply"; fi
@@ -118,6 +127,17 @@ for bucket in "${BUCKETS[@]}"; do
 
   # --- 3. Deny-delete bucket policy ---------------------------------------- #
   policy_file="${POLICY_DIR}/${bucket}_protect.json"
+
+  # Exempt principals: account root always, plus any per-bucket extras. Emitted as a bare
+  # string for one principal (root-only) or a JSON array when there are extras — both are
+  # valid for aws:PrincipalArn in a Condition.
+  extra_exempt="${EXTRA_EXEMPT_PRINCIPALS[$bucket]:-}"
+  if [[ -n "$extra_exempt" ]]; then
+    principal_arns_json="[\"${ROOT_ARN}\", \"arn:aws:iam::${ACCOUNT_ID}:${extra_exempt}\"]"
+  else
+    principal_arns_json="\"${ROOT_ARN}\""
+  fi
+
   cat > "$policy_file" <<JSON
 {
   "Version": "2012-10-17",
@@ -136,7 +156,7 @@ for bucket in "${BUCKETS[@]}"; do
       ],
       "Condition": {
         "StringNotEquals": {
-          "aws:PrincipalArn": "${ROOT_ARN}"
+          "aws:PrincipalArn": ${principal_arns_json}
         }
       }
     }

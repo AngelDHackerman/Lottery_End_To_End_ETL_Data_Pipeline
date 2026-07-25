@@ -56,6 +56,49 @@ resource "aws_lakeformation_permissions" "crawler_silver_location" {
   }
 }
 
+# ===========================================================================
+# GOLD LAYER (PR-022)
+# ===========================================================================
+# The gold tables live in the same LF-governed database as silver. The manual PR-021
+# CTAS runs created gold_* tables owned by the console admin, so the automation roles
+# have no LF rights on them until granted here. Same pattern as the crawler grants above;
+# ["ALL"] is avoided for the same never-settles read-back reason (see the note above).
+
+# Gold-purge Lambda: drop each gold table before its CTAS. DROP needs DESCRIBE alongside.
+resource "aws_lakeformation_permissions" "gold_purge_tables" {
+  principal   = var.gold_purge_lambda_role_arn
+  permissions = ["DESCRIBE", "DROP"]
+
+  table {
+    database_name = var.database_name
+    wildcard      = true
+  }
+}
+
+# Step Function role: run the CTAS. Needs CREATE_TABLE on the database to register each
+# fresh gold table.
+resource "aws_lakeformation_permissions" "sfn_database" {
+  principal   = var.sfn_execution_role_arn
+  permissions = ["CREATE_TABLE", "ALTER", "DROP", "DESCRIBE"]
+
+  database {
+    name = var.database_name
+  }
+}
+
+# Step Function role: read silver (SELECT/DESCRIBE) and manage the gold tables it creates.
+# gold/ is NOT registered with LF (only silver/ is), so writing gold Parquet is governed
+# by the SFN role's IAM s3:PutObject — no DATA_LOCATION_ACCESS grant is required here.
+resource "aws_lakeformation_permissions" "sfn_all_tables" {
+  principal   = var.sfn_execution_role_arn
+  permissions = ["ALTER", "DELETE", "DESCRIBE", "DROP", "INSERT", "SELECT"]
+
+  table {
+    database_name = var.database_name
+    wildcard      = true
+  }
+}
+
 # IAMAllowedPrincipals compatibility grant. Required while the account runs LF in
 # "Hybrid access mode" (the default here — "Make Lake Formation permissions effective
 # immediately" unchecked), where Glue falls back to IAM-only authorization. Disable

@@ -74,6 +74,19 @@ variable "glue_crawler_sorteos_name" {
   default     = "lottery-sorteos-silver-crawler"
 }
 
+# --- Gold layer (PR-022) ---
+variable "database_name" {
+  description = "Glue catalog database the gold CTAS targets. Scopes the SFN role's glue table/database grants (from module.catalog.db_name)."
+  type        = string
+  default     = "lottery_santalucia_db"
+}
+
+variable "athena_workgroup_name" {
+  description = "Athena workgroup the gold CTAS runs in. Scopes the SFN role's athena grants (from module.catalog.athena_workgroup_name)."
+  type        = string
+  default     = "lottery-wg"
+}
+
 # --- Personal IAM-user grants (opt-in) ---
 variable "personal_iam_users" {
   description = "IAM user names to grant the Athena-results policy. Empty => none created (fresh-cloner default). The owner sets their own users in a gitignored tfvars."
