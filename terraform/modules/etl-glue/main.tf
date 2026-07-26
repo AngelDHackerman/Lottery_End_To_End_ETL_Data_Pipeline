@@ -34,9 +34,15 @@
 # Both groups already exist in prod and must be IMPORTED, not created:
 # see docs/runbooks/PR-023-log-retention.md.
 locals {
+  # These names are fixed by the Glue service, not chosen by us — so they are stated as
+  # constants and exposed as outputs regardless of whether this module MANAGES the groups.
+  # PR-024's log widgets need the names to query them; the groups exist in AWS either way.
+  glue_output_log_group = "/aws-glue/python-jobs/output" # stdout (the structured JSON logs)
+  glue_error_log_group  = "/aws-glue/python-jobs/error"  # stderr + tracebacks
+
   shared_log_groups = var.manage_shared_glue_log_groups ? [
-    "/aws-glue/python-jobs/output",
-    "/aws-glue/python-jobs/error",
+    local.glue_output_log_group,
+    local.glue_error_log_group,
   ] : []
 }
 

@@ -18,3 +18,17 @@ output "log_group_names" {
   description = "Names of the Glue Python Shell log groups managed here."
   value       = [for lg in aws_cloudwatch_log_group.python_shell : lg.name]
 }
+
+# PR-024: the two groups by ROLE, so consumers don't have to know Glue's naming or index
+# into log_group_names. Emitted from constants, NOT from the resources, so they stay
+# correct when manage_shared_glue_log_groups = false — the groups exist in AWS whether or
+# not Terraform owns them, and a dashboard still needs to read them.
+output "output_log_group_name" {
+  description = "Log group carrying the Glue job's stdout (structured JSON logs)."
+  value       = local.glue_output_log_group
+}
+
+output "error_log_group_name" {
+  description = "Log group carrying the Glue job's stderr and tracebacks."
+  value       = local.glue_error_log_group
+}

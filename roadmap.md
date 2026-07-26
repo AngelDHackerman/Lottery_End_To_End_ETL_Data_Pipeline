@@ -556,6 +556,21 @@ Add aws_cloudwatch_dashboard "loteria_pipeline" in terraform/modules/observabili
 - Athena: QueryQueueTime, EngineExecutionTime, ProcessedBytes for workgroup "lottery-wg"
 ```
 
+> **⚠️ The two Glue widgets above are IMPOSSIBLE for this job (verified live 2026-07-26).**
+> `glue.driver.aggregate.numCompletedTasks` and `glue.ALL.s3.filesystem.read_bytes` are
+> **Spark** metrics; the transform is a Python Shell job and publishes no job telemetry.
+> The whole `AWS/Glue` namespace holds one metric — `ResourceUsage`, an account-level
+> service-quota gauge with **no `JobName` dimension** — and there are **no crawler metrics
+> at all**. Same pythonshell-vs-`glueetl` split as PR-020.
+>
+> **Substitute:** Step Functions *service-integration* metrics (`AWS/States`,
+> `ServiceIntegrationResourceArn`) give per-stage success/failure/duration for the Glue job,
+> the crawlers and the Athena CTAS. Gotcha: that dimension's value is **account-qualified**
+> (`arn:aws:states:us-east-1:<acct>:glue:startJobRun.sync`, not the bare
+> `arn:aws:states:::glue:...` used in the state machine) and identifies the integration
+> **type**, not the resource. Glue-specific detail comes from Logs Insights widgets over the
+> PR-023 log groups. S3 object counts deferred to PR-027 as the prompt allows.
+
 ## PR-025 — Alarms
 **Prompt:**
 ```
@@ -567,6 +582,16 @@ Add aws_cloudwatch_metric_alarm resources, each notifying SNS topic from PR-014:
 5. Crawler_Failed: AWS/Glue glue.driver.aggregate.numFailedTasks > 0 on each silver/gold crawler
 6. ScrapeDo_Failed: alarm on the "ScraperHttpStatus" custom metric from PR-026 when any non-200 StatusCode is emitted (esp. 401/402/429 — auth/quota/rate-limit). scrape.do is a third-party proxy on the FREE TIER; if the free plan ends or the quota is hit, the weekly run breaks. Today this only surfaces indirectly (fetch_via_proxy raises on non-200 → Lambda_Errors + SFN_ExecutionFailed fire), so this dedicated alarm names the real cause instead of a generic Lambda error. Depends on PR-026's metric — if ordering, land PR-026 first.
 ```
+
+> **⚠️ Alarms 4 and 5 hit the same dead end as PR-024's Glue widgets.** `AWS/Glue`
+> `Job.failure` and `glue.driver.aggregate.numFailedTasks` do **not exist** for a Python
+> Shell job or for crawlers — confirmed live 2026-07-26, the namespace has only
+> `ResourceUsage`. Alarm them on `AWS/States` `ServiceIntegrationsFailed` with
+> `ServiceIntegrationResourceArn` = the account-qualified `glue:startJobRun.sync` /
+> `aws-sdk:glue:startCrawler` values instead (see the PR-024 note), or on a CloudWatch Logs
+> metric filter over `/aws-glue/python-jobs/error`. Alarm 2 (`NoSuccessIn8Days`) also needs
+> care: `ExecutionsSucceeded` reports **no datapoints** rather than zero when nothing runs,
+> so the alarm must treat missing data as breaching.
 
 ## PR-026 — Scraper response-code custom metric
 **Prompt:**
@@ -809,8 +834,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 020 | Glue runtime spike (stay on Python Shell 3.9) | merged | [PR #23](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/23) |
 | 021 | Gold SQL files | merged | [PR #24](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/24) |
 | 022 | Wire Gold into Step Function | merged | [PR #25](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/25) |
-| 023 | Log retention | in-progress | [PR #26](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/26) |
-| 024 | CloudWatch dashboard | todo | — |
+| 023 | Log retention | merged | [PR #26](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/26) |
+| 024 | CloudWatch dashboard | in-progress | [PR #27](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/27) |
 | 025 | Alarms | todo | — |
 | 026 | Scraper HTTP status metric | todo | — |
 | 027 | S3 object-count emitter (optional) | todo | — |
