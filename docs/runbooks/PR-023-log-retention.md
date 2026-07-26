@@ -181,6 +181,19 @@ Expected after the imports: **1 to add** (the SFN log group) **, 8 to change** �
 imported groups gaining `retention_in_days = 30` + tags, plus the two IAM policies and the
 state machine.
 
+Combined with the artifact churn below, the real prompt reads
+**`2 to add, 11 to change, 1 to destroy`** (the layer replacement counts as both an add and
+the destroy). Confirmed on the 2026-07-26 apply.
+
+> **If the apply fails with `AccessDeniedException: … logs:CreateLogDelivery`, just re-run
+> it.** The only reference from `module.orchestration` into `module.iam` is the role's
+> *ARN*, so there was no graph edge to `aws_iam_policy.sfn_execution_policy` — Terraform
+> could update the state machine before/alongside the policy that grants it log-delivery
+> rights, and Step Functions validates `logging_configuration` during
+> `UpdateStateMachine`. The policy is applied by then, so a second `terraform apply` goes
+> green; nothing is left half-built. `depends_on = [module.iam]` on the orchestration module
+> call now makes the ordering explicit for fresh deploys.
+
 > **⚠️ Expect extra churn that is NOT this PR.** A plan run today already shows
 > `1 to add, 3 to change, 1 to destroy` on **master**, before any PR-023 change: rebuilding
 > the artifacts produces a new `lambda_layer.zip` hash (pip installs are not byte-
