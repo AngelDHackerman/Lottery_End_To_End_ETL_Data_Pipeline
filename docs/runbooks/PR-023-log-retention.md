@@ -78,24 +78,35 @@ Set it to `false` and the three groups are left alone entirely.
 the next run, so it is not destructive to the pipeline, but it does drop other jobs' history
 if the account ever gains any.
 
-### Out of scope (worth a look, manually)
+### Out of scope: the Spark namespace — **DONE MANUALLY 2026-07-26**
 
-`describe-log-groups` shows two more unretained groups this stack does **not** create and
-does not manage:
+`describe-log-groups` showed two more unretained groups this stack does **not** create and
+does not manage, holding ~384 MB of never-expiring logs between them:
 
-| Group | Stored |
-|---|---|
-| `/aws-glue/jobs/error` | ~230 MB |
-| `/aws-glue/jobs/logs-v2` | ~154 MB |
+| Group | Stored | Action |
+|---|---|---|
+| `/aws-glue/jobs/error` | ~230 MB | set to 30 days by hand |
+| `/aws-glue/jobs/logs-v2` | ~154 MB | set to 30 days by hand |
 
 These are the *Spark* Glue namespace — leftovers from earlier, now-deleted job runs, not
-written by anything in this repo. Nearly 400 MB of never-expiring logs is real (if small)
-recurring storage cost. Set retention by hand if you want them gone:
+written by anything in this repo. The owner set retention out-of-band:
 
 ```bash
 aws logs put-retention-policy --log-group-name /aws-glue/jobs/error    --retention-in-days 30
 aws logs put-retention-policy --log-group-name /aws-glue/jobs/logs-v2 --retention-in-days 30
 ```
+
+> **⚠️ That retention is invisible to Terraform.** Nothing enforces it — if either group is
+> ever deleted and recreated, it comes back as "never expire" and no `plan` will say so.
+> Acceptable while nothing in this repo writes there. **It stops being acceptable if the L6
+> migration lands:** a Spark `glueetl` job writes to exactly `/aws-glue/jobs/*`, so that
+> migration should move these two groups into the `etl-glue` module next to the
+> `python-jobs` pair, under the same `manage_shared_glue_log_groups` gate.
+
+Still unretained after PR-023, deliberately — ~570 KB combined, so there is no cost case
+for managing them: `/aws-glue/jobs/output` (18 KB), `/aws-glue/sessions/{error,output}`
+(140 KB + 25 KB, Glue interactive sessions), `/aws/sagemaker/studio` (386 KB, from the
+domain left unmanaged by `enable_sagemaker = false`).
 
 ---
 
@@ -218,6 +229,22 @@ aws stepfunctions describe-state-machine \
 
 Expected: `retentionInDays: 30` on all six, and
 `{"level": "ALL", "includeExecutionData": true, "destinations": [...vendedlogs...]}`.
+
+**Both confirmed against prod 2026-07-26** — all six groups at 30, and:
+
+```json
+{
+  "level": "ALL",
+  "includeExecutionData": true,
+  "destinations": [{"cloudWatchLogsLogGroup": {"logGroupArn":
+    "arn:aws:logs:us-east-1:913524903233:log-group:/aws/vendedlogs/states/lottery-etl-pipeline-prod:*"}}]
+}
+```
+
+Note the `:*` suffix on the read-back ARN — that is the `log_destination` the module sets,
+not a display artifact. A bare group ARN is rejected by the API.
+
+`terraform plan` is a clean **`No changes`** after the apply.
 
 Then trigger one execution and confirm log streams land in
 `/aws/vendedlogs/states/lottery-etl-pipeline-prod`:
