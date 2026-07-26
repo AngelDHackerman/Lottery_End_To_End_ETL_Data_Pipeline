@@ -209,3 +209,17 @@ The CTAS were uploaded to S3 bucket in `sql/gold/` partition but now every time 
 > Note 3: __What to do if I would have 1TB of data in the silver layer rather than a few MB?__ At that volume the full rebuild stops making sense: seven CTAS each scanning 1TB is ~$35 per run to re-read history you already computed, and the purge Lambda can't page through millions of object versions within its timeout. Iceberg replaces the whole drop-then-recreate dance with `MERGE INTO` / `INSERT OVERWRITE`, rewriting only the partitions the new sorteo actually touched — which deletes three moving parts outright: the purge Lambda, the PR-002 Deny exemption, and the S3 version hard-delete. Snapshot isolation also closes the window where the table simply doesn't exist between DROP and CTAS, and gives queryable time travel instead of approximating it with S3 versioning. The real cost is operational, not technical: Iceberg needs scheduled compaction and snapshot expiration or small files degrade the metadata, and silver must be partitioned by draw date so the engine can actually prune. Sensible trigger to migrate: when a run exceeds ~10 minutes or scanning reaches tens of GB.
 
 ## Phase 3 Is Completed!
+
+## PR-023 — Log retention everywhere
+
+When the CloudWatch log groups were created back then, they were created implicitly by AWS with no retention policy at all. So logs were accumulating for ever. This was resolved on this PR because a retention policy was added and set to be __30 days__ retention and also, I Imported the log groups for:
+
+* etl-lambda
+* orchestration
+* etl-glue
+* catalog 
+
+Just one for the __StepFuctions__ log group is brand new and was created on this PR, the path is this one: `/aws/vendedlogs/states/lottery-etl-pipeline-prod`.
+
+Smoke test that ensures StepFunction writes the data to the proper log group was done and it passed, now the retention for 30 days is set in the log groups and is working as expected. This improves the visibility of the pipeline status.
+
