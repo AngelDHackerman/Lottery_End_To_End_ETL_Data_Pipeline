@@ -19,6 +19,20 @@ resource "aws_glue_catalog_database" "lottery_db" {
   name = var.database_name
 }
 
+# --- PR-023: log retention -------------------------------------------------------------
+#
+# Like Python Shell jobs, crawlers have no per-crawler log group — every crawler in the
+# account writes to /aws-glue/crawlers, created by the Glue service with no retention.
+# Owning it here (gated by var.manage_shared_glue_log_groups) is the only way to expire
+# those logs. The group already exists in prod and must be IMPORTED, not created:
+# see docs/runbooks/PR-023-log-retention.md.
+resource "aws_cloudwatch_log_group" "crawlers" {
+  count = var.manage_shared_glue_log_groups ? 1 : 0
+
+  name              = "/aws-glue/crawlers"
+  retention_in_days = var.log_retention_days
+}
+
 # Crawler for the silver "premios" table
 resource "aws_glue_crawler" "premios_silver_crawler" {
   name          = "lottery-premios-silver-crawler"

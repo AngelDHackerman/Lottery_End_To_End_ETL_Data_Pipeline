@@ -34,6 +34,11 @@ locals {
   ]
   state_machine_arn = "arn:aws:states:${var.aws_region}:${local.account_id}:stateMachine:lottery-etl-pipeline-${var.environment}"
 
+  # PR-023: the Step Functions execution log group (created in the orchestration module).
+  # Built from the name here rather than passed in as an output, to keep the existing
+  # iam -> orchestration dependency direction (orchestration consumes IAM, never both ways).
+  sfn_log_group_arn = "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws/vendedlogs/states/lottery-etl-pipeline-${var.environment}"
+
   # PR-022 gold layer ARNs.
   gold_purge_lambda_arn = "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:lottery-gold-purge-${var.environment}"
   athena_workgroup_arn  = "arn:aws:athena:${var.aws_region}:${local.account_id}:workgroup/${var.athena_workgroup_name}"
@@ -279,9 +284,15 @@ data "aws_iam_policy_document" "glue_job_policy" {
       "logs:CreateLogStream",
       "logs:PutLogEvents"
     ]
-    # TODO PR-023: scope to the specific /aws-glue/ log-group ARNs once log groups are
-    # created explicitly. Kept as "*" for now (log actions, low blast radius).
-    resources = ["*"]
+    # PR-023: narrowed from "*" to the Glue log-group namespace. Deliberately the whole
+    # /aws-glue/ prefix rather than just python-jobs/{output,error}: Glue picks the group
+    # by job type (a pythonshell job writes to /aws-glue/python-jobs/*, a Spark one to
+    # /aws-glue/jobs/*), so pinning the two exact groups would silently break logging the
+    # day the job type changes — which is exactly the L6 migration this repo has queued.
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws-glue/*",
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws-glue/*:log-stream:*",
+    ]
   }
 
   statement {
@@ -470,16 +481,42 @@ resource "aws_iam_policy" "sfn_execution_policy" {
         ],
         Resource : local.silver_crawler_arns # PR-009: narrowed from "*"
       },
+      # PR-023 turns on Step Functions execution logging, which needs TWO grants that look
+      # redundant but are not.
+      #
+      # (1) The vended-logs DELIVERY setup. Step Functions does not write to CloudWatch
+      # directly — it provisions a log delivery, and the CreateLogDelivery family plus
+      # PutResourcePolicy are what authorize that. AWS documents these actions as not
+      # supporting resource-level permissions, so Resource MUST stay "*": this is a
+      # service constraint, not an un-narrowed wildcard. (Resolves the PR-009 TODO by
+      # establishing that the scoping has to live in (2).)
+      {
+        Sid    = "AllowSfnLogDeliverySetup",
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogDelivery",
+          "logs:GetLogDelivery",
+          "logs:UpdateLogDelivery",
+          "logs:DeleteLogDelivery",
+          "logs:ListLogDeliveries",
+          "logs:PutResourcePolicy",
+          "logs:DescribeResourcePolicies",
+          "logs:DescribeLogGroups"
+        ],
+        Resource = "*"
+      },
+      # (2) The actual writes, scoped to the vended-logs namespace this stack owns.
       {
         Sid    = "LogsForSFN",
         Effect = "Allow",
         Action = [
-          "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ],
-        # TODO PR-023: scope to the SFN log-group ARN once created explicitly.
-        Resource = "*"
+        Resource = [
+          local.sfn_log_group_arn,
+          "${local.sfn_log_group_arn}:log-stream:*",
+        ]
       },
 
       # --- PR-022 Gold layer ---

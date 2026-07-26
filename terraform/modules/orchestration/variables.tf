@@ -57,3 +57,27 @@ variable "gold_purge_lambda_role_arn" {
   description = "Execution role ARN for the gold-purge Lambda (from module.iam)."
   type        = string
 }
+
+# --- Observability (PR-023) ---
+variable "log_retention_days" {
+  description = "Retention for the gold-purge Lambda + Step Functions log groups. 0 = never expire."
+  type        = number
+  default     = 30
+}
+
+variable "sfn_log_level" {
+  description = "Step Functions execution logging level: OFF, ERROR, FATAL or ALL. OFF skips both the log group and the logging_configuration."
+  type        = string
+  default     = "ALL"
+
+  validation {
+    condition     = contains(["OFF", "ERROR", "FATAL", "ALL"], var.sfn_log_level)
+    error_message = "sfn_log_level must be one of OFF, ERROR, FATAL, ALL."
+  }
+}
+
+variable "sfn_include_execution_data" {
+  description = "Include state input/output payloads in the Step Functions logs."
+  type        = bool
+  default     = true
+}

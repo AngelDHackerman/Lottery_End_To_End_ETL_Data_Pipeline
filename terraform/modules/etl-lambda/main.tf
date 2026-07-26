@@ -14,6 +14,34 @@
 # PR-019 splits the single fat artifact in two: `loteria/` ships in the function zip and
 # its third-party deps (requests, beautifulsoup4) ship in a layer. Build both with
 # `make build` BEFORE applying — see docs/runbooks/PR-019-lambda-layer.md.
+#
+# PR-023 takes ownership of the function's CloudWatch log group so it has a retention
+# policy instead of AWS's "never expire" default. The group already exists in prod (Lambda
+# auto-created it on the first invocation), so it must be IMPORTED — see
+# docs/runbooks/PR-023-log-retention.md.
+
+locals {
+  # Named once so the log group can be declared BEFORE the function it belongs to.
+  # Referencing aws_lambda_function.*.function_name here would invert the dependency and
+  # let a fresh deploy invoke the function before its group exists (AWS would then
+  # auto-create an unretained group and the apply would fail on the collision).
+  function_name  = "lottery-extractor-${var.environment}"
+  log_group_name = "/aws/lambda/${local.function_name}"
+}
+
+# Explicit log group: created here rather than implicitly by the first invocation, purely
+# so retention_in_days is set. AWS reuses a pre-existing group with the canonical name.
+resource "aws_cloudwatch_log_group" "extractor" {
+  name              = local.log_group_name
+  retention_in_days = var.log_retention_days
+
+  tags = {
+    Name        = local.log_group_name
+    Environment = var.environment
+    Project     = "Lottery ETL"
+    Owner       = "Angel Hackerman"
+  }
+}
 
 # The function's code-only artifact, uploaded from the locally built zip.
 resource "aws_s3_object" "lambda_package" {
@@ -59,7 +87,7 @@ resource "aws_lambda_layer_version" "loteria_deps" {
 
 # Lambda: Extractor
 resource "aws_lambda_function" "extractor_lambda" {
-  function_name    = "lottery-extractor-${var.environment}"
+  function_name    = local.function_name
   s3_bucket        = var.lambda_code_bucket
   s3_key           = aws_s3_object.lambda_package.key
   source_code_hash = filebase64sha256(var.lambda_zip_path)
@@ -89,11 +117,14 @@ resource "aws_lambda_function" "extractor_lambda" {
   }
 
   depends_on = [
-    aws_s3_object.lambda_package
+    aws_s3_object.lambda_package,
+    # PR-023: the group must exist first, or a fresh deploy's first invocation
+    # auto-creates an unretained one under the same name.
+    aws_cloudwatch_log_group.extractor
   ]
 
   tags = {
-    Name        = "lottery-extractor-${var.environment}"
+    Name        = local.function_name
     Environment = var.environment
     Project     = "Lottery ETL"
     Owner       = "Angel Hackerman"

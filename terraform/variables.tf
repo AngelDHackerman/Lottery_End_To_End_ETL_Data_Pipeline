@@ -51,6 +51,47 @@ variable "alert_email" {
   default     = ""
 }
 
+# --- Observability: log retention (PR-023) ---
+
+variable "log_retention_days" {
+  description = "Retention for every CloudWatch log group this stack owns. 0 = never expire. Crank it up for a long-lived prod; 30 keeps the free-tier bill flat."
+  type        = number
+  default     = 30
+
+  validation {
+    # CloudWatch only accepts this fixed set; anything else fails at apply time with an
+    # unhelpful InvalidParameterException, so catch it at plan time instead.
+    condition = contains(
+      [0, 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653],
+      var.log_retention_days
+    )
+    error_message = "log_retention_days must be one of the values CloudWatch accepts (0, 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653)."
+  }
+}
+
+variable "manage_shared_glue_log_groups" {
+  description = "Let this stack own the ACCOUNT-WIDE Glue log groups (/aws-glue/python-jobs/{output,error}, /aws-glue/crawlers). Glue writes Python Shell + crawler logs to these shared groups rather than per-job ones, so this is the only way to set their retention — but every Glue job/crawler in the account shares them. Set false if the account hosts Glue workloads this repo does not own."
+  type        = bool
+  default     = true
+}
+
+variable "sfn_log_level" {
+  description = "Step Functions execution logging level: OFF, ERROR, FATAL or ALL. ALL is the default because the pipeline runs once a week (~15 state transitions), so the log volume is negligible next to the debugging value. OFF skips the log group and the logging_configuration entirely."
+  type        = string
+  default     = "ALL"
+
+  validation {
+    condition     = contains(["OFF", "ERROR", "FATAL", "ALL"], var.sfn_log_level)
+    error_message = "sfn_log_level must be one of OFF, ERROR, FATAL, ALL."
+  }
+}
+
+variable "sfn_include_execution_data" {
+  description = "Include state input/output payloads in the Step Functions logs. On for this pipeline: the payloads are gold SQL keys and CTAS statements, not sensitive data, and they are what makes a failed run readable."
+  type        = bool
+  default     = true
+}
+
 # --- lake-formation module (PR-013) ---
 variable "enable_iam_allowed_principals_compat" {
   description = "Keep the IAMAllowedPrincipals LF database grant (Hybrid access mode compatibility). Disable only after moving to full LF enforcement."

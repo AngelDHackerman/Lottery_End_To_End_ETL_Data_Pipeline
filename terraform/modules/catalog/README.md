@@ -38,3 +38,13 @@ cost with no benefit.
 A crawler would earn its place only if the gold build switched from *recreate* to
 `INSERT INTO` (append), where newly written partitions would need discovery. That is not
 the current design; revisit if it changes.
+
+## Log retention (PR-023) — `/aws-glue/crawlers` is ACCOUNT-WIDE
+
+Crawlers have no per-crawler log group; every crawler in the account writes to
+`/aws-glue/crawlers`. Owning it here is the only way to set its retention, so the same
+`manage_shared_glue_log_groups` gate as the `etl-glue` module applies. The group already
+exists in prod and is `terraform import`ed — see `docs/runbooks/PR-023-log-retention.md`.
+
+Extra inputs: `log_retention_days` (default 30), `manage_shared_glue_log_groups`.
+Extra output: `crawler_log_group_name`.

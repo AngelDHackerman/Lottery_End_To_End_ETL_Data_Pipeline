@@ -21,6 +21,13 @@
 # partitions) in the Glue catalog itself, so a crawler would be redundant. See the
 # catalog module README for the reasoning behind skipping roadmap step 4.
 
+# PR-023 adds log retention here in two places: the gold-purge Lambda's own group (which
+# already exists in prod and must be IMPORTED), and — new — a log group for the state
+# machine itself. Step Functions writes execution logs only when a logging_configuration
+# is attached, so until now the pipeline had no CloudWatch record of a run at all; the
+# only history was the 90-day console execution list. See
+# docs/runbooks/PR-023-log-retention.md.
+
 locals {
   gold_sql_dir = "${path.module}/../../../sql/gold"
   # Baked at plan time: the Map iterates this static list, so the state machine never
@@ -28,6 +35,41 @@ locals {
   gold_sql_keys = [
     for f in fileset(local.gold_sql_dir, "*.sql") : { sqlKey = "sql/gold/${f}" }
   ]
+
+  # PR-023: declared as locals so each log group can be created BEFORE the resource that
+  # writes to it (see the etl-lambda module for why the reverse order is a trap).
+  gold_purge_function_name = "lottery-gold-purge-${var.environment}"
+  state_machine_name       = "lottery-etl-pipeline-${var.environment}"
+  sfn_logging_enabled      = var.sfn_log_level != "OFF"
+}
+
+resource "aws_cloudwatch_log_group" "gold_purge" {
+  name              = "/aws/lambda/${local.gold_purge_function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = {
+    Name        = "/aws/lambda/${local.gold_purge_function_name}"
+    Environment = var.environment
+    Project     = "Lottery ETL"
+    Owner       = "Angel Hackerman"
+  }
+}
+
+# Step Functions delivers execution logs through CloudWatch Logs' "vended logs" path, which
+# requires the group name to start with /aws/vendedlogs/ — any other prefix is accepted by
+# Terraform but rejected by the service when it tries to create the delivery.
+resource "aws_cloudwatch_log_group" "state_machine" {
+  count = local.sfn_logging_enabled ? 1 : 0
+
+  name              = "/aws/vendedlogs/states/${local.state_machine_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = {
+    Name        = "/aws/vendedlogs/states/${local.state_machine_name}"
+    Environment = var.environment
+    Project     = "Lottery ETL"
+    Owner       = "Angel Hackerman"
+  }
 }
 
 # Upload the CTAS SQL (authored in PR-021) to the partitioned bucket. The purge Lambda
@@ -50,7 +92,7 @@ data "archive_file" "gold_purge" {
 }
 
 resource "aws_lambda_function" "gold_purge" {
-  function_name    = "lottery-gold-purge-${var.environment}"
+  function_name    = local.gold_purge_function_name
   filename         = data.archive_file.gold_purge.output_path
   source_code_hash = data.archive_file.gold_purge.output_base64sha256
   handler          = "purge_and_load.handler"
@@ -59,8 +101,11 @@ resource "aws_lambda_function" "gold_purge" {
   memory_size      = 256
   role             = var.gold_purge_lambda_role_arn
 
+  # PR-023: same ordering rule as the extractor — group first, function second.
+  depends_on = [aws_cloudwatch_log_group.gold_purge]
+
   tags = {
-    Name        = "lottery-gold-purge-${var.environment}"
+    Name        = local.gold_purge_function_name
     Environment = var.environment
     Project     = "Lottery ETL"
     Owner       = "Angel Hackerman"
@@ -68,8 +113,21 @@ resource "aws_lambda_function" "gold_purge" {
 }
 
 resource "aws_sfn_state_machine" "pipeline_state_machine" {
-  name     = "lottery-etl-pipeline-${var.environment}"
+  name     = local.state_machine_name
   role_arn = var.sfn_execution_role_arn
+
+  # PR-023: turn on execution logging. Off by default in AWS, which is why no
+  # /aws/vendedlogs/states/ group existed before this PR. `:*` on the destination is
+  # required — Step Functions delivers to the log group's stream wildcard, and the API
+  # rejects a bare group ARN.
+  dynamic "logging_configuration" {
+    for_each = local.sfn_logging_enabled ? [1] : []
+    content {
+      log_destination        = "${aws_cloudwatch_log_group.state_machine[0].arn}:*"
+      include_execution_data = var.sfn_include_execution_data
+      level                  = var.sfn_log_level
+    }
+  }
 
   definition = jsonencode({
     Comment = "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → gold CTAS",
