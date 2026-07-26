@@ -21,3 +21,9 @@ output "athena_workgroup_name" {
   description = "Name of the Athena workgroup."
   value       = aws_athena_workgroup.lottery_wg.name
 }
+
+# PR-023: null when manage_shared_glue_log_groups = false.
+output "crawler_log_group_name" {
+  description = "Name of the shared Glue crawler log group, if managed here."
+  value       = one(aws_cloudwatch_log_group.crawlers[*].name)
+}

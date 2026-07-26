@@ -530,6 +530,21 @@ For each existing service that auto-creates a log group, either:
 Add a variable `log_retention_days` (default 30) so the owner can crank it up for prod.
 ```
 
+> **Scope notes discovered while executing (2026-07-26):**
+> - **Glue has no per-job/per-crawler log groups.** A Python Shell job writes to the
+>   account-wide `/aws-glue/python-jobs/{output,error}`, crawlers to `/aws-glue/crawlers`
+>   (`--continuous-log-logGroup` is Spark-only — same job-family split as PR-020). Setting
+>   retention therefore means owning three account-shared groups, gated behind
+>   `manage_shared_glue_log_groups` (default true).
+> - **The orchestration module gained Step Functions execution logging**, which was OFF —
+>   the pipeline had no CloudWatch record of a run at all. New group
+>   `/aws/vendedlogs/states/…` (prefix is mandatory), `sfn_log_level` default `ALL`.
+> - Resolves PR-009's two `TODO PR-023` IAM wildcards: the Glue one narrows to
+>   `/aws-glue/*`; the SFN one splits, and its delivery half **must** stay `"*"` because AWS
+>   documents those actions as not supporting resource-level permissions.
+> - 5 of the 6 groups already exist and must be **imported**. Runbook:
+>   `docs/runbooks/PR-023-log-retention.md`.
+
 ## PR-024 — CloudWatch dashboard
 **Prompt:**
 ```
@@ -794,7 +809,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 020 | Glue runtime spike (stay on Python Shell 3.9) | merged | [PR #23](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/23) |
 | 021 | Gold SQL files | merged | [PR #24](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/24) |
 | 022 | Wire Gold into Step Function | merged | [PR #25](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/25) |
-| 023 | Log retention | todo | — |
+| 023 | Log retention | in-progress | [PR #26](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/26) |
 | 024 | CloudWatch dashboard | todo | — |
 | 025 | Alarms | todo | — |
 | 026 | Scraper HTTP status metric | todo | — |

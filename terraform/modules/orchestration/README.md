@@ -42,3 +42,27 @@ The Step Function's crawler names come from `module.catalog` outputs, the lambda
 
 - **PR-022** extends the state machine with the Gold CTAS map state + gold crawler.
 - **PR-018** passes `CORRELATION_ID` (`$$.Execution.Name`) to the Lambda + Glue job.
+
+## Log retention + Step Functions logging (PR-023)
+
+Two log groups are now owned here:
+
+- `/aws/lambda/lottery-gold-purge-<env>` — the PR-022 purge Lambda's group. Already exists
+  in prod, so it is `terraform import`ed.
+- `/aws/vendedlogs/states/lottery-etl-pipeline-<env>` — **new**. Step Functions writes
+  execution logs only when a `logging_configuration` is attached, and it never had one, so
+  the pipeline had no CloudWatch record of a run at all — only the console's 90-day
+  execution list. The `/aws/vendedlogs/` prefix is mandatory: Terraform accepts any name,
+  the service rejects anything else when creating the delivery.
+
+Logging defaults to `level = ALL` with execution data because the pipeline runs once a week
+with ~15 transitions — a few KB/week against real debugging value. Set `sfn_log_level =
+"OFF"` to skip both the group and the configuration.
+
+The state machine role needs `logs:CreateLogDelivery` & friends on `Resource = "*"` — AWS
+documents those actions as not supporting resource-level permissions, so that wildcard is a
+service constraint, not an oversight. Details: `docs/runbooks/PR-023-log-retention.md`.
+
+Extra inputs: `log_retention_days` (default 30), `sfn_log_level`,
+`sfn_include_execution_data`. Extra outputs: `gold_purge_log_group_name`,
+`state_machine_log_group_name`.

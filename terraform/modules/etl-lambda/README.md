@@ -57,3 +57,14 @@ ships it.
   `partitioned_bucket_name`, `simple_bucket_name`, `secret_name`, `region`,
   `environment`.
 - Outputs: `extractor_lambda_arn`, `extractor_lambda_name`, `deps_layer_arn`.
+
+## Log retention (PR-023)
+
+The function's log group `/aws/lambda/lottery-extractor-<env>` is an explicit resource here
+so it carries `retention_in_days` instead of AWS's "never expire" default. It is declared
+**before** the function (and the function `depends_on` it): the reverse order lets a fresh
+deploy's first invocation auto-create an unretained group under the same name, which then
+collides with Terraform's. The group already exists in prod and is `terraform import`ed —
+see `docs/runbooks/PR-023-log-retention.md`.
+
+Extra input: `log_retention_days` (default 30). Extra output: `log_group_name`.

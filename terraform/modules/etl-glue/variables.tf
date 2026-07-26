@@ -52,3 +52,16 @@ variable "python_version" {
   type        = string
   default     = "3.9"
 }
+
+# --- Observability (PR-023) ---
+variable "log_retention_days" {
+  description = "Retention for the Glue Python Shell log groups. 0 = never expire."
+  type        = number
+  default     = 30
+}
+
+variable "manage_shared_glue_log_groups" {
+  description = "Own the ACCOUNT-WIDE /aws-glue/python-jobs/{output,error} groups. Glue has no per-job group for pythonshell, so this is the only way to set their retention; set false if other, non-repo Glue jobs share the account."
+  type        = bool
+  default     = true
+}

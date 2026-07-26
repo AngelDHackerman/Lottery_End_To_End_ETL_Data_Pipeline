@@ -57,3 +57,19 @@ So we stay on Python Shell 3.9, the only current runtime. A genuinely newer Pyth
 would mean migrating the job **type** to Spark (`glueetl`) or Ray — a transformer rewrite,
 captured as a deferred item, not a version bump. Full reasoning and the AWS-doc evidence:
 `docs/runbooks/PR-020-glue-runtime-spike.md`.
+
+## Log retention (PR-023) — these groups are ACCOUNT-WIDE
+
+Glue gives a Python Shell job **no log group of its own**. Every `pythonshell` job in the
+account writes stdout to `/aws-glue/python-jobs/output` and stderr to
+`/aws-glue/python-jobs/error`. (`--continuous-log-logGroup`, which *would* give a per-job
+group, is Spark-only — the same job-family split as the runtime note above.)
+
+So putting retention on this job's logs means owning two groups shared with any other Glue
+workload in the account. That is fine here — this is the account's only Python Shell job —
+but it is why `manage_shared_glue_log_groups` (default `true`) exists: set it `false` and
+the groups are left untouched. Both already exist in prod and are `terraform import`ed; see
+`docs/runbooks/PR-023-log-retention.md`.
+
+Extra inputs: `log_retention_days` (default 30), `manage_shared_glue_log_groups`.
+Extra output: `log_group_names`.

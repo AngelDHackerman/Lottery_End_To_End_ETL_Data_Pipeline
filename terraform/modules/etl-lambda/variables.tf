@@ -60,3 +60,10 @@ variable "secret_name" {
   description = "Name of the lottery secret in Secrets Manager, passed as LOTERIA_SECRET_NAME."
   type        = string
 }
+
+# --- Observability (PR-023) ---
+variable "log_retention_days" {
+  description = "Retention for the extractor's CloudWatch log group. 0 = never expire."
+  type        = number
+  default     = 30
+}

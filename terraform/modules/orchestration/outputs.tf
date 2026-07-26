@@ -25,3 +25,14 @@ output "gold_purge_lambda_arn" {
   description = "ARN of the gold-purge Lambda."
   value       = aws_lambda_function.gold_purge.arn
 }
+
+# --- PR-023: log groups (consumed by PR-024's dashboard / PR-025's alarms) ---
+output "gold_purge_log_group_name" {
+  description = "Name of the gold-purge Lambda's CloudWatch log group."
+  value       = aws_cloudwatch_log_group.gold_purge.name
+}
+
+output "state_machine_log_group_name" {
+  description = "Name of the Step Functions execution log group. Null when sfn_log_level = \"OFF\"."
+  value       = one(aws_cloudwatch_log_group.state_machine[*].name)
+}

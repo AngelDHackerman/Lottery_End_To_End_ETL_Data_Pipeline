@@ -20,6 +20,36 @@
 # pythonshell to a Spark (glueetl) or Ray job — a transformer rewrite, not a version bump.
 # Tracked as a deferred item, not PR-020. See docs/runbooks/PR-020-glue-runtime-spike.md.
 
+
+# --- PR-023: log retention -------------------------------------------------------------
+#
+# Glue does NOT give a Python Shell job its own log group. Every pythonshell job in the
+# account writes stdout to /aws-glue/python-jobs/output and stderr/tracebacks to
+# /aws-glue/python-jobs/error, both created by the Glue service on first run with no
+# retention. (`--continuous-log-logGroup`, which WOULD give a per-job group, is a Spark-only
+# argument — see the runtime note above.) So setting retention means owning those two
+# account-wide groups, which is safe here because this job is the account's only Python
+# Shell workload — hence the var.manage_shared_glue_log_groups escape hatch.
+#
+# Both groups already exist in prod and must be IMPORTED, not created:
+# see docs/runbooks/PR-023-log-retention.md.
+locals {
+  shared_log_groups = var.manage_shared_glue_log_groups ? [
+    "/aws-glue/python-jobs/output",
+    "/aws-glue/python-jobs/error",
+  ] : []
+}
+
+resource "aws_cloudwatch_log_group" "python_shell" {
+  for_each = toset(local.shared_log_groups)
+
+  name              = each.value
+  retention_in_days = var.log_retention_days
+
+  # Deliberately untagged: these are Glue service-owned, account-wide groups shared with
+  # any future job, so project tags on them would be misleading.
+}
+
 resource "aws_glue_job" "lottery_transform" {
   name     = "lottery-transform-${var.environment}"
   role_arn = var.glue_job_role_arn

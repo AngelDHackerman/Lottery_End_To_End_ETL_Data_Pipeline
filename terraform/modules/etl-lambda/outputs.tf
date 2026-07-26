@@ -18,3 +18,10 @@ output "deps_layer_arn" {
   description = "ARN (including version) of the extractor's dependency layer."
   value       = aws_lambda_layer_version.loteria_deps.arn
 }
+
+# PR-023: exported so PR-024's dashboard / PR-025's alarms can target the group by name
+# without rebuilding the /aws/lambda/<fn> convention.
+output "log_group_name" {
+  description = "Name of the extractor Lambda's CloudWatch log group."
+  value       = aws_cloudwatch_log_group.extractor.name
+}

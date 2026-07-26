@@ -76,6 +76,9 @@ module "etl_lambda" {
   partitioned_bucket_name = module.storage.partitioned_bucket_name
   simple_bucket_name      = module.storage.simple_bucket_name
   secret_name             = var.lottery_secret_name
+
+  # PR-023: own the function's log group so it has a retention policy.
+  log_retention_days = var.log_retention_days
 }
 
 # --- PR-011: etl-glue (transform job; script_location parameterized) ---
@@ -91,6 +94,11 @@ module "etl_glue" {
   partitioned_bucket_name = module.storage.partitioned_bucket_name
   simple_bucket_name      = module.storage.simple_bucket_name
   secret_name             = var.lottery_secret_name
+
+  # PR-023: retention on the ACCOUNT-WIDE Python Shell log groups (Glue has no per-job
+  # group for pythonshell — see the module note).
+  log_retention_days            = var.log_retention_days
+  manage_shared_glue_log_groups = var.manage_shared_glue_log_groups
 }
 
 # --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---
@@ -102,6 +110,10 @@ module "catalog" {
 
   partitioned_bucket_name    = module.storage.partitioned_bucket_name
   athena_results_bucket_name = module.storage.athena_results_bucket_name
+
+  # PR-023: retention on the ACCOUNT-WIDE /aws-glue/crawlers group.
+  log_retention_days            = var.log_retention_days
+  manage_shared_glue_log_groups = var.manage_shared_glue_log_groups
 }
 
 # --- PR-012: orchestration (Step Functions + single weekly EventBridge trigger) ---
@@ -122,6 +134,20 @@ module "orchestration" {
   database_name              = module.catalog.db_name
   athena_workgroup_name      = module.catalog.athena_workgroup_name
   gold_purge_lambda_role_arn = module.iam.gold_purge_lambda_role_arn
+
+  # PR-023: gold-purge log group + NEW Step Functions execution logging.
+  log_retention_days         = var.log_retention_days
+  sfn_log_level              = var.sfn_log_level
+  sfn_include_execution_data = var.sfn_include_execution_data
+
+  # PR-023: the ONLY reference into module.iam above is the role's *ARN*, which creates no
+  # edge to aws_iam_policy.sfn_execution_policy — so Terraform is free to update the state
+  # machine in parallel with (or before) the policy that grants it log-delivery rights.
+  # Step Functions validates logging_configuration during UpdateStateMachine and fails with
+  # `AccessDeniedException: ... not authorized to perform: logs:CreateLogDelivery` when the
+  # role isn't ready yet. Observed as a retry-and-it-works flake on the PR-023 apply; this
+  # makes the ordering explicit so a fresh deploy doesn't depend on luck.
+  depends_on = [module.iam]
 }
 
 # --- PR-013: lake-formation (permissions so crawlers need no console clicks) ---
