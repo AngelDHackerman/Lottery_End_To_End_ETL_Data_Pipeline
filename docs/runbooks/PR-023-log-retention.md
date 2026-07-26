@@ -252,14 +252,54 @@ Then trigger one execution and confirm log streams land in
 ```bash
 aws stepfunctions start-execution \
   --state-machine-arn arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
-
-aws logs describe-log-streams \
-  --log-group-name /aws/vendedlogs/states/lottery-etl-pipeline-prod \
-  --order-by LastEventTime --descending --max-items 3
 ```
 
-An empty log group after a successful run means the delivery never got created — check
-`AllowSfnLogDeliverySetup` is on `sfn-lottery-policy-prod` (§4).
+> **Do NOT verify delivery with `aws logs describe-log-streams`.** Its stream metadata lies
+> about this:
+> - `storedBytes` on a log **stream** has been permanently `0` since AWS deprecated the
+>   field in 2019. It is never a signal, empty or not.
+> - `lastEventTimestamp` is eventually consistent and lags badly — on the 2026-07-26 run it
+>   still read `firstEventTimestamp + 97 ms` **ten minutes after** a 4m20s execution had
+>   finished writing 120 events.
+>
+> Read the events directly instead — that is authoritative and immediate:
+
+```bash
+STREAM=$(aws logs describe-log-streams \
+  --log-group-name /aws/vendedlogs/states/lottery-etl-pipeline-prod \
+  --order-by LastEventTime --descending --max-items 1 \
+  --query 'logStreams[0].logStreamName' --output text)
+
+# Terminal event should be ExecutionSucceeded.
+aws logs get-log-events \
+  --log-group-name /aws/vendedlogs/states/lottery-etl-pipeline-prod \
+  --log-stream-name "$STREAM" --query 'events[-1].message' --output text
+```
+
+A genuinely empty log group after a successful run means the delivery never got created —
+check `AllowSfnLogDeliverySetup` is on `sfn-lottery-policy-prod` (§4).
+
+**Confirmed 2026-07-26** on execution `0d0ad05e-51f2-4ef9-bcf5-7a3ad4c1a865` (SUCCEEDED,
+4m20s): 120 events captured, ending `MapStateSucceeded → MapStateExited →
+ExecutionSucceeded`.
+
+### 5.4 Two things this run confirmed beyond PR-023
+
+**The narrowed `/aws-glue/*` logs grant did not break Glue logging.** The transform job ran
+and logged normally, and its run output reports `"LogGroupName": "/aws-glue/python-jobs"` —
+independent confirmation of §3's claim that Glue uses the shared account-wide group rather
+than a per-job one.
+
+**PR-018's Lambda↔Glue correlation, verified at last** (owed since the 2026-07-20 run died
+at the extractor on the Cloudflare waiting room, so Glue never ran). One execution's id
+threads all three hops:
+
+- SFN → Lambda: `Payload.CORRELATION_ID = 0d0ad05e-…`
+- SFN → Glue: `Arguments["--CORRELATION_ID"] = 0d0ad05e-…`
+- Glue's own JSON logs: `"correlation_id": "0d0ad05e-…"` on every line
+
+So `scripts/glue_zip_main.py`'s argv→env bridge works in prod and a single run's Lambda and
+Glue logs are joinable on one id.
 
 ---
 
