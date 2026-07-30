@@ -93,3 +93,10 @@ variable "personal_iam_users" {
   type        = list(string)
   default     = []
 }
+
+# --- Custom metrics (PR-026) ---
+variable "metrics_namespace" {
+  description = "CloudWatch namespace the pipeline publishes custom metrics to. Scopes the extractor's cloudwatch:PutMetricData grant via the cloudwatch:namespace condition key (the action supports no resource-level permissions). MUST match loteria.common.metrics.NAMESPACE — a mismatch silently denies every PutMetricData call."
+  type        = string
+  default     = "Loteria/Pipeline"
+}

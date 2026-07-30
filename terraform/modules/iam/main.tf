@@ -362,6 +362,24 @@ data "aws_iam_policy_document" "lambda_custom_doc" {
     ]
     resources = [data.aws_secretsmanager_secret.lottery.arn] # PR-009: narrowed from "*"
   }
+
+  # PR-026: the extractor publishes the scrape.do HTTP status as a custom metric
+  # (loteria.common.metrics). cloudwatch:PutMetricData supports NO resource-level
+  # permissions, so `resources` must be "*" — but it does support the
+  # `cloudwatch:namespace` condition key, which is the real scope: this role can write
+  # only into our own namespace, not into AWS/* or any other application's metrics.
+  statement {
+    sid       = "PublishCustomMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = [var.metrics_namespace]
+    }
+  }
 }
 
 resource "aws_iam_policy" "lambda_custom" {

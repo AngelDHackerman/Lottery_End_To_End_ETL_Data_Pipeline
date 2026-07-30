@@ -124,3 +124,10 @@ variable "personal_iam_users" {
   type        = list(string)
   default     = []
 }
+
+# --- Custom metrics (PR-026) ---
+variable "metrics_namespace" {
+  description = "CloudWatch namespace for the pipeline's own metrics (scraper HTTP status; PR-027's S3 object counts would join it). Threaded to both the iam module (scopes PutMetricData via the cloudwatch:namespace condition) and the observability module (the dashboard SEARCH). MUST equal loteria.common.metrics.NAMESPACE — a mismatch denies every publish, silently."
+  type        = string
+  default     = "Loteria/Pipeline"
+}

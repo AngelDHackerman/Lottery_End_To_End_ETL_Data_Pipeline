@@ -49,3 +49,9 @@ variable "glue_error_log_group_name" {
   description = "Log group holding the Glue job's stderr/tracebacks. Source for the error log widget. From module.etl_glue (PR-023)."
   type        = string
 }
+
+variable "metrics_namespace" {
+  description = "CloudWatch namespace holding the pipeline's custom metrics. MUST match loteria.common.metrics.NAMESPACE and the iam module's metrics_namespace, or the scraper widget plots nothing."
+  type        = string
+  default     = "Loteria/Pipeline"
+}
