@@ -223,3 +223,18 @@ Just one for the __StepFuctions__ log group is brand new and was created on this
 
 Smoke test that ensures StepFunction writes the data to the proper log group was done and it passed, now the retention for 30 days is set in the log groups and is working as expected. This improves the visibility of the pipeline status.
 
+## PR-024 — CloudWatch dashboard
+
+A cloudwatch dashboard was created using this values to populate the dashboard: 
+
+Add aws_cloudwatch_dashboard "loteria_pipeline" in `terraform/modules/observability/` with widgets:
+
+- Step Function: ExecutionsSucceeded, ExecutionsFailed, ExecutionTime (p50/p95/p99)
+    * p50 (median) — half the runs finish faster than this
+    * p95 — 95% finish faster; the slowest 1-in-20
+    * p99 — the tail, the slowest 1-in-100
+- Lambda extractor: Errors, Throttles, Duration
+- Glue Job: glue.driver.aggregate.numCompletedTasks, glue.ALL.s3.filesystem.read_bytes
+- S3 object counts under raw/, silver/, gold/ (via a tiny custom metric pushed by a 1-min Lambda — defer the Lambda part to PR-027 if heavy)
+- Athena: QueryQueueTime, EngineExecutionTime, ProcessedBytes for workgroup "lottery-wg"
+
