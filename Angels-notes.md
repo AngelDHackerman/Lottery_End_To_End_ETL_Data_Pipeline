@@ -238,3 +238,6 @@ Add aws_cloudwatch_dashboard "loteria_pipeline" in `terraform/modules/observabil
 - S3 object counts under raw/, silver/, gold/ (via a tiny custom metric pushed by a 1-min Lambda — defer the Lambda part to PR-027 if heavy)
 - Athena: QueryQueueTime, EngineExecutionTime, ProcessedBytes for workgroup "lottery-wg"
 
+## PR-026 
+
+Done prior PR-025 because a custom metric for ScraperDo needed to be setup in order to properly set the alarms projected in PR-025, also a alarm for catch the "Waiting Room" for cloudFlaire will be deployed in pr-025
