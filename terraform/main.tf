@@ -41,6 +41,9 @@ module "iam" {
   # Empty by default; the owner sets their own users in a gitignored tfvars.
   personal_iam_users = var.personal_iam_users
 
+  # PR-026: scopes the extractor's cloudwatch:PutMetricData grant to this namespace.
+  metrics_namespace = var.metrics_namespace
+
   # PR-010: the lambda name now comes from the etl-lambda module (same value as the
   # old default, so the narrowed InvokeFunction grant is unchanged).
   extractor_lambda_name = module.etl_lambda.extractor_lambda_name
@@ -182,6 +185,9 @@ module "observability" {
   # Glue publishes no per-job metrics for pythonshell, so the dashboard reads its logs.
   glue_output_log_group_name = module.etl_glue.output_log_group_name
   glue_error_log_group_name  = module.etl_glue.error_log_group_name
+
+  # PR-026: namespace the scrape.do response-code widget searches.
+  metrics_namespace = var.metrics_namespace
 }
 
 # --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---

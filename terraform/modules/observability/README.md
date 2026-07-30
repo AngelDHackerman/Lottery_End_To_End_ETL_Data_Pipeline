@@ -90,3 +90,30 @@ Two traps in that dimension, both found the hard way:
 `athena_workgroup_name`, `glue_output_log_group_name`, `glue_error_log_group_name`.
 All read-only identifiers — the dashboard creates no dependency on the observed resources'
 internals.
+
+### scrape.do response codes (PR-026)
+
+New widget, plus a restructure of the execution-duration widgets.
+
+`SEARCH('{Loteria/Pipeline,StatusCode} MetricName="ScraperHttpStatus"', 'Sum', 86400)` draws
+one line per HTTP status the proxy has returned. `SEARCH` rather than explicit metric entries
+because the set of codes is not known in advance — 200 today, 401/402/429 the day the free
+tier lapses — and enumerating them guarantees the interesting one is missing. The
+dimensionless `ScraperHttpErrors` is plotted alongside because it is the exact series
+PR-025's `ScrapeDo_Failed` alarm watches, so the dashboard shows what the alarm sees.
+
+Requires `metrics_namespace` to match `loteria.common.metrics.NAMESPACE`, or the widget
+plots nothing. Details: `docs/runbooks/PR-026-scraper-metric.md`.
+
+**Percentiles moved.** The duration time series was `p50/p90/p99/max` on a daily period,
+which carries no information for a weekly pipeline: almost every bucket holds one execution,
+and a percentile of one datapoint is that datapoint. Measured on real data — Jul 25 gave
+`p50 = p90 = p99 = max = 259,808 ms`, four lines drawn on top of each other. So:
+
+- the daily series is now a single **"Duration per run"** line
+- `p50/p90/p99` moved to the **28-day single-value** widget, where all 12 runs land in one
+  bucket and the numbers separate meaningfully (p50 135s / p90 248s / p99 259s)
+
+Duration is a health signal by itself: failed runs die at the extractor in 3–4 s, successful
+ones take 64–260 s, so anything under ~10 s is a failure. The step up to ~255 s is PR-022's
+gold layer, which means pre-gold history is not comparable to post-gold.

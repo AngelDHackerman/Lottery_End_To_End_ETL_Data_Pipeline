@@ -604,6 +604,23 @@ Update IAM in etl-lambda module to allow cloudwatch:PutMetricData.
 NOTE: this metric is what PR-025's ScrapeDo_Failed alarm watches. Rationale: scrape.do is a third-party proxy used on the FREE TIER — there is no guarantee how long it stays free. When the free plan lapses or the quota is exceeded, the proxy returns auth/quota/rate-limit codes (401/402/429) and the weekly scrape silently degrades to "Lambda error." A scrape.do-specific alarm gives an early, unambiguous heads-up (e.g. "start paying / swap proxy") instead of a generic failure.
 ```
 
+> **Notes from executing it:**
+> - **Two metrics, not one.** A CloudWatch alarm watches exactly one metric with one
+>   dimension set, so `ScraperHttpStatus{StatusCode}` alone cannot express "alarm on any
+>   non-200" without enumerating codes in advance. A dimensionless companion metric
+>   **`ScraperHttpErrors`** (emitted only on non-200) is what PR-025 should alarm on, with a
+>   plain `>= 1` threshold. The dashboard widget uses `SEARCH()` so new codes appear with no
+>   Terraform change.
+> - **`cloudwatch:PutMetricData` supports no resource-level permissions.** Scope it with the
+>   `cloudwatch:namespace` condition key instead of leaving `Resource = "*"` bare.
+> - **The namespace is declared twice** (Terraform `metrics_namespace` + Python
+>   `loteria.common.metrics.NAMESPACE`) and a mismatch fails *silently* — every publish is
+>   denied and swallowed. Keep them equal.
+> - **This does NOT catch the Cloudflare waiting room**, which returns HTTP **200** with a
+>   queue page — the actual cause of the 2026-07-19/20 failures. It catches scrape.do's own
+>   401/402/429/5xx. Waiting-room detection needs content inspection: PR-031.
+> - Runbook: `docs/runbooks/PR-026-scraper-metric.md`.
+
 ## PR-027 — (Optional) S3 object-count emitter
 **Prompt:**
 ```
@@ -835,9 +852,9 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 021 | Gold SQL files | merged | [PR #24](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/24) |
 | 022 | Wire Gold into Step Function | merged | [PR #25](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/25) |
 | 023 | Log retention | merged | [PR #26](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/26) |
-| 024 | CloudWatch dashboard | in-progress | [PR #27](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/27) |
+| 024 | CloudWatch dashboard | merged | [PR #27](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/27) |
 | 025 | Alarms | todo | — |
-| 026 | Scraper HTTP status metric | todo | — |
+| 026 | Scraper HTTP status metric | in-progress | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
 | 027 | S3 object-count emitter (optional) | todo | — |
 | 028 | SNS email subscription | todo | — |
 | 029 | pytest skeleton + parser tests | todo | — |

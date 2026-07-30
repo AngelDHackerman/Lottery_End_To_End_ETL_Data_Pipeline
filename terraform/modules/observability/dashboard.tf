@@ -90,27 +90,40 @@ resource "aws_cloudwatch_dashboard" "loteria_pipeline" {
       {
         type = "metric", x = 8, y = 3, width = 8, height = 6,
         properties = {
-          title = "Execution duration",
+          # PR-026: was p50/p90/p99/max on a DAILY period, which is meaningless here — the
+          # pipeline runs once a week, so almost every bucket holds exactly one execution
+          # and a percentile of one datapoint IS that datapoint. Measured on real data:
+          # Jul 25 gave p50 = p90 = p99 = max = 259,808 ms, four lines drawn on top of each
+          # other. Percentiles moved to the 28-day summary widget, where 12 runs land in one
+          # bucket and they actually separate (p50 135s / p90 248s / p99 259s).
+          #
+          # Duration is also a health signal in its own right: failed runs die at the
+          # extractor in 3-4 s, successful ones take 64-260 s. Anything under ~10 s is a
+          # failure. The step up to ~255 s is PR-022's gold layer (7 CTAS, MaxConcurrency 3),
+          # so pre-gold history is not comparable.
+          title = "Duration per run",
           view  = "timeSeries", region = var.aws_region, period = 86400,
           yAxis = { left = { min = 0, label = "ms", showUnits = false } },
           metrics = [
-            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "p50", label = "p50", color = local.info }],
-            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "p90", label = "p90", color = local.warn }],
-            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "p99", label = "p99", color = local.bad }],
-            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "Maximum", label = "max", color = local.mute }],
+            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "Maximum", label = "Duration", color = local.info }],
           ]
         }
       },
       {
         type = "metric", x = 16, y = 3, width = 8, height = 6,
         properties = {
+          # PR-026: the percentiles live HERE, not on the daily time series. The 28-day
+          # period puts every run in one bucket, which is the only way they carry
+          # information for a weekly pipeline.
           title     = "Last 28 days",
           view      = "singleValue", region = var.aws_region, period = 2419200,
           sparkline = true,
           metrics = [
             ["AWS/States", "ExecutionsSucceeded", "StateMachineArn", var.state_machine_arn, { stat = "Sum", label = "Succeeded", color = local.ok }],
             ["AWS/States", "ExecutionsFailed", "StateMachineArn", var.state_machine_arn, { stat = "Sum", label = "Failed", color = local.bad }],
-            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "Average", label = "Avg duration", color = local.info }],
+            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "p50", label = "p50 duration", color = local.info }],
+            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "p90", label = "p90 duration", color = local.warn }],
+            ["AWS/States", "ExecutionTime", "StateMachineArn", var.state_machine_arn, { stat = "p99", label = "p99 duration", color = local.bad }],
           ]
         }
       },
@@ -234,9 +247,36 @@ resource "aws_cloudwatch_dashboard" "loteria_pipeline" {
         }
       },
 
-      # --- Row 5: logs — the only Glue-side visibility ---------------------------------
+      # --- Row 5: the scrape.do proxy (PR-026) ------------------------------------------
       {
-        type = "log", x = 0, y = 27, width = 12, height = 7,
+        type = "metric", x = 0, y = 27, width = 24, height = 6,
+        properties = {
+          # SEARCH() rather than one entry per code: the set of status codes is not known
+          # in advance (200 today, 401/402/429 the day the free tier lapses, 5xx when the
+          # proxy has a bad day). SEARCH discovers each StatusCode dimension value and draws
+          # a line for it automatically, so a brand-new failure code shows up without a
+          # Terraform change. Enumerating codes would guarantee the interesting one is missing.
+          #
+          # ScraperHttpErrors is the dimensionless companion metric — plotted here because
+          # it is the exact series PR-025's ScrapeDo_Failed alarm watches, so the dashboard
+          # shows what the alarm sees.
+          title = "scrape.do response codes",
+          view  = "timeSeries", stacked = false, region = var.aws_region, period = 86400,
+          yAxis = { left = { min = 0, showUnits = false } },
+          metrics = [
+            [{
+              expression = "SEARCH('{${var.metrics_namespace},StatusCode} MetricName=\"ScraperHttpStatus\"', 'Sum', 86400)",
+              id         = "codes",
+              label      = ""
+            }],
+            [var.metrics_namespace, "ScraperHttpErrors", { stat = "Sum", label = "Non-200 (alarm series)", color = local.bad }],
+          ]
+        }
+      },
+
+      # --- Row 6: logs — the only Glue-side visibility ---------------------------------
+      {
+        type = "log", x = 0, y = 33, width = 12, height = 7,
         properties = {
           # Glue publishes no metrics for this job type, so its health is read from logs.
           # PR-018's structured JSON makes correlation_id (= the SFN execution name) a
@@ -248,7 +288,7 @@ resource "aws_cloudwatch_dashboard" "loteria_pipeline" {
         }
       },
       {
-        type = "log", x = 12, y = 27, width = 12, height = 7,
+        type = "log", x = 12, y = 33, width = 12, height = 7,
         properties = {
           # /aws-glue/python-jobs/error carries stderr + tracebacks. Account-wide (PR-023
           # §3), but this account runs no other Python Shell job.

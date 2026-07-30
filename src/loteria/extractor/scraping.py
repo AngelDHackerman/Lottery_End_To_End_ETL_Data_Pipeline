@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from loteria.common.aws_secrets import get_secrets
+from loteria.common.metrics import record_scraper_status
 from loteria.common.s3_utils import check_if_sorteo_exists, upload_to_s3
 
 # -----------------------
@@ -40,6 +41,12 @@ def fetch_via_proxy(target_url: str) -> requests.Response:
         resp.status_code,
         resp.text.replace("\n", " ")[:300],
     )
+
+    # PR-026: emit the status BEFORE the raise below. Emitting afterwards would only ever
+    # record successes — the 401/402/429 responses this metric exists to catch are exactly
+    # the ones that never reach a line placed after the raise. record_scraper_status()
+    # swallows its own errors, so this cannot turn a good scrape into a failed one.
+    record_scraper_status(resp.status_code)
 
     # dispara alerta temprana si el proxy falla
     if resp.status_code != 200:
