@@ -170,6 +170,18 @@ module "observability" {
   source      = "./modules/observability"
   environment = var.environment
   alert_email = var.alert_email
+
+  # PR-024: the dashboard identifies metric series by name/ARN. Read-only — no dependency
+  # on the observed resources beyond their identifiers, so no ordering concerns.
+  aws_region             = var.aws_region
+  state_machine_arn      = module.orchestration.state_machine_arn
+  extractor_lambda_name  = module.etl_lambda.extractor_lambda_name
+  gold_purge_lambda_name = module.orchestration.gold_purge_lambda_name
+  athena_workgroup_name  = module.catalog.athena_workgroup_name
+
+  # Glue publishes no per-job metrics for pythonshell, so the dashboard reads its logs.
+  glue_output_log_group_name = module.etl_glue.output_log_group_name
+  glue_error_log_group_name  = module.etl_glue.error_log_group_name
 }
 
 # --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---
