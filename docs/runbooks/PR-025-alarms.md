@@ -157,10 +157,18 @@ States are `Started` / `Succeeded` / `Failed`, capitalized (Glue developer guide
 `input_transformer` renders the email as
 `Glue crawler <name> FAILED at <time>: <message>` instead of a wall of JSON.
 
-**Out of scope but noticed while reading the state machine:** because `startCrawler` does
-not wait, the gold CTAS can begin before the crawlers have finished, not just when they
-fail. This PR makes a crawler *failure* visible; it does not fix the ordering. Worth a
-follow-up (a `Wait` + `GetCrawler` poll loop, or a `.sync`-style retry state).
+**Out of scope, and worse than it first looked → filed as PR-026.5.** Because `startCrawler`
+does not wait, the gold CTAS does not merely start when a crawl *fails* — it races every
+crawl, including the successful ones. Measured on the 2026-07-30 run: the first two `RunCTAS`
+began at 15:02:02, and the sorteos crawler only finished writing to the catalog at 15:02:55
+— **53 seconds later**. Since the silver tables are partitioned by `(year, sorteo)`, every
+weekly run creates a new partition that Athena cannot see until the crawler registers it.
+
+**None of the alarms in this PR catch that**, and that is the point worth remembering: they
+fire when a crawl *fails*, but here every crawl succeeds. The pipeline reports green while a
+non-deterministic subset of gold tables (whichever two lose the `Map` scheduling race) is
+built from last week's catalog. See PR-026.5 in `roadmap.md` for the full timeline and the
+proposed `Wait` + `GetCrawler` poll.
 
 ---
 

@@ -619,7 +619,10 @@ Add aws_cloudwatch_metric_alarm resources, each notifying SNS topic from PR-014:
 > - Adding the EventBridge → SNS target **replaces the topic's default policy**; the module
 >   reproduces the default account-owner statement alongside the new grant.
 > - Also noticed, out of scope: because `startCrawler` does not wait, the gold CTAS can begin
->   *before* the crawlers finish, not just when they fail. Needs a `Wait`/`GetCrawler` poll.
+>   *before* the crawlers finish, not just when they fail. Measured on the 2026-07-30 run,
+>   **2 of the 7 CTAS started 53 s before the catalog was written**. PR-025's alarms do NOT
+>   cover this — every crawl *succeeds*; the pipeline is green and the data is wrong. Filed
+>   as **PR-026.5** with the full timeline.
 > - Runbook: `docs/runbooks/PR-025-alarms.md`.
 
 ## PR-026 — Scraper response-code custom metric
@@ -649,6 +652,95 @@ NOTE: this metric is what PR-025's ScrapeDo_Failed alarm watches. Rationale: scr
 >   queue page — the actual cause of the 2026-07-19/20 failures. It catches scrape.do's own
 >   401/402/429/5xx. Waiting-room detection needs content inspection: PR-031.
 > - Runbook: `docs/runbooks/PR-026-scraper-metric.md`.
+
+## PR-026.5 — Fix the race between `startCrawler` and the gold CTAS
+
+**Why this is not "PR-041":** it is a **correctness defect**, not deferred scope. Found while
+writing PR-025's crawler alarm; numbered `.5` so it sits next to the PR that found it and
+gets picked up before more gold tables are added.
+
+### What is happening
+
+The state machine starts the two silver crawlers with
+`arn:aws:states:::aws-sdk:glue:startCrawler`. **There is no `.sync` variant of that
+integration**, so Step Functions fires the call and moves to the next state immediately — it
+does not wait for the crawl to finish. The very next states are `PrepGold` → `BuildGold`,
+which run the 7 gold CTAS.
+
+So the CTAS queries race the crawlers. **Whoever wins decides whether gold sees this week's
+data.**
+
+This matters because the silver tables are partitioned by **`(year, sorteo)`** — verified
+live, 109 partitions each. Every weekly run therefore creates a **brand-new partition**, and
+a new partition is invisible to Athena until a crawler registers it in the Glue catalog.
+This is not the usual "new files inside an existing partition" case, which Athena would pick
+up on its own.
+
+### Measured on the 2026-07-30 run (the last successful one)
+
+| Time (UTC-3) | Event |
+|---|---|
+| 15:01:48.9 | `RunSorteosCrawler` — the *call* returns, SFN moves on |
+| **15:02:02.2** | **first 2 `RunCTAS` start** (13 s later) |
+| 15:02:09 | the sorteos crawl actually begins scanning |
+| 15:02:43 | "Classification complete, writing results to database" |
+| **15:02:55** | **"Finished writing to Catalog"** — the catalog is now current |
+| 15:02:57 → 15:04:03 | the remaining 5 CTAS start |
+| 15:06:34 | crawler reaches READY (3m39s of teardown *after* the catalog write) |
+
+**Two of the seven CTAS ran 53 seconds before the catalog was updated.** The other five were
+fine. Which two lose the race depends on `Map` scheduling (`MaxConcurrency = 3`), so **the
+affected gold table is not deterministic** — a different table can be stale each week.
+
+### Why nothing looks broken today
+
+Checked live: `gold_draw_summary` has 109 rows, `silver_sorteos_sorteos` has 109 distinct
+sorteos, and `MAX(numero_sorteo)` is **3130 in both**. No drift right now.
+
+That is luck, not health. The 2026-07-30 run introduced **no new sorteo** (3130 was already
+in the catalog from the 2026-07-26 run), so the two CTAS that read a stale catalog read a
+*correct* stale catalog. The damage only materializes on a run that actually ingests a new
+sorteo — i.e. a normal week — and then it is silent: no failure, no alarm, just a gold table
+missing the newest draw until the following week's rebuild papers over it.
+
+**PR-025 does not fix this.** Its crawler alarms fire when a crawl *fails*; here every crawl
+succeeds. The pipeline is green and the data is wrong.
+
+**Prompt:**
+```
+Fix the ordering in terraform/modules/orchestration/main.tf so the gold CTAS cannot start
+before both silver crawlers have finished writing to the Glue catalog.
+
+Preferred approach — poll for completion (there is no .sync integration to switch to):
+1. After RunSorteosCrawler, add a Wait state (~30 s) then a Task using
+   arn:aws:states:::aws-sdk:glue:getCrawler for each crawler.
+2. A Choice state loops back to the Wait while Crawler.State != "READY", and proceeds to
+   PrepGold only when both are READY.
+3. Add a total-wait guard so a hung crawler fails the execution instead of looping forever
+   (a counter incremented in a Pass state, or a Wait/Choice budget of ~15 min — the observed
+   worst case is 4m26s wall clock, of which only the first ~46 s is catalog work).
+4. The SFN IAM policy needs glue:GetCrawler on both silver crawlers. Narrow it the way
+   PR-009 narrowed StartCrawler — do not reintroduce a wildcard.
+
+Consider instead (and document the choice): run the two crawlers in a Parallel state, since
+today premios and sorteos are started back-to-back and both must finish anyway.
+
+Verification:
+- terraform plan shows ONLY the state machine + the SFN IAM policy changing.
+- Trigger one execution and confirm from the execution history that every RunCTAS
+  timestamp is AFTER the "Finished writing to Catalog" line for BOTH crawlers in
+  /aws-glue/crawlers.
+- Confirm gold row counts match silver on a run that ingests a new sorteo:
+  SELECT MAX(numero_sorteo) FROM gold_draw_summary  -- must equal silver's MAX
+
+Out of scope: retries/Catch on the other states, the crawler-failure alarms (PR-025 owns
+those), and any change to the CTAS SQL itself.
+```
+
+**Acceptance:** No CTAS can observe a catalog older than the run that triggered it. On a run
+that ingests a new sorteo, `MAX(numero_sorteo)` in gold equals silver's in the same run.
+
+---
 
 ## PR-027 — (Optional) S3 object-count emitter
 **Prompt:**
@@ -885,6 +977,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 024 | CloudWatch dashboard | merged | [PR #27](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/27) |
 | 025 | Alarms | in-progress | — |
 | 026 | Scraper HTTP status metric | merged | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
+| 026.5 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | todo | — |
 | 027 | S3 object-count emitter (optional) | todo | — |
 | 028 | SNS email subscription | todo | — |
 | 029 | pytest skeleton + parser tests | todo | — |
