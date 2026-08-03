@@ -131,3 +131,10 @@ variable "metrics_namespace" {
   type        = string
   default     = "Loteria/Pipeline"
 }
+
+# --- Alarms (PR-025) ---
+variable "no_success_alarm_days" {
+  description = "Days without a successful pipeline execution before the dead-man's-switch alarm fires. Capped at 7 by CloudWatch (an alarm's period x evaluation_periods cannot exceed 604,800 s), which is why the roadmap's 8-day target is not implementable as a metric alarm."
+  type        = number
+  default     = 7
+}

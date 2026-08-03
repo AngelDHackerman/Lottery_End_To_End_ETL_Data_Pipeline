@@ -134,7 +134,7 @@ Decision needed: **Glue Python Shell Job** (consistent with Silver) vs. **Athena
 
 ### Phase 4 — Observability
 - One **CloudWatch dashboard** per env: Step Function success rate, Glue Job duration, Lambda errors, scraper HTTP status codes, S3 object counts per layer.
-- **Alarms** → SNS topic → email (your `quehongosrojos@gmail.com`):
+- **Alarms** → SNS topic → email (the owner's address, set via the gitignored `terraform.tfvars` — never committed):
   - Step Function execution failed
   - No successful run in the last 8 days (catches "the Monday cron didn't fire")
   - Glue Job duration > p95 baseline
