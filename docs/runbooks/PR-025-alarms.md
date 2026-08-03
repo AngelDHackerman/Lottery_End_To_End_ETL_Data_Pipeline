@@ -21,11 +21,15 @@ alarm below will publish into a topic with zero subscribers — the alarm state 
 correct in the console and **no one will be told**. Wiring the email is PR-028, which the
 roadmap puts last in Phase 4.
 
-Either land PR-028 next, or set it now in the gitignored `terraform/terraform.tfvars`:
+**You do not need PR-028 to fix this.** PR-028 only adds a placeholder to the public
+`terraform.tfvars.example` and writes the docs. What actually creates the subscription is
+`alert_email` in the gitignored `terraform/terraform.tfvars`:
 
 ```hcl
 alert_email = "you@example.com"   # the owner's real address — tfvars is gitignored
 ```
+
+Setting it adds one resource to the plan (`aws_sns_topic_subscription.email_alerts`).
 
 then **click the confirmation link AWS emails** — Terraform cannot confirm it for you, and
 until you do, the subscription reads `PendingConfirmation` and delivers nothing.
@@ -211,15 +215,49 @@ succeeds.
 
 ## 5. Verification
 
-Terraform (no AWS mutation):
+**Step 1 — plan** (no AWS mutation).
 
 ```bash
 cd terraform
-make build          # plan reads the lambda zips via filemd5 — build first or the plan fails
-terraform plan      # expect: 9 to add, 0 to change, 0 to destroy
+terraform plan                # expect: 9 to add, 0 to change, 0 to destroy
 ```
 
-After the owner applies:
+If `alert_email` is set for the first time, the plan is **10 to add** — the extra resource
+is `aws_sns_topic_subscription.email_alerts`.
+
+⚠️ **Do NOT run `make build` for this PR.** Two traps, both hit while writing this runbook:
+
+1. **The Makefile lives at the repo root, not in `terraform/`.** `cd terraform && make build`
+   fails with "No rule to make target".
+2. **More importantly, rebuilding pollutes the plan.** PR-025 touches no Python code, but
+   `build_lambda_layer.sh` re-runs `pip` and rezips, producing a different `source_code_hash`
+   even from identical sources. That forces `aws_lambda_layer_version.loteria_deps` to be
+   **replaced** (layer version N → N+1) and drags the two Lambda functions plus the S3 object
+   along with it. Measured: the plan went from `10 to add, 0 change, 0 destroy` to
+   `11 to add, 3 to change, 1 to destroy` — and the extra churn had nothing to do with alarms.
+
+`make build` is needed when the Lambda/Glue **code** changed. It is not needed here, as long
+as the zips already on disk are the deployed ones. If a plan shows unexpected Lambda churn,
+restore the deployed artifacts instead of rebuilding:
+
+```bash
+aws s3 cp s3://lambda-code-zip-prod/lambda_layer.zip   terraform/lambda_layer.zip
+aws s3 cp s3://lambda-code-zip-prod/lambda_package.zip terraform/lambda_package.zip
+```
+
+The zips must exist on disk either way — `filemd5`/`filebase64sha256` read them at **plan**
+time, so a missing file fails the plan itself, not the apply.
+
+**Step 2 — apply.** Nothing below works before this; the alarms do not exist yet.
+
+```bash
+terraform apply
+```
+
+Then confirm the SNS email AWS sends, or every check below passes while no notification
+ever arrives.
+
+**Step 3 — verify** what the apply created:
 
 ```bash
 # All six alarms exist and their states are as tabulated above.
@@ -237,8 +275,8 @@ aws sns get-topic-attributes --topic-arn arn:aws:sns:us-east-1:913524903233:lote
 # expect: DefaultStatement / AllowEventBridgePublish
 ```
 
-**End-to-end test of the notification path** (needs a confirmed subscription — see the top
-of this runbook). `set-alarm-state` forces a transition and fires the action without
+**Step 4 — end-to-end test of the notification path** (needs a confirmed subscription — see
+the top of this runbook). `set-alarm-state` forces a transition and fires the action without
 touching any metric data; the state reverts at the next real evaluation:
 
 ```bash
