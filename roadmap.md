@@ -593,6 +593,35 @@ Add aws_cloudwatch_metric_alarm resources, each notifying SNS topic from PR-014:
 > care: `ExecutionsSucceeded` reports **no datapoints** rather than zero when nothing runs,
 > so the alarm must treat missing data as breaching.
 
+> **Notes from executing it (2026-08-02):**
+> - **8 days is not possible — the alarm is 7.** CloudWatch caps an alarm's total evaluation
+>   window: "`Period` multiplied by `EvaluationPeriods` can't be more than 604,800 seconds."
+>   8 × 86,400 = 691,200 and the API rejects it; the cap is on the window itself, so no
+>   composite/expression form gets around it. 7 × 86,400 is the exact ceiling **and** the
+>   right number for a weekly trigger — a healthy week always contains one success, and a
+>   missed Thursday alarms at the next 00:00 UTC.
+> - **The missing-data note above is half right.** Live data shows `ExecutionsSucceeded`
+>   publishes a real `0` on a day when a run *failed*, and **no datapoint** on a day when
+>   nothing ran. `breaching` is still correct — it is the second case (a silently dead
+>   pipeline) that would otherwise be unalarmable.
+> - **Alarm 5 needed two resources, not one.** The Glue job uses `startJobRun.**sync**`, so a
+>   failed integration really does mean a failed job run. The crawlers use
+>   `aws-sdk:glue:startCrawler`, which has **no `.sync` variant** — the integration succeeds
+>   the instant the crawler starts, so a crawl that starts and then fails is invisible while
+>   the run proceeds to build gold from a stale catalog. Covered by an EventBridge rule on
+>   `Glue Crawler State Change` / `state: Failed`. A Logs metric filter over
+>   `/aws-glue/crawlers` was rejected: the group is account-wide, **another project writes to
+>   it**, filters cannot be scoped to a stream, and the crawler name is absent from
+>   individual error lines.
+> - **⚠️ The alerts topic has ZERO subscribers** (`alert_email` defaults to `""`), so these
+>   alarms currently notify nobody. **PR-028 should be pulled forward** or `alert_email` set
+>   in tfvars at apply time.
+> - Adding the EventBridge → SNS target **replaces the topic's default policy**; the module
+>   reproduces the default account-owner statement alongside the new grant.
+> - Also noticed, out of scope: because `startCrawler` does not wait, the gold CTAS can begin
+>   *before* the crawlers finish, not just when they fail. Needs a `Wait`/`GetCrawler` poll.
+> - Runbook: `docs/runbooks/PR-025-alarms.md`.
+
 ## PR-026 — Scraper response-code custom metric
 **Prompt:**
 ```
@@ -634,7 +663,8 @@ Add to terraform/modules/observability/ as a sub-module or new aws_lambda_functi
 ## PR-028 — Wire SNS email subscription via tfvars
 **Prompt:**
 ```
-Add `alert_email = "quehongosrojos@gmail.com"` to terraform.tfvars.example.
+Add `alert_email = "you@example.com"` to terraform.tfvars.example as a PLACEHOLDER.
+Never commit a real address: terraform.tfvars.example is public, terraform.tfvars is gitignored — the owner's real address goes only in the latter.
 Document that the owner must confirm the SNS email subscription in their inbox after first apply.
 ```
 
@@ -853,8 +883,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 022 | Wire Gold into Step Function | merged | [PR #25](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/25) |
 | 023 | Log retention | merged | [PR #26](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/26) |
 | 024 | CloudWatch dashboard | merged | [PR #27](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/27) |
-| 025 | Alarms | todo | — |
-| 026 | Scraper HTTP status metric | in-progress | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
+| 025 | Alarms | in-progress | — |
+| 026 | Scraper HTTP status metric | merged | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
 | 027 | S3 object-count emitter (optional) | todo | — |
 | 028 | SNS email subscription | todo | — |
 | 029 | pytest skeleton + parser tests | todo | — |
