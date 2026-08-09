@@ -10,12 +10,42 @@ Two jobs:
 from __future__ import annotations
 
 import os
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SORTEOS = FIXTURES / "sorteos"
+
+
+# --------------------------------------------------------------------------------------
+# awsglue stub (PR-030)
+# --------------------------------------------------------------------------------------
+# loteria.transformer.transformer does `from awsglue.utils import getResolvedOptions` at
+# MODULE scope. awsglue ships only inside the Glue runtime — it is not on PyPI and cannot be
+# installed — so importing the transformer anywhere else is an ImportError before a single
+# line of the transform runs.
+#
+# Registering a stub in sys.modules is what makes the module importable under test. It is
+# deliberately minimal: only `main()` calls getResolvedOptions, and `main()` is the Glue
+# entry point, not the unit under test. Any test that reached it would get the TypeError
+# below rather than a silently empty options dict.
+if "awsglue" not in sys.modules:
+    _awsglue = types.ModuleType("awsglue")
+    _utils = types.ModuleType("awsglue.utils")
+
+    def _get_resolved_options(argv, options):  # pragma: no cover - guard, not behaviour
+        raise TypeError(
+            "getResolvedOptions is stubbed in tests. transform() is the unit under test; "
+            "main() is the Glue entry point and needs the real Glue runtime."
+        )
+
+    _utils.getResolvedOptions = _get_resolved_options
+    _awsglue.utils = _utils
+    sys.modules["awsglue"] = _awsglue
+    sys.modules["awsglue.utils"] = _utils
 
 
 # --------------------------------------------------------------------------------------
