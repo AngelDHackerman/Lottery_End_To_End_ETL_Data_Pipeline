@@ -37,3 +37,14 @@ output "crawler_failed_rule_name" {
   description = "Name of the EventBridge rule that notifies on a failed silver crawl."
   value       = aws_cloudwatch_event_rule.crawler_failed.name
 }
+
+# PR-027: the object-count emitter. Null when disabled, so a caller can branch on it.
+output "object_count_function_name" {
+  description = "Name of the per-layer S3 object-count Lambda (null when disabled)."
+  value       = var.enable_object_count_emitter ? aws_lambda_function.object_count[0].function_name : null
+}
+
+output "object_count_rule_name" {
+  description = "Name of the EventBridge rule that runs the object-count Lambda (null when disabled)."
+  value       = var.enable_object_count_emitter ? aws_cloudwatch_event_rule.object_count_schedule[0].name : null
+}

@@ -36,3 +36,9 @@ output "gold_purge_lambda_role_arn" {
   description = "ARN of the gold-purge Lambda execution role (PR-022)."
   value       = aws_iam_role.gold_purge_lambda.arn
 }
+
+# PR-027: the S3 object-count emitter's role, consumed by module.observability.
+output "object_count_lambda_role_arn" {
+  description = "Execution role ARN for the per-layer S3 object-count Lambda."
+  value       = aws_iam_role.object_count_lambda.arn
+}

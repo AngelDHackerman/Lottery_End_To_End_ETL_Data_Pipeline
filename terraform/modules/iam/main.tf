@@ -171,6 +171,22 @@ resource "aws_iam_role" "gold_purge_lambda" {
   })
 }
 
+# Role for the S3 object-count emitter (PR-027). Read-only by construction: it may LIST
+# the data bucket and publish metrics, nothing else. Kept separate from the gold-purge role
+# specifically so an observability component can never acquire a Delete.
+resource "aws_iam_role" "object_count_lambda" {
+  name = "lottery-object-count-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 # ===========================================================================
 # CUSTOMER-MANAGED POLICIES
 # ===========================================================================
@@ -412,6 +428,44 @@ resource "aws_iam_policy" "athena_results_access" {
 # Gold-purge Lambda policy (PR-022): read the SQL under sql/gold/, empty the gold/<name>/
 # prefix, and drop the gold table from the catalog. Scoped to the partitioned bucket +
 # this database's tables.
+# PR-027: the object-count emitter. Two grants, both minimal.
+#
+# `s3:ListBucket` is on the BUCKET arn, not `bucket/*` — listing is a bucket-level action,
+# and the object-level arn would grant nothing. Note there is deliberately no `s3:GetObject`
+# here: counting and sizing come entirely from the ListObjectsV2 response, so this role can
+# see that objects exist and how big they are, and can never read what is in them.
+resource "aws_iam_policy" "object_count_lambda_policy" {
+  name = "lottery-object-count-policy-${var.environment}"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid      = "ListMedallionPrefixes",
+        Effect   = "Allow",
+        Action   = ["s3:ListBucket"],
+        Resource = var.partitioned_bucket_arn
+      },
+      {
+        # Same shape as the extractor's grant (PR-026): cloudwatch:PutMetricData supports no
+        # resource-level permissions, so `Resource` must be "*" and the real scope is the
+        # `cloudwatch:namespace` condition. A namespace mismatch between this condition and
+        # the Lambda's METRICS_NAMESPACE env var denies every publish SILENTLY — Terraform
+        # passes the same variable to both, which is what keeps them honest.
+        Sid      = "PublishLayerMetrics",
+        Effect   = "Allow",
+        Action   = ["cloudwatch:PutMetricData"],
+        Resource = "*",
+        Condition = {
+          StringEquals = {
+            "cloudwatch:namespace" = var.metrics_namespace
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_iam_policy" "gold_purge_lambda_policy" {
   name = "lottery-gold-purge-policy-${var.environment}"
 
@@ -718,6 +772,17 @@ resource "aws_iam_role_policy_attachment" "gold_purge_basic" {
 resource "aws_iam_role_policy_attachment" "gold_purge_custom" {
   role       = aws_iam_role.gold_purge_lambda.name
   policy_arn = aws_iam_policy.gold_purge_lambda_policy.arn
+}
+
+# Object-count emitter (PR-027): CloudWatch Logs basics + the read-only list/publish policy.
+resource "aws_iam_role_policy_attachment" "object_count_basic" {
+  role       = aws_iam_role.object_count_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "object_count_custom" {
+  role       = aws_iam_role.object_count_lambda.name
+  policy_arn = aws_iam_policy.object_count_lambda_policy.arn
 }
 
 # ---------------------------------------------------------------------------

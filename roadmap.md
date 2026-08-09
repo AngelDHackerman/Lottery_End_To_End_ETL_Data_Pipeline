@@ -752,6 +752,31 @@ Tiny scheduled Lambda (EventBridge cron every 1 hour) that runs:
 Add to terraform/modules/observability/ as a sub-module or new aws_lambda_function. Skip if the dashboard from PR-024 already feels rich enough.
 ```
 
+> **Notes from executing it (2026-08-09): built, not skipped.** The reason is worth keeping:
+> every other widget on the PR-024 dashboard measures an **execution**; none measures the
+> **asset**. A run can go green end to end and add nothing — the extractor re-scrapes a page
+> it already has, the transformer rewrites the same partition, `AWS/States` reports success
+> and PR-025's alarms stay quiet. A flat `raw/` line beside green executions is the only
+> place that shows. Same category as PR-026.5: green pipeline, wrong data.
+> - **S3's free metrics can't do this.** `AWS/S3` `NumberOfObjects` / `BucketSizeBytes` are
+>   per-**bucket** only. All three medallion layers share one bucket, so a custom emitter is
+>   the only way to get the per-prefix breakdown.
+> - **Emits `BytesStored` too** (beyond the prompt). It comes back in the same
+>   `ListObjectsV2` response as the count — no extra API call — and an object *existing* is
+>   not an object *having data*: a truncated scrape still increments `ObjectCount`. Cost of
+>   the extra series is 3 metrics × $0.30/mo.
+> - **The dimension format in the prompt is wrong.** boto3 wants
+>   `[{"Name": "Layer", "Value": ...}]`, not `[{"Layer": ...}]`.
+> - **`aws_lambda_permission` is the silent-failure trap.** EventBridge invokes Lambda by
+>   *resource policy*, not by execution role. Without it the rule fires forever, nothing runs,
+>   and the only evidence is the rule's `FailedInvocations` metric.
+> - **No `s3:GetObject` in the role.** Counting and sizing come entirely from the list
+>   response, so the emitter can see that objects exist and how big they are and can never
+>   read them. `s3:ListBucket` goes on the *bucket* ARN — the `bucket/*` form grants nothing.
+> - Gated by `enable_object_count_emitter` (default true) so "optional" is real without
+>   deleting code. `processed/` excluded — frozen legacy prefix from PR-012.
+> - Runbook: `docs/runbooks/PR-027-object-count.md`.
+
 ## PR-028 — Wire SNS email subscription via tfvars
 **Prompt:**
 ```
@@ -978,7 +1003,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 025 | Alarms | in-progress | — |
 | 026 | Scraper HTTP status metric | merged | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
 | 026.5 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | todo | — |
-| 027 | S3 object-count emitter (optional) | todo | — |
+| 027 | S3 object-count emitter (optional) | in-progress | — |
 | 028 | SNS email subscription | todo | — |
 | 029 | pytest skeleton + parser tests | todo | — |
 | 030 | Transformer tests with moto | todo | — |
