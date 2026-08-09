@@ -760,6 +760,31 @@ Never commit a real address: terraform.tfvars.example is public, terraform.tfvar
 Document that the owner must confirm the SNS email subscription in their inbox after first apply.
 ```
 
+> **Notes from executing it (2026-08-09):**
+> - **This is the PR that makes PR-025 real.** Those six alarms had been sitting on a topic
+>   with **zero subscribers** — correct alarms, silent inbox. Verified live before the change:
+>   `list-subscriptions-by-topic` returned an empty list.
+> - **`terraform apply` cannot finish this.** AWS emails a confirmation link and a human must
+>   click it; there is no API to confirm on the subscriber's behalf, by design. Terraform
+>   reports the subscription **created either way**, so a green apply is *not* proof that
+>   alerts will arrive. Unconfirmed subscriptions carry the literal ARN
+>   `PendingConfirmation`. The link expires after 3 days (`apply -replace` resends), the
+>   subject line is generic, and it often lands in spam.
+> - **`confirmation_timeout_in_minutes = 1` is not the click deadline** — it is only how long
+>   Terraform waits before giving up on observing confirmation.
+> - **Confirming the subscription only tests the last hop.** It proves SNS reaches the inbox,
+>   not that an *alarm* reaches SNS (which also needs the topic policy and `alarm_actions`).
+>   `aws cloudwatch set-alarm-state --state-value ALARM` drives a real transition through the
+>   whole chain and is safe — CloudWatch overwrites the forced state at the next evaluation.
+>   Expect **one** email, not two: `ok_actions` is deliberately unset.
+> - **Added beyond the prompt:** a plan-time regex validation on `alert_email`. SNS accepts
+>   almost any string as an email endpoint and simply never delivers, so a typo would
+>   silently recreate the very "alarms notify nobody" state this PR removes.
+> - The `.example` suffix is what keeps the template out of `.gitignore`'s `*.tfvars` glob —
+>   verified both directions with `git check-ignore`, plus a `git grep` for the real address
+>   across tracked files.
+> - Runbook: `docs/runbooks/PR-028-alert-email.md`.
+
 ---
 
 # Phase 5 — QA / Testing (the showcase)
@@ -979,7 +1004,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 026 | Scraper HTTP status metric | merged | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
 | 026.5 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | todo | — |
 | 027 | S3 object-count emitter (optional) | todo | — |
-| 028 | SNS email subscription | todo | — |
+| 028 | SNS email subscription | in-progress | — |
 | 029 | pytest skeleton + parser tests | todo | — |
 | 030 | Transformer tests with moto | todo | — |
 | 031 | Scraper contract canary | todo | — |
