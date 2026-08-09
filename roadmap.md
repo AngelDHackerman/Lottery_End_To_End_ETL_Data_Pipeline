@@ -963,6 +963,38 @@ Write tests/integration/test_scraper_contract.py:
 Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at 18:00 UTC (one day before the Monday cron). If it fails, the owner gets a notification before prod fails.
 ```
 
+> **Notes from executing it (2026-08-09):** 7 tests, **all passing against the live site**.
+> - **The cron is WEDNESDAY 18:00 UTC, not Sunday.** The prompt's "one day before the Monday
+>   cron" is stale: PR-022 moved the pipeline to **Thursday**. A Sunday run would land in the
+>   exact post-Saturday Cloudflare waiting-room window that the Thursday move exists to dodge,
+>   and would mostly report skips. Wednesday keeps the 24h lead time the prompt actually
+>   wanted.
+> - **The workflow is CREATED here, not just documented** (`.github/workflows/scraper-canary.yml`).
+>   A documented-but-absent canary protects nothing. **PR-034 must not recreate it** — its
+>   prompt also lists `scraper-canary.yml`; that half is already done.
+> - **The canary does NOT import `loteria.extractor.scraping`.** That module calls
+>   `get_secrets()` at import time, so importing it would drag Secrets Manager (and AWS
+>   credentials) into a workflow that otherwise needs none. The token comes from
+>   `SCRAPE_DO_TOKEN` instead. The cost is that the selectors are written twice, so an
+>   **offline** test asserts every locator literal still appears in `scraping.py` — otherwise
+>   a scraper edit could leave the canary watching a selector nothing uses.
+> - **⚠️ pytest gotcha, cost an hour: `item.keywords` contains the test's PATH components.**
+>   PR-029's conftest skipped on `"integration" in item.keywords`, which matches *every* test
+>   under `tests/integration/` regardless of marker — so the offline guard above was silently
+>   skipped. Invisible until this PR put the first file in that directory. Fixed to
+>   `item.get_closest_marker("integration")`.
+> - **Three failure modes are distinguished**, because they need different responses: a
+>   Cloudflare waiting room (HTTP **200** with a queue page — invisible to PR-026's status
+>   metric) **skips**; a scrape.do 401/402/429 **fails** naming the proxy quota; a real
+>   selector mismatch **fails** naming the selector.
+> - **Added beyond the prompt:** the prompt's `len(rows) >= 3` only proves three rows exist,
+>   not that the third still holds the prizes — the extractor indexes `result_divs[2]`
+>   positionally, so inserting one row above it would silently write the wrong text to `raw/`.
+>   A companion test asserts row 3 contains ≥10 prize-shaped lines.
+> - The workflow reuses one open issue instead of filing a duplicate every week, and fails
+>   loudly if `SCRAPE_DO_TOKEN` is unset (a canary that silently skips everything is worse
+>   than none). **The owner must add that repository secret.**
+
 ## PR-032 — Great Expectations suite for Silver
 **Prompt:**
 ```
@@ -1140,8 +1172,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 027 | S3 object-count emitter (optional) | merged | [PR #31](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/31) |
 | 028 | SNS email subscription | merged | [PR #32](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/32) |
 | 029 | pytest skeleton + parser tests | in-progress | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
-| 030 | Transformer tests with moto | in-progress | — |
-| 031 | Scraper contract canary | todo | — |
+| 030 | Transformer tests with moto | in-progress | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
+| 031 | Scraper contract canary | in-progress | — |
 | 032 | GE Silver suite | todo | — |
 | 033 | DQ gate in Step Function | todo | — |
 | 034 | GitHub Actions CI | todo | — |
