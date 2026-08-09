@@ -19,7 +19,7 @@ deploy: ## terraform apply the main stack (PR-039)
 	@echo "TODO(PR-039): cd terraform && terraform init && terraform apply"
 
 test: ## Run the test suite with coverage (PR-029/PR-039)
-	@echo "TODO(PR-039): pytest -v --cov"
+	pytest -v
 
 destroy: ## Tear down the stack (guarded; PR-039)
 	@echo "TODO(PR-039): refuse unless CONFIRM=YES"

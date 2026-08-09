@@ -864,7 +864,15 @@ Document that the owner must confirm the SNS email subscription in their inbox a
 **Prompt:**
 ```
 1. Create tests/ with tests/unit/, tests/integration/, tests/fixtures/.
-2. Capture 3 real .txt files from raw/ (anonymize vendor names: replace with VENDOR_001..N) and store under tests/fixtures/sorteos/.
+2. Capture 3 real .txt files from raw/ and store under tests/fixtures/sorteos/, anonymizing
+   ONLY the vendor-name segment: `VENDIDO POR <name>, DE <ciudad>[, <depto>]` becomes
+   `VENDIDO POR VENDOR_001, DE <ciudad>[, <depto>]`.
+   ⚠️ Do NOT replace the whole `vendido_por` field. It is comma-delimited and
+   `split_vendido_por_column` splits on commas, so collapsing it to a bare `VENDOR_001`
+   destroys ciudad/departamento and makes test 3's "yields vendedor/ciudad/departamento;
+   handles ciudad-only rows" impossible to write. Ciudad and departamento are public
+   geography, not personal data — keep them verbatim. Keep `NO VENDIDO` lines untouched.
+   Use a stable name→id map so the same person is the same VENDOR_NNN in every fixture.
 3. Write tests/unit/test_parser.py covering:
    - split_header_body: HEADER/BODY found correctly; ValueError on malformed input
    - process_header: every field extracted; correct types; raises on missing fields
@@ -874,11 +882,37 @@ Document that the owner must confirm the SNS email subscription in their inbox a
 5. Wire `make test` to `pytest -v`.
 ```
 
+> **Notes from executing it (2026-08-09):**
+> - **`--cov-fail-under=70` is NOT reachable here, and shipping it would break the gate on
+>   the PR that introduces it.** `src/loteria` is 502 statements; PR-029 covers `parser.py`
+>   (59) = **11.8%**, PR-030 adds `transformer.py` (111) = **33.9%**, and PR-031's scraper
+>   test is skipped by default so it adds 0. A gate that fails from birth just teaches
+>   everyone to run `pytest --no-cov`. Set to **11** and raised in the same PR that adds the
+>   tests (PR-030 → 33, PR-035 → 85, which already says "add tests as needed"). Coverage is
+>   measured over **all** of `src/loteria`, not scoped to the tested modules — a flattering
+>   number that hides the untested majority is the wrong default for a data-quality repo.
+> - **The anonymizer is committed** (`scripts/anonymize_fixture.py`) rather than run ad hoc,
+>   with a `--check` mode that exits non-zero if a fixture still holds a real name. Run all
+>   files in ONE invocation: the shared name→id map is what keeps a person mapped to the same
+>   `VENDOR_NNN` across fixtures.
+> - **The vendor field holds more than names.** Real example in the capture:
+>   `PERSONA CON DISCAPACIDAD VISUAL <nombre>` — disability status. Replacing the whole
+>   pre-comma segment removes it; matching "name-shaped" substrings would not have. Worth
+>   knowing that `raw/` and `silver_premios_premios.vendedor` are more sensitive than the
+>   column name suggests.
+> - **Fixture choice matters more than "3 files".** The extraordinario is in the set because
+>   extraordinarios use a **separate numbering sequence** (411/412/413, not 3xxx) and contain
+>   **zero** `NO VENDIDO` lines — two assumptions that are otherwise easy to bake in.
+> - 45 tests, `parser.py` at **100%** coverage.
+
 ## PR-030 — Transformer unit tests with moto
 **Prompt:**
 ```
 Write tests/unit/test_transformer.py:
-- Use moto's mock_s3 to stand up fake partitioned + simple buckets.
+- Use moto to stand up fake partitioned + simple buckets.
+  ⚠️ Use `from moto import mock_aws`, NOT `mock_s3`. `mock_s3` is the moto v4 API and was
+  REMOVED in moto 5 (one `mock_aws` now covers every service). `moto` is unpinned in
+  pyproject, so pip installs 5.x and `from moto import mock_s3` raises ImportError.
 - Upload a fixture .txt under raw/year=2024/sorteo=3046/.
 - Run transformer.transform(...) against the fake buckets.
 - Assert: silver parquet files appear at the expected key, schema matches the canonical one, dtypes correct, year partition derived correctly.
@@ -1076,7 +1110,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 026.1 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | merged | [PR #30](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/30) |
 | 027 | S3 object-count emitter (optional) | merged | [PR #31](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/31) |
 | 028 | SNS email subscription | merged | [PR #32](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/32) |
-| 029 | pytest skeleton + parser tests | todo | — |
+| 029 | pytest skeleton + parser tests | in-progress | — |
 | 030 | Transformer tests with moto | todo | — |
 | 031 | Scraper contract canary | todo | — |
 | 032 | GE Silver suite | todo | — |
