@@ -21,6 +21,11 @@
 # partitions) in the Glue catalog itself, so a crawler would be redundant. See the
 # catalog module README for the reasoning behind skipping roadmap step 4.
 
+# PR-026.5 (correctness fix): the two silver crawlers are no longer fired and forgotten.
+# They now run in a Parallel state, each branch polling GetCrawler until that crawl has
+# demonstrably finished AND succeeded, before PrepGold/BuildGold may run. See the block
+# comment on `RunSilverCrawlers` for the measured race this closes.
+
 # PR-023 adds log retention here in two places: the gold-purge Lambda's own group (which
 # already exists in prod and must be IMPORTED), and — new — a log group for the state
 # machine itself. Step Functions writes execution logs only when a logging_configuration
@@ -41,6 +46,185 @@ locals {
   gold_purge_function_name = "lottery-gold-purge-${var.environment}"
   state_machine_name       = "lottery-etl-pipeline-${var.environment}"
   sfn_logging_enabled      = var.sfn_log_level != "OFF"
+
+  # PR-026.5: the two silver crawlers, keyed by the PascalCase fragment used to name their
+  # states. A map (not a list) so the generated state names are stable — Terraform iterates
+  # a map in lexical key order, so Premios always comes before Sorteos and the rendered
+  # definition never churns.
+  silver_crawlers = {
+    Premios = var.premios_crawler_name
+    Sorteos = var.sorteos_crawler_name
+  }
+
+  # PR-026.5: one Parallel branch per crawler. Each branch is
+  #   baseline -> start -> (wait -> get -> check)* -> verify -> succeed
+  # See the block comment above `RunSilverCrawlers` for why every piece is here.
+  crawler_branches = [
+    for key, crawler_name in local.silver_crawlers : {
+      StartAt = "Baseline${key}Crawler"
+      States = {
+        # 1. Record which crawl was the most recent BEFORE we start ours. This is what makes
+        #    "State == READY" trustworthy: READY is also the state a crawler sits in during
+        #    the moments between StartCrawler returning and the control plane flipping it to
+        #    RUNNING. Without a baseline, the first poll could read that stale READY and
+        #    declare a crawl finished before it had begun — the exact class of bug this PR
+        #    exists to kill. `MessagePrefix` is the crawl's own UUID, so a changed value is
+        #    positive proof that a NEW crawl ran to completion.
+        "Baseline${key}Crawler" = {
+          Type     = "Task",
+          Resource = "arn:aws:states:::aws-sdk:glue:getCrawler",
+          Parameters = {
+            Name = crawler_name
+          },
+          ResultPath = "$.baseline",
+          Retry      = local.crawler_get_retry,
+          Next       = "Start${key}Crawler"
+        },
+
+        # 2. Start the crawl. `ResultPath = null` discards startCrawler's empty response so
+        #    the baseline recorded above survives into the poll loop.
+        "Start${key}Crawler" = {
+          Type     = "Task",
+          Resource = "arn:aws:states:::aws-sdk:glue:startCrawler",
+          Parameters = {
+            Name = crawler_name
+          },
+          ResultPath = null,
+          Next       = "Init${key}Poll"
+        },
+
+        # 3. Seed the attempt counter used by the budget guard in step 6.
+        "Init${key}Poll" = {
+          Type       = "Pass",
+          Result     = { attempts = 0 },
+          ResultPath = "$.poll",
+          Next       = "Wait${key}Crawler"
+        },
+
+        # 4. Sleep, then look again. The wait comes FIRST: polling immediately after
+        #    StartCrawler only burns an API call, since the fastest observed crawl still
+        #    takes minutes.
+        "Wait${key}Crawler" = {
+          Type    = "Wait",
+          Seconds = var.crawler_poll_interval_seconds,
+          Next    = "Get${key}Crawler"
+        },
+
+        "Get${key}Crawler" = {
+          Type     = "Task",
+          Resource = "arn:aws:states:::aws-sdk:glue:getCrawler",
+          Parameters = {
+            Name = crawler_name
+          },
+          ResultPath = "$.current",
+          Retry      = local.crawler_get_retry,
+          Next       = "Check${key}Crawler"
+        },
+
+        # 5. Are we done? Two ways to be done, because a crawler that has NEVER run has no
+        #    `LastCrawl` block at all to compare against (the fresh-account case — this
+        #    account's crawlers have 100+ crawls, but a clone would not). Every comparison
+        #    is guarded by `IsPresent` first, which is the pattern AWS documents for
+        #    referencing a field that may be absent.
+        "Check${key}Crawler" = {
+          Type = "Choice",
+          Choices = [
+            # 5a. Fresh account: no crawl existed before, one exists now and we are idle.
+            {
+              And = [
+                { Variable = "$.current.Crawler.State", StringEquals = "READY" },
+                { Variable = "$.baseline.Crawler.LastCrawl", IsPresent = false },
+                { Variable = "$.current.Crawler.LastCrawl", IsPresent = true },
+              ],
+              Next = "Verify${key}Crawl"
+            },
+            # 5b. Steady state: idle AND the last crawl is a different crawl than the one
+            #     that was last when we started.
+            {
+              And = [
+                { Variable = "$.current.Crawler.State", StringEquals = "READY" },
+                { Variable = "$.baseline.Crawler.LastCrawl.MessagePrefix", IsPresent = true },
+                { Variable = "$.current.Crawler.LastCrawl.MessagePrefix", IsPresent = true },
+                {
+                  Not = {
+                    Variable         = "$.current.Crawler.LastCrawl.MessagePrefix",
+                    StringEqualsPath = "$.baseline.Crawler.LastCrawl.MessagePrefix"
+                  }
+                },
+              ],
+              Next = "Verify${key}Crawl"
+            },
+            # 5c. Budget exhausted — fail loudly rather than loop forever.
+            {
+              Variable                 = "$.poll.attempts",
+              NumericGreaterThanEquals = var.crawler_poll_max_attempts,
+              Next                     = "${key}CrawlTimedOut"
+            },
+          ],
+          Default = "Increment${key}Poll"
+        },
+
+        # 6. Not done yet: count the attempt and go back to sleep.
+        "Increment${key}Poll" = {
+          Type = "Pass",
+          Parameters = {
+            "attempts.$" = "States.MathAdd($.poll.attempts, 1)"
+          },
+          ResultPath = "$.poll",
+          Next       = "Wait${key}Crawler"
+        },
+
+        # 7. The crawl finished — but "finished" is not "succeeded". A FAILED crawl leaves
+        #    the catalog exactly as stale as no crawl at all, so letting the pipeline
+        #    proceed here would reintroduce the defect through the back door. Failing the
+        #    execution also gives the run an owner: PR-025's SFN_ExecutionFailed alarm.
+        "Verify${key}Crawl" = {
+          Type = "Choice",
+          Choices = [
+            {
+              Variable     = "$.current.Crawler.LastCrawl.Status",
+              StringEquals = "SUCCEEDED",
+              Next         = "${key}CrawlSucceeded"
+            },
+          ],
+          Default = "${key}CrawlFailed"
+        },
+
+        "${key}CrawlTimedOut" = {
+          Type  = "Fail",
+          Error = "CrawlerPollTimeout",
+          Cause = "The ${key} silver crawler did not return to READY within the poll budget (crawler_poll_interval_seconds x crawler_poll_max_attempts). Gold was NOT built, because a CTAS against a half-updated catalog would silently produce wrong data. Check the crawler in the Glue console and /aws-glue/crawlers."
+        },
+
+        "${key}CrawlFailed" = {
+          Type  = "Fail",
+          Error = "CrawlerRunFailed",
+          Cause = "The ${key} silver crawler finished with a LastCrawl.Status other than SUCCEEDED. Gold was NOT built: a failed crawl leaves the Glue catalog missing this run's new (year, sorteo) partition, so the CTAS would have produced gold tables without the newest sorteo. See /aws-glue/crawlers."
+        },
+
+        "${key}CrawlSucceeded" = {
+          Type = "Succeed"
+        },
+      }
+    }
+  ]
+
+  # Polling adds up to `2 x crawler_poll_max_attempts` GetCrawler calls per run. Glue
+  # throttles per-account, and this pipeline shares the account with another project, so a
+  # short backoff on the read is cheap insurance. Deliberately narrow: EntityNotFound or a
+  # malformed request must fail fast, not retry.
+  crawler_get_retry = [
+    {
+      ErrorEquals = [
+        "Glue.ThrottlingException",
+        "Glue.OperationTimeoutException",
+        "Glue.InternalServiceException",
+      ],
+      IntervalSeconds = 5,
+      MaxAttempts     = 3,
+      BackoffRate     = 2
+    }
+  ]
 }
 
 resource "aws_cloudwatch_log_group" "gold_purge" {
@@ -159,25 +343,41 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
             "--CORRELATION_ID.$" = "$$.Execution.Name"
           }
         },
-        Next = "RunPremiosCrawler"
+        Next = "RunSilverCrawlers"
       },
 
-      RunPremiosCrawler = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::aws-sdk:glue:startCrawler",
-        Parameters = {
-          Name = var.premios_crawler_name
-        },
-        Next = "RunSorteosCrawler"
-      },
-
-      RunSorteosCrawler = {
-        Type     = "Task",
-        Resource = "arn:aws:states:::aws-sdk:glue:startCrawler",
-        Parameters = {
-          Name = var.sorteos_crawler_name
-        },
-        Next = "PrepGold"
+      # PR-026.5 — THE FIX. Previously this was two back-to-back
+      # `aws-sdk:glue:startCrawler` tasks that flowed straight into PrepGold.
+      #
+      # There is no `.sync` variant of startCrawler, so those tasks completed the instant
+      # the API call was ACCEPTED, not when the crawl finished. The gold CTAS then raced
+      # the crawlers. Measured on the 2026-07-30 run: `RunSorteosCrawler` returned at
+      # 15:01:48.9, the first 2 of 7 CTAS started at 15:02:02.2, and the crawler only wrote
+      # the catalog at 15:02:55 — those two CTAS read a catalog 53 s stale. Which two lose
+      # the race depends on Map scheduling, so the stale table was non-deterministic.
+      #
+      # It matters because silver is partitioned by (year, sorteo): every weekly run creates
+      # a BRAND-NEW partition, invisible to Athena until a crawler registers it. This is not
+      # the ordinary "new files inside a known partition" case that Athena resolves on its
+      # own. The failure is silent — no error, no alarm, just a gold table missing the
+      # newest draw.
+      #
+      # Two changes:
+      #   - Parallel instead of sequential. The crawlers were already started back-to-back
+      #     and both must finish before gold can build, so waiting for them one after the
+      #     other would have added ~4.5 min of dead time for nothing. Parallel makes the new
+      #     wait cost roughly one crawl, not two.
+      #   - Each branch polls to completion (see local.crawler_branches).
+      #
+      # `Parameters = {}` starts each branch from a tiny object instead of the Glue job's
+      # response, and `ResultPath = null` throws the branch outputs away — so PrepGold
+      # receives exactly what it did before and the payload stays far from the 256 KB limit.
+      RunSilverCrawlers = {
+        Type       = "Parallel",
+        Parameters = {},
+        ResultPath = null,
+        Branches   = local.crawler_branches,
+        Next       = "PrepGold"
       },
 
       # Inject the (plan-time) list of gold SQL keys into the state so the Map can

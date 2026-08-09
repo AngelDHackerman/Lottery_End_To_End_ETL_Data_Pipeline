@@ -81,3 +81,29 @@ variable "sfn_include_execution_data" {
   type        = bool
   default     = true
 }
+
+# --- Silver-crawler completion polling (PR-026.5) ---
+# The state machine waits for both silver crawlers to finish before building gold. There is
+# no `.sync` integration for startCrawler, so "waiting" means polling GetCrawler in a loop.
+
+variable "crawler_poll_interval_seconds" {
+  description = "Seconds to wait between GetCrawler polls while a silver crawler runs. 30 keeps the extra latency under a poll interval without spamming the Glue API (a crawl takes minutes, not seconds)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.crawler_poll_interval_seconds >= 5 && var.crawler_poll_interval_seconds <= 300
+    error_message = "crawler_poll_interval_seconds must be between 5 and 300."
+  }
+}
+
+variable "crawler_poll_max_attempts" {
+  description = "Polls before the execution fails with CrawlerPollTimeout. Guards against a hung crawler looping forever. Default 30 x 30 s = 15 minutes; the observed worst case is 4m26s wall clock, of which only the first ~46 s is catalog work — the rest is the crawler's own teardown before it reports READY."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.crawler_poll_max_attempts >= 1 && var.crawler_poll_max_attempts <= 200
+    error_message = "crawler_poll_max_attempts must be between 1 and 200."
+  }
+}

@@ -66,3 +66,77 @@ service constraint, not an oversight. Details: `docs/runbooks/PR-023-log-retenti
 Extra inputs: `log_retention_days` (default 30), `sfn_log_level`,
 `sfn_include_execution_data`. Extra outputs: `gold_purge_log_group_name`,
 `state_machine_log_group_name`.
+
+## Waiting for the silver crawlers (PR-026.5)
+
+**The defect this closes.** The state machine used to start the two silver crawlers with
+two back-to-back `arn:aws:states:::aws-sdk:glue:startCrawler` tasks and go straight to
+`PrepGold` → `BuildGold`. **There is no `.sync` variant of that integration**, so each task
+completed when the API call was *accepted*, not when the crawl finished. The 7 gold CTAS
+therefore raced the crawlers.
+
+Measured on the 2026-07-30 run:
+
+| Time (UTC-3) | Event |
+|---|---|
+| 15:01:48.9 | `RunSorteosCrawler` returns, SFN moves on |
+| **15:02:02.2** | **first 2 of 7 `RunCTAS` start** |
+| **15:02:55** | crawler logs "Finished writing to Catalog" — 53 s too late |
+| 15:02:57 → 15:04:03 | the remaining 5 CTAS start, correctly |
+| 15:06:34 | crawler reaches `READY` (3m39s of teardown *after* the catalog write) |
+
+This bites because silver is partitioned by **`(year, sorteo)`** — every weekly run creates
+a **brand-new partition**, which Athena cannot see until a crawler registers it. That is not
+the ordinary "new files inside a known partition" case Athena resolves by itself. Which two
+CTAS lose the race depends on `Map` scheduling (`MaxConcurrency = 3`), so the stale table was
+**non-deterministic**, and the failure is **silent**: no error, no alarm, just a gold table
+missing the newest draw.
+
+**The fix.** `RunSilverCrawlers`, a `Parallel` state with one branch per crawler:
+
+```
+Baseline<X>Crawler   getCrawler  -> $.baseline      (which crawl was last BEFORE ours)
+Start<X>Crawler      startCrawler, ResultPath null  (keep the baseline)
+Init<X>Poll          attempts = 0
+Wait<X>Crawler       <- loop -----------------+
+Get<X>Crawler        getCrawler -> $.current  |
+Check<X>Crawler      Choice ------------------+  (not done: Increment<X>Poll)
+Verify<X>Crawl       Choice on LastCrawl.Status
+<X>CrawlSucceeded | <X>CrawlTimedOut | <X>CrawlFailed
+```
+
+Four things are load-bearing:
+
+- **The baseline.** `READY` is *also* the state a crawler sits in between `StartCrawler`
+  returning and the control plane flipping it to `RUNNING`. Polling for `READY` alone could
+  read that stale value and declare a crawl finished before it began — the same class of bug
+  in a new costume. `LastCrawl.MessagePrefix` is the crawl's own UUID, so a **changed**
+  prefix is positive proof a new crawl ran to completion. The fresh-account case (a crawler
+  with no `LastCrawl` at all) gets its own Choice rule, and every comparison is guarded by
+  `IsPresent` first.
+- **`Verify<X>Crawl`.** "Finished" is not "succeeded". A FAILED crawl leaves the catalog
+  exactly as stale as no crawl, so proceeding would reintroduce the defect through the back
+  door. A non-`SUCCEEDED` `LastCrawl.Status` now fails the execution — which also gives the
+  run an owner, PR-025's `SFN_ExecutionFailed` alarm. Note this *changes* behaviour: a failed
+  crawl used to let the pipeline finish green.
+- **`Parallel`, not sequential.** Both crawlers must finish before gold can build, and
+  `READY` lags the catalog write by ~3.5 min of teardown. Waiting for them one after the
+  other would have added that twice for nothing.
+- **The budget guard.** `Check` fails the execution with `CrawlerPollTimeout` once
+  `$.poll.attempts` reaches `crawler_poll_max_attempts`, so a hung crawler cannot loop
+  forever. Default 30 × 30 s = 15 min against an observed worst case of 4m26s.
+
+`Parameters = {}` starts each branch from a tiny object rather than the Glue job's response,
+and `ResultPath = null` discards the branch outputs — so `PrepGold` receives exactly what it
+did before and the payload stays far from the 256 KB state limit.
+
+**No IAM change.** PR-009 already granted `glue:GetCrawler` alongside `glue:StartCrawler`,
+narrowed to the two silver crawler ARNs — verified against the live `sfn-lottery-policy-prod`
+v7, not just the code. The roadmap predicted this PR would need a policy edit; it does not.
+
+**Cost.** Polling adds ~4 state transitions per 30 s per crawler — under 100 extra
+transitions a week (≈ $0.002), plus up to 60 `GetCrawler` calls, which have a narrow
+throttling retry on them.
+
+Extra inputs: `crawler_poll_interval_seconds` (default 30),
+`crawler_poll_max_attempts` (default 30). Runbook: `docs/runbooks/PR-026.5-crawler-race.md`.
