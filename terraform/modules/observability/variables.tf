@@ -51,7 +51,35 @@ variable "glue_error_log_group_name" {
 }
 
 variable "metrics_namespace" {
-  description = "CloudWatch namespace holding the pipeline's custom metrics. MUST match loteria.common.metrics.NAMESPACE and the iam module's metrics_namespace, or the scraper widget plots nothing."
+  description = "CloudWatch namespace holding the pipeline's custom metrics. MUST match loteria.common.metrics.NAMESPACE and the iam module's metrics_namespace, or the scraper widget plots nothing and the ScrapeDo_Failed alarm never leaves INSUFFICIENT_DATA."
   type        = string
   default     = "Loteria/Pipeline"
+}
+
+# --- Alarms (PR-025) ---
+
+variable "premios_crawler_name" {
+  description = "Name of the silver premios crawler. Used to scope the crawler-failure EventBridge rule (Glue publishes no crawler metrics, so a failed crawl is only visible as an event)."
+  type        = string
+}
+
+variable "sorteos_crawler_name" {
+  description = "Name of the silver sorteos crawler. Same purpose as premios_crawler_name."
+  type        = string
+}
+
+variable "weekly_rule_name" {
+  description = "Name of the weekly EventBridge trigger rule. Referenced in the dead-man's-switch alarm description so the notification names the thing to go check."
+  type        = string
+}
+
+variable "no_success_alarm_days" {
+  description = "Days without a successful execution before the dead-man's-switch alarm fires. The roadmap asked for 8; CloudWatch caps an alarm's total evaluation period (period x evaluation_periods) at 604,800 s = 7 days, and this alarm uses a 1-day period, so 7 is the hard maximum. 7 also suits the weekly cadence: a healthy week always contains one success, and a missed run alarms at the next UTC midnight."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.no_success_alarm_days >= 1 && var.no_success_alarm_days <= 7
+    error_message = "no_success_alarm_days must be between 1 and 7 — CloudWatch rejects an alarm whose period x evaluation_periods exceeds 604,800 seconds (7 days)."
+  }
 }

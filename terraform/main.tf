@@ -186,8 +186,17 @@ module "observability" {
   glue_output_log_group_name = module.etl_glue.output_log_group_name
   glue_error_log_group_name  = module.etl_glue.error_log_group_name
 
-  # PR-026: namespace the scrape.do response-code widget searches.
+  # PR-026: namespace the scrape.do response-code widget searches, and the series the
+  # ScrapeDo_Failed alarm watches.
   metrics_namespace = var.metrics_namespace
+
+  # PR-025: crawler names scope the crawler-failure EventBridge rule (Glue publishes no
+  # crawler metrics, and the SFN integration is fire-and-forget, so a failed crawl is only
+  # observable as an event). The rule name is quoted in the dead-man's-switch alarm text.
+  premios_crawler_name  = module.catalog.premios_silver_crawler_name
+  sorteos_crawler_name  = module.catalog.sorteos_silver_crawler_name
+  weekly_rule_name      = module.orchestration.weekly_rule_name
+  no_success_alarm_days = var.no_success_alarm_days
 }
 
 # --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---

@@ -117,3 +117,73 @@ and a percentile of one datapoint is that datapoint. Measured on real data — J
 Duration is a health signal by itself: failed runs die at the extractor in 3–4 s, successful
 ones take 64–260 s, so anything under ~10 s is a failure. The step up to ~255 s is PR-022's
 gold layer, which means pre-gold history is not comparable to post-gold.
+
+---
+
+## Alarms (PR-025)
+
+Six metric alarms plus one EventBridge rule, all notifying `aws_sns_topic.alerts`.
+
+> **⚠️ The topic has no subscribers until `alert_email` is set** (PR-028). Verified live on
+> 2026-08-02: `list-subscriptions-by-topic` returns empty. The alarms will hold correct
+> states and tell nobody. Set `alert_email` in the gitignored `terraform.tfvars` and confirm
+> the email AWS sends.
+
+| Resource | Fires when |
+|---|---|
+| `loteria-sfn-execution-failed-<env>` | any execution fails (the machine has no Retry/Catch, so this catches every stage) |
+| `loteria-sfn-no-success-7d-<env>` | no successful run in 7 days — the dead man's switch |
+| `loteria-extractor-errors-<env>` | the extractor Lambda errors |
+| `loteria-glue-transform-failed-<env>` | the bronze→silver Glue job run fails |
+| `loteria-crawler-start-failed-<env>` | a silver crawler cannot be **started** |
+| `loteria-crawler-failed-<env>` (EventBridge) | a silver crawl started and then **failed** |
+| `loteria-scrapedo-failed-<env>` | scrape.do returns a non-200 |
+
+Alarm 1 is the only one that *detects* everything; the per-stage alarms exist for
+**attribution** — they name the broken stage in the notification. One bad run sends 2–3
+emails, by design.
+
+### Three things that are not what the roadmap assumed
+
+**The 8-day dead man's switch is 7 days, because 8 is not possible.** CloudWatch caps an
+alarm's total evaluation window at 604,800 s (`period × evaluation_periods`); 8 × 86,400
+exceeds it and the API rejects the alarm. No composite/expression trick gets around a cap on
+the window itself. 7 also happens to fit the weekly cadence exactly: a healthy week always
+contains one success, and a missed Thursday alarms at the next 00:00 UTC.
+
+`treat_missing_data = "breaching"` is what makes it work, and the reason is subtler than the
+roadmap's note. `ExecutionsSucceeded` publishes a real `0` on a day when a run *failed*, but
+**no datapoint at all** on a day when nothing ran — and "nothing ran" is precisely what this
+alarm is for. Both are covered.
+
+**Alarms 4 and 5 hit the PR-024 Glue wall again.** `Job.failure` and
+`glue.driver.aggregate.numFailedTasks` are Spark metrics and do not exist here. Both are
+rebuilt on `AWS/States` `ServiceIntegrationsFailed` — but the two substitutes are *not*
+equally good, and that is why alarm 5 is two resources:
+
+- The Glue job is invoked with `glue:startJobRun.**sync**`, so the integration waits for the
+  job run. "Integration failed" == "job failed". Exact.
+- The crawlers use `aws-sdk:glue:startCrawler`, which has **no `.sync` variant**. The
+  integration succeeds the moment the crawler accepts the start call. A crawl that starts and
+  then fails is completely invisible — and the execution proceeds to build gold from a
+  catalog missing the new partitions. Wrong numbers, green pipeline.
+
+The second case is covered by an EventBridge rule on `Glue Crawler State Change` /
+`state: Failed`, scoped by `crawlerName`. A Logs metric filter over `/aws-glue/crawlers` was
+the other candidate and was **rejected**: that group is account-wide, another project already
+writes to it (stream `near-real-time-crypto-silver-crawler-crypto`, verified live), metric
+filters cannot be scoped to a stream, and the crawler name does not appear on individual
+error lines.
+
+**Adding the EventBridge target replaces the SNS topic's default policy.** EventBridge needs
+an explicit `SNS:Publish` grant, and `aws_sns_topic_policy` overwrites whatever SNS created
+with the topic — so the policy reproduces the default account-owner statement alongside the
+new one. The metric alarms themselves need no grant; CloudWatch publishes to a same-account
+topic under that default.
+
+### Inputs added
+
+`premios_crawler_name`, `sorteos_crawler_name`, `weekly_rule_name`, `no_success_alarm_days`
+(default 7, validated 1–7). Outputs: `alarm_names`, `crawler_failed_rule_name`.
+
+Details, live evidence and the verification commands: `docs/runbooks/PR-025-alarms.md`.
