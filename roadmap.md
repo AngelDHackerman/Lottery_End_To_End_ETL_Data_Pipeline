@@ -775,6 +775,14 @@ Add to terraform/modules/observability/ as a sub-module or new aws_lambda_functi
 >   read them. `s3:ListBucket` goes on the *bucket* ARN — the `bucket/*` form grants nothing.
 > - Gated by `enable_object_count_emitter` (default true) so "optional" is real without
 >   deleting code. `processed/` excluded — frozen legacy prefix from PR-012.
+> - **Plan surprise worth remembering: the gold-purge Lambda shows up as a change in this
+>   PR, and it is not a mistake.** PR-023 gave `module.orchestration` a
+>   `depends_on = [module.iam]`; a module whose `depends_on` target has pending changes
+>   **cannot have its data sources read at plan time**. PR-027 adds 4 resources to
+>   `module.iam`, so `data.archive_file.gold_purge` is deferred → `source_code_hash` unknown
+>   → a planned in-place update that re-uploads byte-identical code (local zip hash and the
+>   deployed `CodeSha256` both `rWrVT00c…`). One-time, and it will recur for **any** future
+>   PR that adds a resource to `module.iam`.
 > - Runbook: `docs/runbooks/PR-027-object-count.md`.
 
 ## PR-028 — Wire SNS email subscription via tfvars

@@ -51,11 +51,52 @@ Metrics: `ObjectCount` and `BytesStored` in `Loteria/Pipeline`, dimension `Layer
 ## 4. Expected plan
 
 ```
-Plan: 8 to add, 1 to change, 0 to destroy.
+Plan: 8 to add, 2 to change, 0 to destroy.
 ```
 
-The `1 to change` is `module.observability.aws_cloudwatch_dashboard.loteria_pipeline` (two
-widgets added, the log row moved from `y=33` to `y=39`).
+The two changes:
+
+1. `module.observability.aws_cloudwatch_dashboard.loteria_pipeline` — two widgets added, the
+   log row moved from `y=33` to `y=39`. Expected.
+2. `module.orchestration.aws_lambda_function.gold_purge` — **expected, benign, and one-time.**
+   Read on before assuming it is a mistake.
+
+### Why gold_purge shows up in this PR's plan
+
+It looks alarming: PR-027 does not touch the gold-purge Lambda. The diff is only
+`source_code_hash` and `last_modified`, both `(known after apply)`.
+
+The cause is a chain nobody wrote on purpose:
+
+- PR-023 added `depends_on = [module.iam]` to `module.orchestration` (to stop the state
+  machine being updated before the role that grants it log-delivery rights).
+- **A module with `depends_on` on something that has pending changes cannot have its data
+  sources read at plan time.** Terraform defers them to apply.
+- PR-027 adds four resources to `module.iam` (the emitter's role, policy and two
+  attachments), so `module.iam` has pending changes…
+- …so `module.orchestration.data.archive_file.gold_purge` is deferred, so its
+  `output_base64sha256` is unknown, so `aws_lambda_function.gold_purge.source_code_hash` is
+  unknown, so Terraform plans an update.
+
+Confirm it is harmless before applying — the archive is deterministic, so the hash it will
+produce already matches what is deployed:
+
+```bash
+openssl dgst -sha256 -binary terraform/modules/orchestration/build/gold_purge_and_load.zip \
+  | openssl base64
+aws lambda get-function-configuration --function-name lottery-gold-purge-prod \
+  --query 'CodeSha256' --output text
+```
+
+Recorded 2026-08-09: both `rWrVT00c7xXSus7LVe7O9XDY9/xPJIWBBbq7Yjj0+rM=`. The apply
+re-uploads byte-identical code.
+
+It is **one-time**: once `module.iam` has no pending changes, the data source reads at plan
+time again and `gold_purge` goes back to a no-op. Verified by planning the same tree on
+`master` (where `module.iam` is unchanged): `10 to add, 0 to change` — no `gold_purge`.
+
+**Reusable lesson:** any future PR that adds a resource to `module.iam` will make this
+Lambda appear in the plan. That is the `depends_on`, not your change.
 
 > Do **not** run `make build` for this PR. It rebuilds the extractor's layer/package zips,
 > which changes `source_code_hash` from identical sources and forces the Lambda layer to be
