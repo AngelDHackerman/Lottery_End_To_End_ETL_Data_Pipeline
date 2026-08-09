@@ -46,9 +46,17 @@ variable "enable_sagemaker" {
 }
 
 variable "alert_email" {
-  description = "Email for the SNS alerts subscription. Empty = no subscription. TODO PR-014/PR-028."
+  description = "Address subscribed to the alerts SNS topic. Empty (the default) creates NO subscription, which means PR-025's six alarms fire into a topic with zero subscribers — working alarms, silent inbox. Set it in the gitignored terraform.tfvars, never in terraform.tfvars.example (that file is public). AWS then emails a confirmation link that MUST be clicked; Terraform cannot confirm it, and reports the resource created either way — so a green apply is not proof that alerts will arrive. See terraform.tfvars.example and docs/runbooks/PR-028-alert-email.md."
   type        = string
   default     = ""
+
+  validation {
+    # Catch a typo'd address at plan time. SNS accepts almost anything and simply never
+    # delivers, so the failure mode without this is an alarm that silently notifies nobody —
+    # exactly what PR-028 exists to prevent.
+    condition     = var.alert_email == "" || can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.alert_email))
+    error_message = "alert_email must be a valid email address, or \"\" to create no subscription."
+  }
 }
 
 # --- Observability: log retention (PR-023) ---

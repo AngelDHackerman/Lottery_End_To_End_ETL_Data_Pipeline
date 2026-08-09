@@ -264,3 +264,33 @@ Extra inputs: `enable_object_count_emitter`, `partitioned_bucket_name`,
 `object_count_schedule_expression`, `log_retention_days`.
 Extra outputs: `object_count_function_name`, `object_count_rule_name`.
 Runbook: `docs/runbooks/PR-027-object-count.md`.
+## Getting the alerts to an inbox (PR-028)
+
+PR-025 shipped six alarms into a topic with **zero subscribers**. They evaluated correctly,
+transitioned correctly and notified nobody. `alert_email` is what closes that gap, and it is
+set in the **gitignored** `terraform/terraform.tfvars` — never in the public
+`terraform.tfvars.example`.
+
+```hcl
+alert_email = "you@example.com"
+```
+
+Two things about this that are easy to get wrong:
+
+1. **`terraform apply` cannot finish the job.** AWS emails a confirmation link and someone
+   must click it; there is no API to confirm on the subscriber's behalf (that is what stops
+   anyone subscribing your address to their topic). Terraform reports the subscription
+   created either way, so **a green apply is not proof that alerts will arrive**. Until the
+   click, the subscription's ARN is the literal string `PendingConfirmation`. The link
+   expires after 3 days — `terraform apply -replace` the subscription to resend.
+2. **A confirmed subscription only proves SNS reaches the inbox.** It does not prove an
+   *alarm* reaches SNS. Test the whole chain with
+   `aws cloudwatch set-alarm-state --state-value ALARM`, which drives a real transition
+   through `alarm_actions` → topic policy → subscription. Expect **one** email, not two:
+   `ok_actions` is deliberately unset (recovery mail on a weekly pipeline is noise).
+
+`alert_email` is validated at plan time. SNS accepts almost any string as an email endpoint
+and silently never delivers, so a typo would otherwise reproduce the exact "alarms notify
+nobody" state this is meant to fix.
+
+Runbook: `docs/runbooks/PR-028-alert-email.md`.

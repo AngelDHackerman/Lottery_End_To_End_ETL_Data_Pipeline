@@ -1,0 +1,101 @@
+# Example variable values for the main Terraform stack.
+#
+#   cp terraform.tfvars.example terraform.tfvars   # then edit terraform.tfvars
+#
+# ⚠️ THIS FILE IS PUBLIC. `terraform.tfvars` is gitignored (.gitignore: `*.tfvars`);
+# `terraform.tfvars.example` is NOT — the `.example` suffix takes it out of that glob, which
+# is the whole point of the pair. Real values go ONLY in `terraform.tfvars`. Never put a real
+# email address, IAM user name or secret name in this file.
+#
+# Every variable below has a working default in variables.tf. This file exists to show which
+# ones a fresh clone will actually want to change, so the entries are commented out — an
+# empty `terraform.tfvars` is a valid `terraform.tfvars`.
+
+# ---------------------------------------------------------------------------------------
+# ALERTS (PR-014 topic, PR-025 alarms, PR-028 subscription)
+# ---------------------------------------------------------------------------------------
+# The one value most worth setting. Without it `alert_email` defaults to "", no SNS
+# subscription is created, and the six PR-025 alarms fire into a topic with ZERO subscribers
+# — they work perfectly and notify nobody. That was the live state of this account until
+# PR-028: alarms green, inbox silent.
+#
+# ⚠️ AWS EMAILS YOU A CONFIRMATION LINK AND YOU MUST CLICK IT.
+# Terraform cannot confirm an email subscription on your behalf — the AWS API has no such
+# call, by design (it is what stops anyone from subscribing your address to their topic).
+# Until you click, the subscription reads `PendingConfirmation` and delivers nothing.
+# Terraform still reports the resource as created, so a green apply is NOT proof that alerts
+# will arrive. Check with:
+#
+#   aws sns list-subscriptions-by-topic \
+#     --topic-arn arn:aws:sns:us-east-1:<account-id>:loteria-alerts-prod \
+#     --query 'Subscriptions[].[Protocol,Endpoint,SubscriptionArn]' --output table
+#
+# A confirmed subscription shows a real ARN. An unconfirmed one shows the literal string
+# `PendingConfirmation` in the ARN column. The confirmation link expires after 3 days; if you
+# miss it, `terraform apply -replace` the subscription to send a fresh one.
+#
+# Note the subject line is generic ("AWS Notification - Subscription Confirmation") and it
+# often lands in spam.
+#
+# alert_email = "you@example.com"
+
+# ---------------------------------------------------------------------------------------
+# PERSONAL ACCESS (PR-009)
+# ---------------------------------------------------------------------------------------
+# IAM *user* names granted the Athena-results S3 policy, so you can run Athena queries in the
+# console as yourself. Empty by default so a fresh cloner creates no grants for accounts that
+# do not exist in their org.
+#
+# personal_iam_users = ["your-iam-user"]
+
+# ---------------------------------------------------------------------------------------
+# NAMING / LOOKUP
+# ---------------------------------------------------------------------------------------
+# environment         = "prod"                  # suffix on nearly every resource name
+# aws_region          = "us-east-1"
+# lottery_secret_name = "lottery_secret_prod_2" # must already exist in Secrets Manager
+
+# ---------------------------------------------------------------------------------------
+# OBSERVABILITY (PR-023 / PR-025)
+# ---------------------------------------------------------------------------------------
+# log_retention_days = 30
+#   CloudWatch accepts only a fixed set of values; variables.tf validates it at plan time.
+#
+# manage_shared_glue_log_groups = true
+#   Glue writes Python Shell + crawler logs to ACCOUNT-WIDE groups
+#   (/aws-glue/python-jobs/{output,error}, /aws-glue/crawlers), not per-job ones, so this is
+#   the only way to set their retention. Set false if the account hosts Glue workloads this
+#   repo does not own — you would be changing retention for those too.
+#
+# sfn_log_level              = "ALL"
+# sfn_include_execution_data = true
+#
+# no_success_alarm_days = 7
+#   Dead-man's switch. 7 is the hard CEILING, not a preference: CloudWatch rejects an alarm
+#   whose period x evaluation_periods exceeds 604,800 s, so the roadmap's 8-day target is not
+#   expressible as a metric alarm.
+#
+# metrics_namespace = "Loteria/Pipeline"
+#   ⚠️ MUST equal loteria.common.metrics.NAMESPACE in the Python source. The IAM policies
+#   scope cloudwatch:PutMetricData with a `cloudwatch:namespace` condition, so a mismatch
+#   denies every publish SILENTLY — no error, just permanently empty graphs.
+
+# ---------------------------------------------------------------------------------------
+# OPT-IN TOGGLES
+# ---------------------------------------------------------------------------------------
+# enable_internet  = false   # NAT + IGW in the network module. Costs ~$32/mo when true.
+# enable_sagemaker = false   # the optional SageMaker Studio domain (PR-015)
+# enable_iam_allowed_principals_compat = true   # Lake Formation hybrid-mode grant (PR-013)
+#
+# enable_object_count_emitter = true
+#   ⚠️ Only uncomment this once PR-027 has landed on master — Terraform errors with "Value
+#   for undeclared variable" if you set a variable that does not exist yet.
+
+# ---------------------------------------------------------------------------------------
+# BUILD ARTIFACTS (PR-019)
+# ---------------------------------------------------------------------------------------
+# Produced by `make build` from the repo ROOT. Both are read at PLAN time by
+# filemd5/filebase64sha256, so the plan itself fails if they are missing.
+#
+# lambda_zip_path       = "lambda_package.zip"
+# lambda_layer_zip_path = "lambda_layer.zip"
