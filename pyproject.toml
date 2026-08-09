@@ -74,12 +74,14 @@ pythonpath = ["src"]
 #
 # So the number below is a RATCHET, not a target: it sits at whatever the suite currently
 # achieves, which makes it a regression guard. Raise it in the same PR that adds the tests.
-# History: PR-029 11 (actual 11.75 — the gate sits just under, never above). Next stop PR-030 33, then PR-035 takes it to 85.
+# History: PR-029 11 (actual 11.75). PR-030 42 (actual 42.23 — beat the 33.9% estimate
+# because moto exercises s3_utils to 73% and aws_secrets to 45% as a side effect of the
+# transformer running for real). Next stop PR-035, which takes it to 85.
 #
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=11"
+addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=42"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see

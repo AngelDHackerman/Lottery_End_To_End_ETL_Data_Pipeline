@@ -919,6 +919,35 @@ Write tests/unit/test_transformer.py:
 - Add an edge-case test for the "Invalid fecha_sorteo" path (it should raise ValueError).
 ```
 
+> **Notes from executing it (2026-08-09):** 23 tests, `transformer.py` at **86%**, suite
+> total **42.23%** (the 33.9% estimate was low — moto exercises `s3_utils` to 73% and
+> `aws_secrets` to 45% as a side effect of running the transform for real).
+> - **Two import-time landmines had to be defused before the module could even load**, and
+>   both are properties of how it runs in Glue: `from awsglue.utils import getResolvedOptions`
+>   at module scope (awsglue is not on PyPI — stubbed in `tests/conftest.py`), and
+>   `buckets = get_secrets()` at module scope, a Secrets Manager call that fires on **import**
+>   (the same fact that forced `scripts/glue_zip_main.py` to bridge `--LOTERIA_SECRET_NAME`
+>   into the env before importing the transformer).
+> - **`transform()` reads from its `bucket_name` argument but WRITES to module globals**
+>   (`partitioned_bucket` / `simple_bucket`). They agree in production because `main()` sets
+>   both, but a caller passing only `bucket_name` would read one bucket and write to another.
+>   Latent smell, not fixed here — out of scope for a test PR.
+> - **Schema is asserted at the PARQUET level, not the pandas level.** Parquet is the real
+>   contract (the crawler infers the Athena table from it, and the gold CTAS read that table),
+>   and it is the only version-stable choice: local pandas 3.x gives an un-cast string column
+>   the new `str` dtype while Glue's Python Shell 3.9 pandas gives `object`. Both write a
+>   Parquet string. Numeric/timestamp types are still pinned exactly, since the code casts
+>   them explicitly and int32-vs-int64 is visible to Athena.
+> - **Found while writing the schema test: `tipo_sorteo` is the one string column in
+>   `sorteos_df` that never passes through `_to_string()`** — its type is left to pandas
+>   inference. Harmless today, but it means a pandas upgrade inside Glue could silently change
+>   the Silver Parquet schema. Worth an explicit cast in a future PR.
+> - **The strongest test is `test_year_comes_from_fecha_sorteo_not_from_the_raw_path`.** The
+>   Silver year partition is derived from the parsed `fecha_sorteo`, not from the `year=` in
+>   the raw key. In every real file those agree, so a naive test would pass on a coincidence;
+>   filing the fixture under `year=1999` and asserting it lands in `year=2024` proves the
+>   derivation.
+
 ## PR-031 — Scraper contract test (canary)
 **Prompt:**
 ```
@@ -1110,8 +1139,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 026.1 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | merged | [PR #30](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/30) |
 | 027 | S3 object-count emitter (optional) | merged | [PR #31](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/31) |
 | 028 | SNS email subscription | merged | [PR #32](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/32) |
-| 029 | pytest skeleton + parser tests | in-progress | — |
-| 030 | Transformer tests with moto | todo | — |
+| 029 | pytest skeleton + parser tests | in-progress | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
+| 030 | Transformer tests with moto | in-progress | — |
 | 031 | Scraper contract canary | todo | — |
 | 032 | GE Silver suite | todo | — |
 | 033 | DQ gate in Step Function | todo | — |
