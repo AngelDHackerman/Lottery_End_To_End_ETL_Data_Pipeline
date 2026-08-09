@@ -1,0 +1,129 @@
+# Weekly canary: does loteria.org.gt still look the way the extractor expects?
+#
+# WHY WEDNESDAY, not the roadmap's Sunday. PR-022 moved the pipeline from Monday to
+# Thursday 18:00 UTC (Saturday draws keep the site behind a Cloudflare waiting room for
+# days, and Thursday is the calm point of the week). The canary has to run one day BEFORE
+# the pipeline, so it is Wednesday. A Sunday run would land in the exact waiting-room
+# window the Thursday move was made to dodge, and would mostly report skips.
+#
+# The point is lead time. Without this, a site markup change first shows up as a Thursday
+# production failure: the extractor raises a generic "No se pudo encontrar el enlace al
+# sorteo" from deep inside extract_lottery_data, PR-025's alarms fire, and someone reads
+# CloudWatch to find out the HTML changed. This says so a day early, and names the selector.
+
+name: scraper-canary
+
+on:
+  schedule:
+    # 18:00 UTC Wednesday — 24h before the Thursday 18:00 UTC pipeline trigger.
+    - cron: "0 18 * * 3"
+  workflow_dispatch: # so the owner can check the site on demand before a manual run
+
+permissions:
+  contents: read
+  issues: write # to file the alert issue on failure
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Only what the contract test needs. It deliberately does not import
+      # loteria.extractor.scraping (that module calls Secrets Manager at import time), so
+      # this job needs no AWS credentials at all — just the proxy token.
+      - name: Install test dependencies
+        run: pip install pytest requests beautifulsoup4
+
+      - name: Check the token is configured
+        env:
+          SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
+        run: |
+          if [ -z "$SCRAPE_DO_TOKEN" ]; then
+            echo "::error::SCRAPE_DO_TOKEN repository secret is not set."
+            echo "Without it the canary silently skips every live assertion and reports"
+            echo "green while watching nothing. Add it under Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      - name: Run the contract test
+        id: canary
+        env:
+          RUN_LIVE_SCRAPER: "1"
+          SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
+        run: |
+          set -o pipefail
+          # --no-cov: this job installs no source deps and runs one file, so the repo-wide
+          # coverage gate in pyproject would fail on an unrelated number.
+          python -m pytest tests/integration/test_scraper_contract.py \
+            -v --no-cov -p no:randomly 2>&1 | tee canary.log
+
+      - name: Open an issue on failure
+        if: failure() && steps.canary.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = '';
+            try {
+              log = fs.readFileSync('canary.log', 'utf8').slice(-8000);
+            } catch (e) {
+              log = 'No canary.log was produced — the job failed before pytest ran.';
+            }
+
+            const title = 'Scraper canary failed — loteria.org.gt layout may have changed';
+
+            // Reuse the open issue instead of filing a new one every week: a site change
+            // that stays broken should be one thread, not a pile of duplicates.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'scraper-canary',
+            });
+
+            const body = [
+              `The weekly contract test failed on ${new Date().toISOString()}.`,
+              '',
+              '**The pipeline runs Thursday 18:00 UTC — roughly 24h from now.**',
+              'If this is a real layout change, the extractor will fail then unless the',
+              'selectors in `src/loteria/extractor/scraping.py` are updated.',
+              '',
+              'Read the log below before assuming a break — the test distinguishes three cases:',
+              '- a **skip** means the Cloudflare waiting room was up (HTTP 200 + queue page); retry',
+              '- an explicit **scrape.do HTTP 401/402/429** means the proxy quota/plan, not the site',
+              '- a **failed assertion** names the selector that no longer matches',
+              '',
+              `[Run log](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '',
+              '<details><summary>pytest output</summary>',
+              '',
+              '```',
+              log,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['scraper-canary'],
+              });
+            }

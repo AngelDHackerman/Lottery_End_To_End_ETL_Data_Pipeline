@@ -54,16 +54,23 @@ if "awsglue" not in sys.modules:
 def pytest_collection_modifyitems(config, items):
     """Skip ``@pytest.mark.integration`` unless ``RUN_LIVE_SCRAPER=1``.
 
-    Deselecting rather than erroring matters for the coverage gate: a skipped test still
+    Skipping rather than deselecting matters for the coverage gate: a skipped test still
     counts as collected, so `make test` reports honestly instead of looking like the suite
     shrank.
+
+    ⚠️ Use ``get_closest_marker``, NOT ``"integration" in item.keywords``. ``item.keywords``
+    also contains the test's **path components**, so the keywords check matches every test
+    living under ``tests/integration/`` whether or not it carries the marker. That bug was
+    invisible while the directory was empty (PR-029) and only surfaced in PR-031, where it
+    silently skipped the one offline test in that folder — the guard that keeps the canary's
+    selectors in sync with the scraper. A guard that never runs is worse than no guard.
     """
     if os.environ.get("RUN_LIVE_SCRAPER") == "1":
         return
 
     skip = pytest.mark.skip(reason="live external call; set RUN_LIVE_SCRAPER=1 to run")
     for item in items:
-        if "integration" in item.keywords:
+        if item.get_closest_marker("integration") is not None:
             item.add_marker(skip)
 
 
