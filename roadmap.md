@@ -777,6 +777,39 @@ Tiny scheduled Lambda (EventBridge cron every 1 hour) that runs:
 Add to terraform/modules/observability/ as a sub-module or new aws_lambda_function. Skip if the dashboard from PR-024 already feels rich enough.
 ```
 
+> **Notes from executing it (2026-08-09): built, not skipped.** The reason is worth keeping:
+> every other widget on the PR-024 dashboard measures an **execution**; none measures the
+> **asset**. A run can go green end to end and add nothing — the extractor re-scrapes a page
+> it already has, the transformer rewrites the same partition, `AWS/States` reports success
+> and PR-025's alarms stay quiet. A flat `raw/` line beside green executions is the only
+> place that shows. Same category as PR-026.5: green pipeline, wrong data.
+> - **S3's free metrics can't do this.** `AWS/S3` `NumberOfObjects` / `BucketSizeBytes` are
+>   per-**bucket** only. All three medallion layers share one bucket, so a custom emitter is
+>   the only way to get the per-prefix breakdown.
+> - **Emits `BytesStored` too** (beyond the prompt). It comes back in the same
+>   `ListObjectsV2` response as the count — no extra API call — and an object *existing* is
+>   not an object *having data*: a truncated scrape still increments `ObjectCount`. Cost of
+>   the extra series is 3 metrics × $0.30/mo.
+> - **The dimension format in the prompt is wrong.** boto3 wants
+>   `[{"Name": "Layer", "Value": ...}]`, not `[{"Layer": ...}]`.
+> - **`aws_lambda_permission` is the silent-failure trap.** EventBridge invokes Lambda by
+>   *resource policy*, not by execution role. Without it the rule fires forever, nothing runs,
+>   and the only evidence is the rule's `FailedInvocations` metric.
+> - **No `s3:GetObject` in the role.** Counting and sizing come entirely from the list
+>   response, so the emitter can see that objects exist and how big they are and can never
+>   read them. `s3:ListBucket` goes on the *bucket* ARN — the `bucket/*` form grants nothing.
+> - Gated by `enable_object_count_emitter` (default true) so "optional" is real without
+>   deleting code. `processed/` excluded — frozen legacy prefix from PR-012.
+> - **Plan surprise worth remembering: the gold-purge Lambda shows up as a change in this
+>   PR, and it is not a mistake.** PR-023 gave `module.orchestration` a
+>   `depends_on = [module.iam]`; a module whose `depends_on` target has pending changes
+>   **cannot have its data sources read at plan time**. PR-027 adds 4 resources to
+>   `module.iam`, so `data.archive_file.gold_purge` is deferred → `source_code_hash` unknown
+>   → a planned in-place update that re-uploads byte-identical code (local zip hash and the
+>   deployed `CodeSha256` both `rWrVT00c…`). One-time, and it will recur for **any** future
+>   PR that adds a resource to `module.iam`.
+> - Runbook: `docs/runbooks/PR-027-object-count.md`.
+
 ## PR-028 — Wire SNS email subscription via tfvars
 **Prompt:**
 ```
@@ -1002,9 +1035,9 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 024 | CloudWatch dashboard | merged | [PR #27](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/27) |
 | 025 | Alarms | merged | [PR #29](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/29) |
 | 026 | Scraper HTTP status metric | merged | [PR #28](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/28) |
-| 026.5 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | in-progress | — |
-| 027 | S3 object-count emitter (optional) | todo | — |
-| 028 | SNS email subscription | todo | — |
+| 026.5 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | in-progress | [PR #30](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/30) |
+| 027 | S3 object-count emitter (optional) | in-progress | [PR #31](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/31) |
+| 028 | SNS email subscription | in-progress | [PR #32](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/32) |
 | 029 | pytest skeleton + parser tests | todo | — |
 | 030 | Transformer tests with moto | todo | — |
 | 031 | Scraper contract canary | todo | — |

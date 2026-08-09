@@ -187,3 +187,80 @@ topic under that default.
 (default 7, validated 1–7). Outputs: `alarm_names`, `crawler_failed_rule_name`.
 
 Details, live evidence and the verification commands: `docs/runbooks/PR-025-alarms.md`.
+
+## S3 object-count emitter (PR-027)
+
+The roadmap marks PR-027 optional — "skip if the dashboard from PR-024 already feels rich
+enough". It was built anyway, for one reason: **every other widget on that dashboard
+measures an execution, none measures the asset.** A run can go green end to end and add
+nothing — the extractor re-scrapes a page it already has, the transformer rewrites the same
+partition, every stage succeeds and `AWS/States` reports a healthy pipeline. A flat `raw/`
+line beside green executions is the only place that failure is visible.
+
+**Why the free metrics don't cover it.** S3 publishes `NumberOfObjects` and
+`BucketSizeBytes` into `AWS/S3` at no cost, but only per **bucket** (optionally per storage
+class) — never per prefix. All three medallion layers live in `lottery-partitioned-storage-prod`,
+so the free metrics cannot tell raw/ from silver/ from gold/. Counting is the only way to get
+the breakdown, which is exactly why this is its own PR.
+
+### What it creates
+
+| Resource | Note |
+|---|---|
+| `aws_lambda_function.object_count` | `lottery-object-count-<env>`, python3.12, 128 MB, 60 s |
+| `aws_cloudwatch_log_group.object_count` | declared **before** the function (PR-023 rule) |
+| `aws_cloudwatch_event_rule.object_count_schedule` | `rate(1 hour)` |
+| `aws_cloudwatch_event_target` + `aws_lambda_permission` | EventBridge → Lambda |
+| 2 dashboard widgets | `ObjectCount` and `BytesStored`, one line per layer |
+
+Plus `aws_iam_role.object_count_lambda` and its policy in the **iam** module (roles all live
+there — see PR-009).
+
+### Metrics
+
+`ObjectCount` and `BytesStored` in `var.metrics_namespace`, dimensioned `Layer` =
+`raw` | `silver` | `gold` (the S3 prefix with slashes stripped — the slash is needed for the
+`ListObjectsV2` call, the bare word reads better in a legend).
+
+`BytesStored` is not in the roadmap prompt. It is included because it comes back in the same
+`ListObjectsV2` response as the count — **zero extra API calls, zero extra latency** — and it
+answers a question the count cannot: an object existing is not the same as an object having
+data in it. A truncated scrape still increments `ObjectCount`. Bytes flattening while count
+climbs is the signature of that. Cost of the extra series: 3 metrics × $0.30/month.
+
+### Things worth knowing before you edit this
+
+- **`s3:ListBucket` is on the bucket ARN, not `bucket/*`.** Listing is a bucket-level action;
+  the object-level ARN grants nothing. There is deliberately **no `s3:GetObject`** — counting
+  and sizing come entirely from the list response, so this role can see that objects exist
+  and how big they are, and can never read what is in them.
+- **`cloudwatch:PutMetricData` supports no resource-level permissions.** Same shape as
+  PR-026: `Resource = "*"` scoped by the `cloudwatch:namespace` condition. A mismatch between
+  that condition and the Lambda's `METRICS_NAMESPACE` env var **fails silently** — every
+  publish is denied and the code swallows it. Terraform passes the same variable to both,
+  which is what keeps them honest.
+- **`aws_lambda_permission` is not optional.** EventBridge invokes Lambda by resource policy,
+  not by an execution role. Without it the rule fires forever and the function never runs,
+  with no error anywhere except the rule's `FailedInvocations` metric.
+- **The Lambda never raises on a publish failure.** Telemetry must not be able to break the
+  thing it observes; at worst a dot is missing from a graph.
+- **`processed/` is excluded on purpose** — the frozen legacy prefix orphaned by PR-012 (267
+  objects, never written again). Charting it would add a permanently flat line and $0.60/month
+  for a tombstone.
+- **Hourly is far more often than the data changes** (the pipeline runs weekly). It is kept
+  because it is a rounding error in cost and the fine grain makes a mid-week manual backfill
+  or an accidental delete show up as a step rather than a daily average.
+- **This scales as O(objects).** Fine at a few hundred keys per prefix; the replacement when
+  it isn't is S3 Inventory (a daily manifest), not a bigger timeout.
+
+### Turning it off
+
+`enable_object_count_emitter = false` removes the Lambda, its log group, the schedule and the
+metrics. The dashboard widgets stay and render empty, so turning it back on needs no
+dashboard change.
+
+Extra inputs: `enable_object_count_emitter`, `partitioned_bucket_name`,
+`object_count_lambda_role_arn`, `object_count_prefixes`,
+`object_count_schedule_expression`, `log_retention_days`.
+Extra outputs: `object_count_function_name`, `object_count_rule_name`.
+Runbook: `docs/runbooks/PR-027-object-count.md`.

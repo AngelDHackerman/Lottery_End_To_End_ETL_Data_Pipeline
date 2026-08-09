@@ -127,7 +127,7 @@ variable "personal_iam_users" {
 
 # --- Custom metrics (PR-026) ---
 variable "metrics_namespace" {
-  description = "CloudWatch namespace for the pipeline's own metrics (scraper HTTP status; PR-027's S3 object counts would join it). Threaded to both the iam module (scopes PutMetricData via the cloudwatch:namespace condition) and the observability module (the dashboard SEARCH). MUST equal loteria.common.metrics.NAMESPACE — a mismatch denies every publish, silently."
+  description = "CloudWatch namespace for the pipeline's own metrics (scraper HTTP status + PR-027's per-layer S3 object counts). Threaded to both the iam module (scopes PutMetricData via the cloudwatch:namespace condition) and the observability module (the dashboard SEARCH). MUST equal loteria.common.metrics.NAMESPACE — a mismatch denies every publish, silently."
   type        = string
   default     = "Loteria/Pipeline"
 }
@@ -137,4 +137,12 @@ variable "no_success_alarm_days" {
   description = "Days without a successful pipeline execution before the dead-man's-switch alarm fires. Capped at 7 by CloudWatch (an alarm's period x evaluation_periods cannot exceed 604,800 s), which is why the roadmap's 8-day target is not implementable as a metric alarm."
   type        = number
   default     = 7
+}
+
+# --- S3 object-count emitter (PR-027) ---
+
+variable "enable_object_count_emitter" {
+  description = "Create the hourly per-layer S3 object-count Lambda (PR-027). The roadmap marks this PR optional; the flag makes that real without deleting the code. Off removes the Lambda, its log group, the schedule and the metrics — the dashboard widgets stay and simply render empty."
+  type        = bool
+  default     = true
 }

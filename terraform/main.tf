@@ -190,6 +190,13 @@ module "observability" {
   # ScrapeDo_Failed alarm watches.
   metrics_namespace = var.metrics_namespace
 
+  # PR-027: the hourly per-layer S3 object-count emitter. Needs the data bucket to LIST and
+  # its own least-privilege role (List + PutMetricData, deliberately no GetObject).
+  enable_object_count_emitter  = var.enable_object_count_emitter
+  partitioned_bucket_name      = module.storage.partitioned_bucket_name
+  object_count_lambda_role_arn = module.iam.object_count_lambda_role_arn
+  log_retention_days           = var.log_retention_days
+
   # PR-025: crawler names scope the crawler-failure EventBridge rule (Glue publishes no
   # crawler metrics, and the SFN integration is fire-and-forget, so a failed crawl is only
   # observable as an event). The rule name is quoted in the dead-man's-switch alarm text.

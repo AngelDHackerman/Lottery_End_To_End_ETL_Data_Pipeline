@@ -83,3 +83,41 @@ variable "no_success_alarm_days" {
     error_message = "no_success_alarm_days must be between 1 and 7 — CloudWatch rejects an alarm whose period x evaluation_periods exceeds 604,800 seconds (7 days)."
   }
 }
+
+# --- S3 object-count emitter (PR-027) ---
+# Deferred here from PR-024, which listed "S3 object counts under raw/, silver/, gold/" as a
+# dashboard widget and allowed punting the emitter to this PR.
+
+variable "enable_object_count_emitter" {
+  description = "Create the hourly per-layer S3 object-count Lambda + its schedule. False removes the Lambda, its log group, the rule and the metrics; the dashboard widget stays (it renders empty) so turning this back on needs no dashboard change."
+  type        = bool
+  default     = true
+}
+
+variable "partitioned_bucket_name" {
+  description = "Bucket holding the medallion prefixes the emitter counts (from module.storage)."
+  type        = string
+}
+
+variable "object_count_lambda_role_arn" {
+  description = "Execution role ARN for the object-count Lambda (from module.iam). List + PutMetricData only — no GetObject."
+  type        = string
+}
+
+variable "object_count_prefixes" {
+  description = "S3 prefixes to count, one metric series each. The trailing slash matters (it is the S3 prefix); the Layer dimension is the name with slashes stripped. `processed/` is excluded on purpose — it is the frozen legacy prefix orphaned by PR-012."
+  type        = list(string)
+  default     = ["raw/", "silver/", "gold/"]
+}
+
+variable "object_count_schedule_expression" {
+  description = "EventBridge schedule for the emitter. Hourly per the roadmap — far more often than the weekly pipeline changes anything, but cheap, and the fine grain makes a manual backfill or an accidental delete visible as a step rather than a daily average."
+  type        = string
+  default     = "rate(1 hour)"
+}
+
+variable "log_retention_days" {
+  description = "Retention for the object-count Lambda's log group. Matches the PR-023 default."
+  type        = number
+  default     = 30
+}

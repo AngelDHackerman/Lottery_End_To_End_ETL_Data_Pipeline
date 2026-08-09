@@ -22,8 +22,9 @@
 #      aggregates the extractor AND all 7 gold-purge calls; per-function detail comes from
 #      the AWS/Lambda widgets below.
 #
-# S3 object counts per medallion layer are deliberately absent — that needs a custom metric
-# emitter, which the roadmap scopes to the optional PR-027.
+# PR-027 fills the one gap PR-024 left open: S3 object counts per medallion layer. They need
+# a custom metric emitter (S3's own free NumberOfObjects is per-BUCKET, and all three layers
+# share one bucket), which now lives in object_count.tf. See row 6 below.
 
 data "aws_caller_identity" "current" {}
 
@@ -274,9 +275,57 @@ resource "aws_cloudwatch_dashboard" "loteria_pipeline" {
         }
       },
 
-      # --- Row 6: logs — the only Glue-side visibility ---------------------------------
+      # --- Row 6: the lake itself (PR-027) ----------------------------------------------
+      # Every other widget on this dashboard measures an EXECUTION. These two measure the
+      # ASSET. The distinction matters: a run can succeed end-to-end and add nothing — the
+      # extractor re-scrapes a page it already has, the transformer rewrites the same
+      # partition, `AWS/States` reports success. A flat raw/ line beside green executions is
+      # the only place that shows up.
+      #
+      # `raw` is expected to step up once a week, `silver` to track it, `gold` to stay
+      # roughly flat (the CTAS drops and recreates the same 7 tables, so its object count
+      # oscillates rather than grows). Divergence between raw and silver means the
+      # transformer is skipping work.
       {
-        type = "log", x = 0, y = 33, width = 12, height = 7,
+        type = "metric", x = 0, y = 33, width = 12, height = 6,
+        properties = {
+          title = "S3 objects per medallion layer",
+          view  = "timeSeries", stacked = false, region = var.aws_region,
+          # The emitter publishes hourly; 86400/Maximum plots one point per day — the daily
+          # high-water mark. Average would smear the weekly step across the day it happened.
+          period = 86400,
+          stat   = "Maximum",
+          yAxis  = { left = { min = 0, showUnits = false, label = "objects" } },
+          metrics = [
+            [var.metrics_namespace, "ObjectCount", "Layer", "raw", { label = "raw/", color = local.info }],
+            ["...", "silver", { label = "silver/", color = local.alt }],
+            ["...", "gold", { label = "gold/", color = local.ok }],
+          ]
+        }
+      },
+      {
+        type = "metric", x = 12, y = 33, width = 12, height = 6,
+        properties = {
+          # Bytes come free from the same ListObjectsV2 response the count uses. They are
+          # here because an object existing is not the same as an object having data in it:
+          # a truncated scrape or an empty parquet still increments ObjectCount. Bytes
+          # flattening while count climbs is the signature of that.
+          title  = "Bytes stored per medallion layer",
+          view   = "timeSeries", stacked = false, region = var.aws_region,
+          period = 86400,
+          stat   = "Maximum",
+          yAxis  = { left = { min = 0, label = "bytes" } },
+          metrics = [
+            [var.metrics_namespace, "BytesStored", "Layer", "raw", { label = "raw/", color = local.info }],
+            ["...", "silver", { label = "silver/", color = local.alt }],
+            ["...", "gold", { label = "gold/", color = local.ok }],
+          ]
+        }
+      },
+
+      # --- Row 7: logs — the only Glue-side visibility ---------------------------------
+      {
+        type = "log", x = 0, y = 39, width = 12, height = 7,
         properties = {
           # Glue publishes no metrics for this job type, so its health is read from logs.
           # PR-018's structured JSON makes correlation_id (= the SFN execution name) a
@@ -288,7 +337,7 @@ resource "aws_cloudwatch_dashboard" "loteria_pipeline" {
         }
       },
       {
-        type = "log", x = 12, y = 33, width = 12, height = 7,
+        type = "log", x = 12, y = 39, width = 12, height = 7,
         properties = {
           # /aws-glue/python-jobs/error carries stderr + tracebacks. Account-wide (PR-023
           # §3), but this account runs no other Python Shell job.
