@@ -19,7 +19,7 @@ same partition, every stage succeeds, `AWS/States` reports a healthy run. There 
 execution, so PR-025's alarms stay quiet. A **flat `raw/` line beside green executions** is
 the only place that shows up.
 
-This is the same category of defect as PR-026.5 — green pipeline, wrong/absent data — which
+This is the same category of defect as PR-026.1 — green pipeline, wrong/absent data — which
 is why it was worth the hour.
 
 ## 2. Why S3's free metrics don't work
@@ -100,7 +100,7 @@ Lambda appear in the plan. That is the `depends_on`, not your change.
 
 > Do **not** run `make build` for this PR. It rebuilds the extractor's layer/package zips,
 > which changes `source_code_hash` from identical sources and forces the Lambda layer to be
-> replaced — unrelated churn. Same trap as PR-025 and PR-026.5.
+> replaced — unrelated churn. Same trap as PR-025 and PR-026.1.
 
 ## 5. Verification
 

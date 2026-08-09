@@ -21,7 +21,7 @@
 # partitions) in the Glue catalog itself, so a crawler would be redundant. See the
 # catalog module README for the reasoning behind skipping roadmap step 4.
 
-# PR-026.5 (correctness fix): the two silver crawlers are no longer fired and forgotten.
+# PR-026.1 (correctness fix): the two silver crawlers are no longer fired and forgotten.
 # They now run in a Parallel state, each branch polling GetCrawler until that crawl has
 # demonstrably finished AND succeeded, before PrepGold/BuildGold may run. See the block
 # comment on `RunSilverCrawlers` for the measured race this closes.
@@ -47,7 +47,7 @@ locals {
   state_machine_name       = "lottery-etl-pipeline-${var.environment}"
   sfn_logging_enabled      = var.sfn_log_level != "OFF"
 
-  # PR-026.5: the two silver crawlers, keyed by the PascalCase fragment used to name their
+  # PR-026.1: the two silver crawlers, keyed by the PascalCase fragment used to name their
   # states. A map (not a list) so the generated state names are stable — Terraform iterates
   # a map in lexical key order, so Premios always comes before Sorteos and the rendered
   # definition never churns.
@@ -56,7 +56,7 @@ locals {
     Sorteos = var.sorteos_crawler_name
   }
 
-  # PR-026.5: one Parallel branch per crawler. Each branch is
+  # PR-026.1: one Parallel branch per crawler. Each branch is
   #   baseline -> start -> (wait -> get -> check)* -> verify -> succeed
   # See the block comment above `RunSilverCrawlers` for why every piece is here.
   crawler_branches = [
@@ -346,7 +346,7 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Next = "RunSilverCrawlers"
       },
 
-      # PR-026.5 — THE FIX. Previously this was two back-to-back
+      # PR-026.1 — THE FIX. Previously this was two back-to-back
       # `aws-sdk:glue:startCrawler` tasks that flowed straight into PrepGold.
       #
       # There is no `.sync` variant of startCrawler, so those tasks completed the instant

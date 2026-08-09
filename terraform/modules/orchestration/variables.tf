@@ -82,7 +82,7 @@ variable "sfn_include_execution_data" {
   default     = true
 }
 
-# --- Silver-crawler completion polling (PR-026.5) ---
+# --- Silver-crawler completion polling (PR-026.1) ---
 # The state machine waits for both silver crawlers to finish before building gold. There is
 # no `.sync` integration for startCrawler, so "waiting" means polling GetCrawler in a loop.
 

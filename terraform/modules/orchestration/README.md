@@ -67,7 +67,7 @@ Extra inputs: `log_retention_days` (default 30), `sfn_log_level`,
 `sfn_include_execution_data`. Extra outputs: `gold_purge_log_group_name`,
 `state_machine_log_group_name`.
 
-## Waiting for the silver crawlers (PR-026.5)
+## Waiting for the silver crawlers (PR-026.1)
 
 **The defect this closes.** The state machine used to start the two silver crawlers with
 two back-to-back `arn:aws:states:::aws-sdk:glue:startCrawler` tasks and go straight to
@@ -139,4 +139,4 @@ transitions a week (≈ $0.002), plus up to 60 `GetCrawler` calls, which have a 
 throttling retry on them.
 
 Extra inputs: `crawler_poll_interval_seconds` (default 30),
-`crawler_poll_max_attempts` (default 30). Runbook: `docs/runbooks/PR-026.5-crawler-race.md`.
+`crawler_poll_max_attempts` (default 30). Runbook: `docs/runbooks/PR-026.1-crawler-race.md`.
