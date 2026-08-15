@@ -16,6 +16,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# PR-032. Kept OUT of [project.dependencies] on purpose: great-expectations pulls in scipy,
+# altair and pydantic, and none of that belongs in the Lambda layer or the Glue transformer
+# zip, which are built by copying src/loteria into an archive. Only the DQ job needs it.
+#
+# ⚠️ PR-033 PLANNING NOTE: great-expectations 1.x requires Python >= 3.10, and Glue Python
+# Shell supports only 3.6 and 3.9 (PR-020's spike). The roadmap's "a Python Shell job that
+# pip-installs great-expectations" therefore cannot work as written — pip would resolve back
+# to the 0.18 line, whose API is incompatible with everything in src/loteria/dq. PR-033 has
+# to pick a runtime that is 3.10+.
+dq = ["great-expectations>=1.0,<2.0"]
 dev = [
     "pytest",
     "pytest-cov",
@@ -23,7 +33,7 @@ dev = [
     "black",
     "mypy",
     "moto",
-    "great-expectations",
+    "great-expectations>=1.0,<2.0",  # also declared in the "dq" extra above
     "nbstripout",
     "pre-commit",
 ]
@@ -76,12 +86,15 @@ pythonpath = ["src"]
 # achieves, which makes it a regression guard. Raise it in the same PR that adds the tests.
 # History: PR-029 11 (actual 11.75). PR-030 42 (actual 42.23 — beat the 33.9% estimate
 # because moto exercises s3_utils to 73% and aws_secrets to 45% as a side effect of the
-# transformer running for real). Next stop PR-035, which takes it to 85.
+# transformer running for real). PR-032 56 (actual 56.11 — src/loteria/dq lands at 100%,
+# and its end-to-end test drives the transformer again, which pushes logging_setup to 97%).
+# Next stop PR-035, which takes it to 85; what is left uncovered is the extractor,
+# metrics.py, purge_and_load.py and object_count.py.
 #
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=42"
+addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=56"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see

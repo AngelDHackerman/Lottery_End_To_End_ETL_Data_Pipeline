@@ -2,7 +2,7 @@
 # Targets are stubs for now (PR-001) and get filled in by later PRs.
 # See roadmap.md PR-039 for the final implementations.
 
-.PHONY: bootstrap secrets build deploy test destroy lint fmt tf-plan sagemaker
+.PHONY: bootstrap secrets build deploy test dq dq-sync destroy lint fmt tf-plan sagemaker
 
 bootstrap: ## Create the remote Terraform state backend (PR-003/PR-039)
 	@echo "TODO(PR-039): cd terraform/bootstrap && terraform init && terraform apply"
@@ -20,6 +20,16 @@ deploy: ## terraform apply the main stack (PR-039)
 
 test: ## Run the test suite with coverage (PR-029/PR-039)
 	pytest -v
+
+# PR-032. Reads Silver from S3 and exits non-zero if an expectation fails — the same
+# command PR-033 runs inside the Step Function, so a red `make dq` locally means a red gate
+# in production. Needs AWS credentials and PARTITIONED_BUCKET:
+#   make dq PARTITIONED_BUCKET=lottery-partitioned-storage-prod
+dq: ## Validate the Silver layer against its Great Expectations suites (PR-032)
+	python scripts/run_dq.py
+
+dq-sync: ## Regenerate qa/great_expectations/ from src/loteria/dq/suites.py (PR-032)
+	python scripts/run_dq.py --sync-suites
 
 destroy: ## Tear down the stack (guarded; PR-039)
 	@echo "TODO(PR-039): refuse unless CONFIRM=YES"

@@ -1012,6 +1012,77 @@ Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at
 5. Add scripts/run_dq.py that runs both suites and exits non-zero on failure. Wire as `make dq`.
 ```
 
+> **Notes from executing it (2026-08-15):** 20 expectations across two suites, 58 new tests,
+> and a green run against the **real** Silver layer (111 sorteos / 116,757 premios).
+>
+> - **🚨 BLOCKER FOR PR-033, FOUND HERE: `great-expectations` 1.x requires Python ≥ 3.10, and
+>   Glue Python Shell supports only 3.6 and 3.9** (PR-020's spike). PR-033's prompt — "a
+>   Python Shell job that pip-installs great-expectations" — **cannot work as written**. On
+>   3.9 pip silently resolves back to the GX 0.18 line, whose API is unrelated to 1.x, so it
+>   would install cleanly and then fail at import. PR-033 has to pick a 3.10+ runtime
+>   (Glue ETL 4.0 is 3.10, Glue 5.0 is 3.11) or move the job off Glue. Recorded in
+>   `pyproject.toml` and `requirements/dq.txt` so it cannot be rediscovered the hard way.
+> - **The expectations were derived from prod, then written — not the other way round.** The
+>   whole Silver layer was profiled first, and every expectation was run against all 116,757
+>   rows before being committed. A suite that fails on day one becomes a gate people route
+>   around, which is the canary-that-always-skips failure from PR-031 wearing a new hat.
+> - **The 22 departamentos carry the source's typo: the site writes `ALTA VERAPÁZ` and
+>   `BAJA VERAPÁZ`**, with an accent that does not belong on "Verapaz". The value set has to
+>   describe what loteria.org.gt emits, not correct Spanish — a well-meaning fix would break
+>   the expectation against every real batch. There is a test whose only job is to fail if
+>   someone "corrects" it. Profiling also confirmed exactly 22 distinct values and no garbage
+>   from bad `vendido_por` splits.
+> - **The prompt's `expect_column_values_to_match_strftime_format` is not used.** The
+>   transformer already parses with `pd.to_datetime(format="%d/%m/%Y")`, so Silver holds a
+>   real `datetime64` — there is no string left to match, and the expectation would compare
+>   against `"2024-06-01 00:00:00"` and fail. A range expectation plus not-null covers the
+>   intent, because `errors="coerce"` turns an unparseable date into `NaT`.
+> - **The prompt's `None` in the departamento value set is unnecessary.** ~91% of premios rows
+>   have null geography (no `VENDIDO POR` line), and GX column-map expectations skip nulls by
+>   default. A test pins that behaviour, since the suite would be wrong in opposite directions
+>   depending on which is true.
+> - **A GX S3 datasource was rejected, despite the prompt asking for one.** Silver is one
+>   Parquet file per draw, so each GX *batch* would be a single file — and `silver/sorteos`
+>   files hold exactly **one row each**. `expect_column_values_to_be_unique` on
+>   `numero_sorteo` — the expectation that guards the transformer's idempotency check, and the
+>   most valuable one in the project — would then be trivially true in every batch and prove
+>   nothing forever. Uniqueness is a property of the dataset, so the dataset is what gets
+>   validated: boto3 + BytesIO into one DataFrame (also avoids `s3fs`, which drags in
+>   `aiobotocore` and pins `botocore` hard).
+> - **⚠️ `ExpectationSuite.add_expectation()` requires an ambient GX data context** — it
+>   reaches for the global project manager to check whether the suite was already persisted,
+>   and raises `DataContextRequiredError` in a fresh process. The first draft used it and
+>   worked only because a context happened to exist. The suites now pass expectations to the
+>   `ExpectationSuite(...)` constructor, which is context-free, so the builders are pure and
+>   unit-testable. A test asserts this stays true.
+> - **The committed suite JSON is normalised, because GX mints a fresh UUID for the suite and
+>   for every expectation on every write.** Left alone, `--sync-suites` after a one-line
+>   change rewrites all ~110 lines, which destroys the only reason to commit the file. The ids
+>   are stripped after writing (GX re-mints them on read and does not rewrite the file), and a
+>   test asserts the sync is idempotent. A second test asserts the committed JSON still matches
+>   the Python builders, so it cannot go stale.
+> - **GX is loud by default and had to be quieted for PR-033**: the tqdm "Calculating Metrics"
+>   bar redraws with carriage returns, and CloudWatch retains every redraw, so one validation
+>   lands as a single enormous unreadable line. It is a data-context setting
+>   (`ProgressBarsConfig(globally=False)`), not an env var. Separately,
+>   `logging.getLogger("great_expectations").setLevel(WARNING)` is **not enough** — GX sets
+>   explicit levels on submodule loggers and an explicit child level beats an inherited one,
+>   so every registered `great_expectations*` logger has to be set directly, after import.
+> - **The strongest test is `TestAgainstRealTransformerOutput`.** It runs the actual
+>   transformer over the anonymized fixtures under moto and validates whatever it writes. The
+>   hand-built frames elsewhere encode what we *believe* Silver looks like; only this one uses
+>   what it *is*, so it is what fails when the suites and the pipeline drift apart.
+> - **`requirements/dq.txt` was verified, not just written**: a clean venv with the pinned set
+>   (GX 1.20.0 / pandas 2.2.3 / pyarrow 20.0.0 — the pandas Glue actually runs) validates the
+>   real prod data green. Worth doing because local dev is on pandas 3.0.5, where
+>   `tipo_sorteo` infers as `str` while 2.2.3 gives `object` — the dtype-inference gap PR-030
+>   flagged. Both pass, since the expectations used are dtype-agnostic.
+> - Coverage ratchet 42 → **56** (`src/loteria/dq` at 100%).
+> - **Follow-up, deliberately not done here:** referential integrity — every
+>   `premios.numero_sorteo` existing in `sorteos` — is the one high-value check missing. It
+>   needs a value set computed at run time, which cannot live in a committed static suite, so
+>   it belongs with PR-033's runtime wiring or PR-035.
+
 ## PR-033 — DQ gate in Step Function
 **Prompt:**
 ```
@@ -1171,10 +1242,10 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 026.1 | **Fix `startCrawler` ↔ gold CTAS race** (correctness defect — gold can silently miss the newest sorteo) | merged | [PR #30](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/30) |
 | 027 | S3 object-count emitter (optional) | merged | [PR #31](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/31) |
 | 028 | SNS email subscription | merged | [PR #32](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/32) |
-| 029 | pytest skeleton + parser tests | in-progress | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
-| 030 | Transformer tests with moto | in-progress | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
-| 031 | Scraper contract canary | in-progress | — |
-| 032 | GE Silver suite | todo | — |
+| 029 | pytest skeleton + parser tests | merged | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
+| 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
+| 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
+| 032 | GE Silver suite | in-progress | — |
 | 033 | DQ gate in Step Function | todo | — |
 | 034 | GitHub Actions CI | todo | — |
 | 035 | Coverage ratchet to 85% | todo | — |

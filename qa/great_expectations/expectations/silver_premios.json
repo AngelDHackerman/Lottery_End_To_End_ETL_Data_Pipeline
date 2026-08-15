@@ -1,0 +1,108 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "column": "numero_sorteo"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "numero_premiado"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "monto"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "departamento",
+        "value_set": [
+          "ALTA VERAPÁZ",
+          "BAJA VERAPÁZ",
+          "CHIMALTENANGO",
+          "CHIQUIMULA",
+          "EL PROGRESO",
+          "ESCUINTLA",
+          "GUATEMALA",
+          "HUEHUETENANGO",
+          "IZABAL",
+          "JALAPA",
+          "JUTIAPA",
+          "PETÉN",
+          "QUETZALTENANGO",
+          "QUICHÉ",
+          "RETALHULEU",
+          "SACATEPÉQUEZ",
+          "SAN MARCOS",
+          "SANTA ROSA",
+          "SOLOLÁ",
+          "SUCHITEPÉQUEZ",
+          "TOTONICAPÁN",
+          "ZACAPA"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "monto",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "letras"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "letras",
+        "regex": "^[A-Z]+$"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_match_regex"
+    },
+    {
+      "kwargs": {
+        "column": "numero_premiado",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "min_value": 1
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.20.0"
+  },
+  "name": "silver_premios",
+  "notes": null
+}
