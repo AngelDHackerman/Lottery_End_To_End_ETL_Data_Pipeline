@@ -32,3 +32,19 @@ output "error_log_group_name" {
   description = "Log group carrying the Glue job's stderr and tracebacks."
   value       = local.glue_error_log_group
 }
+
+# --- PR-033: Silver data-quality job ---
+output "dq_job_name" {
+  description = "Name of the Silver DQ Glue job (empty string when enable_silver_dq = false)."
+  value       = var.enable_silver_dq ? aws_glue_job.silver_dq[0].name : ""
+}
+
+output "dq_job_arn" {
+  description = "ARN of the Silver DQ Glue job (empty string when enable_silver_dq = false)."
+  value       = var.enable_silver_dq ? aws_glue_job.silver_dq[0].arn : ""
+}
+
+output "dq_log_group_name" {
+  description = "Per-job log group for the DQ job. Emitted from the constant, so it stays correct regardless of whether the job is enabled."
+  value       = local.dq_log_group
+}

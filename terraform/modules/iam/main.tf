@@ -45,6 +45,15 @@ locals {
   glue_catalog_arn      = "arn:aws:glue:${var.aws_region}:${local.account_id}:catalog"
   glue_database_arn     = "arn:aws:glue:${var.aws_region}:${local.account_id}:database/${var.database_name}"
   glue_tables_arn       = "arn:aws:glue:${var.aws_region}:${local.account_id}:table/${var.database_name}/*"
+
+  # PR-033 DQ gate. Both are built from names for the same reason sfn_log_group_arn above
+  # is: taking them as module outputs would reverse an existing dependency edge. The SNS
+  # case is stricter than a style preference — `module.observability` already consumes
+  # `module.orchestration.state_machine_arn`, so having orchestration (or iam, which
+  # orchestration consumes) read an observability output would close a module cycle that
+  # Terraform refuses to graph.
+  dq_job_arn       = "arn:aws:glue:${var.aws_region}:${local.account_id}:job/loteria-silver-dq-${var.environment}"
+  alerts_topic_arn = "arn:aws:sns:${var.aws_region}:${local.account_id}:loteria-alerts-${var.environment}"
 }
 
 # ===========================================================================
@@ -182,6 +191,26 @@ resource "aws_iam_role" "object_count_lambda" {
     Statement = [{
       Effect    = "Allow",
       Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+# Role for the Silver DQ Glue job (PR-033). Deliberately NOT the transform job's role.
+#
+# The transform role can write to both data buckets and read the lottery secret, because it
+# has to. The DQ job only reads Silver and reports a verdict — so giving it that role would
+# hand a component whose whole purpose is to *judge* the data the ability to change it, and
+# the credentials to the scraper's secret on top. Same reasoning as the object-count role
+# above.
+resource "aws_iam_role" "glue_dq_job" {
+  name = "lottery-glue-dq-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = "glue.amazonaws.com" },
       Action    = "sts:AssumeRole"
     }]
   })
@@ -682,9 +711,118 @@ resource "aws_iam_policy" "sfn_execution_policy" {
           "arn:aws:s3:::${var.athena_results_bucket_name}",
           "arn:aws:s3:::${var.athena_results_bucket_name}/*"
         ]
+      },
+
+      # --- PR-033 DQ gate ---
+      # Run the Silver DQ job. A SEPARATE statement from AllowGlueJobExecution above rather
+      # than another ARN in its Resource list, so the two jobs' grants can diverge later
+      # (the transform job's BatchStopJobRun exists for a manual abort; the DQ job is short
+      # enough that stopping it by hand is not a workflow).
+      {
+        Sid : "AllowGlueDqJobExecution",
+        Effect : "Allow",
+        Action : [
+          "glue:StartJobRun",
+          "glue:GetJobRun",
+          "glue:GetJobRuns",
+          "glue:BatchStopJobRun"
+        ],
+        Resource : local.dq_job_arn
+      },
+      # Publish the DQ failure alert. This is the ONLY thing the state machine sends to SNS,
+      # and it is what makes the gate visible: without it a failed DQ run would stop Gold
+      # silently, and the owner would find out a week later from a stale dashboard.
+      {
+        Sid : "AllowPublishDqAlert",
+        Effect : "Allow",
+        Action : [
+          "sns:Publish"
+        ],
+        Resource : local.alerts_topic_arn
       }
     ]
   })
+}
+
+# PR-033: the Silver DQ Glue job. Read-only by construction — there is no PutObject and no
+# DeleteObject anywhere in it, so the gate physically cannot modify what it is judging.
+data "aws_iam_policy_document" "glue_dq_job_policy" {
+  # Read the Silver Parquet. GetObject is scoped to the silver/ prefix rather than the whole
+  # bucket: the job has no business reading raw/ (which holds the unparsed scrape) or gold/
+  # (which it runs *before*, so reading it could only ever produce a stale answer).
+  statement {
+    sid    = "ReadSilverObjects"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+    ]
+    resources = ["${var.partitioned_bucket_arn}/silver/*"]
+  }
+
+  # ListBucket is a BUCKET-level action, so it cannot take a prefixed resource ARN — the
+  # scoping has to come from the s3:prefix condition instead. Without this the job cannot
+  # enumerate the per-draw Parquet files and would validate nothing.
+  statement {
+    sid       = "ListSilverPrefix"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [var.partitioned_bucket_arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["silver/*"]
+    }
+  }
+
+  # Fetch the job script and the --extra-py-files zip.
+  statement {
+    sid    = "ReadJobArtifacts"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:HeadObject",
+    ]
+    resources = ["arn:aws:s3:::${var.lambda_code_bucket_name}/*"]
+  }
+
+  # Same /aws-glue/* namespace reasoning as the transform role: the job's own group is
+  # /aws-glue/jobs/loteria-silver-dq-*, but Glue also writes to the account-wide
+  # /aws-glue/jobs/{output,error} regardless of the continuous-log setting.
+  statement {
+    sid    = "AllowCloudWatchLogs"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws-glue/*",
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws-glue/*:log-stream:*",
+    ]
+  }
+
+  # Glue Spark jobs publish their own CloudWatch metrics. PutMetricData supports no
+  # resource-level permissions; the namespace condition is the real scope.
+  statement {
+    sid       = "AllowGlueMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["Glue"]
+    }
+  }
+}
+
+resource "aws_iam_policy" "glue_dq_job_policy" {
+  name        = "lottery-glue-dq-policy-${var.environment}"
+  description = "Read-only access for the Silver DQ job: list + get silver/, read its own artifacts, write logs."
+  policy      = data.aws_iam_policy_document.glue_dq_job_policy.json
 }
 
 # EventBridge -> Step Function policy
@@ -783,6 +921,14 @@ resource "aws_iam_role_policy_attachment" "object_count_basic" {
 resource "aws_iam_role_policy_attachment" "object_count_custom" {
   role       = aws_iam_role.object_count_lambda.name
   policy_arn = aws_iam_policy.object_count_lambda_policy.arn
+}
+
+# Silver DQ Glue job (PR-033). One attachment only — deliberately NOT
+# AWSGlueServiceRole, whose managed policy grants glue:* plus S3 write on any bucket named
+# aws-glue-*. The job needs none of that: it reads Silver and writes logs.
+resource "aws_iam_role_policy_attachment" "glue_dq_custom" {
+  role       = aws_iam_role.glue_dq_job.name
+  policy_arn = aws_iam_policy.glue_dq_job_policy.arn
 }
 
 # ---------------------------------------------------------------------------

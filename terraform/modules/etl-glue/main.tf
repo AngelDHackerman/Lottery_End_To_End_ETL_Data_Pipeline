@@ -98,3 +98,119 @@ resource "aws_glue_job" "lottery_transform" {
     Environment = var.environment
   }
 }
+
+# =======================================================================================
+# PR-033 — Silver data-quality job (the Gold gate)
+# =======================================================================================
+# A SECOND Glue job, and deliberately a different job TYPE from the transformer above.
+#
+# WHY glueetl (Spark) FOR A SCRIPT THAT NEVER TOUCHES SPARK. PR-032 established that
+# `great-expectations` 1.x declares `requires-python >=3.10`, while Python Shell supports
+# only 3.6 and 3.9 (the spike recorded at the top of this file). The roadmap's "Python Shell
+# job that pip-installs great-expectations" therefore cannot work: on 3.9 pip resolves back
+# to the GX 0.18 line, whose API is unrelated to the one src/loteria/dq is written against,
+# so it would install cleanly and fail at import. Glue 5.0 is where Python 3.11 lives, and
+# `glueetl` is the only job type that offers it.
+#
+# The script never creates a SparkContext, so it runs as an ordinary Python process on the
+# driver. The Spark cluster is the price of the interpreter version. At 2 workers, a few
+# minutes, once a week, that is cents per year — cheaper than the engineering cost of
+# maintaining a second, 0.18-era copy of the suites.
+#
+# Cost note: unlike the pythonshell transformer (max_capacity = 1 DPU), a Glue 5.0 ETL job
+# has a FLOOR of 2 workers. There is no smaller shape available.
+
+locals {
+  dq_job_name = "loteria-silver-dq-${var.environment}"
+
+  # Spark jobs, unlike pythonshell ones, CAN have a per-job log group — `--continuous-log-
+  # logGroup` is a Spark-only argument (noted in the PR-023 block above, which had to settle
+  # for the account-wide groups instead).
+  #
+  # Taking that option here is not just tidier, it is necessary: the account-wide Spark
+  # groups /aws-glue/jobs/{output,error,logs-v2} ALREADY EXIST and already carry another
+  # project's Glue Spark workload. The `manage_shared_glue_log_groups` escape hatch above is
+  # justified by this being the account's only *pythonshell* job — that reasoning does not
+  # extend to Spark, so this module must not claim those groups. It owns a group of its own
+  # instead, which Terraform creates fresh with a retention policy.
+  dq_log_group = "/aws-glue/jobs/${local.dq_job_name}"
+}
+
+resource "aws_cloudwatch_log_group" "silver_dq" {
+  count = var.enable_silver_dq ? 1 : 0
+
+  name              = local.dq_log_group
+  retention_in_days = var.log_retention_days
+
+  tags = {
+    Name        = local.dq_log_group
+    Environment = var.environment
+    Project     = "Loteria-Santa-Lucia"
+  }
+}
+
+resource "aws_glue_job" "silver_dq" {
+  count = var.enable_silver_dq ? 1 : 0
+
+  name     = local.dq_job_name
+  role_arn = var.glue_dq_job_role_arn
+  # Real and load-bearing here, unlike on the pythonshell job above where it is inert:
+  # "5.0" is what selects Spark 3.5 / Python 3.11.
+  glue_version = var.dq_glue_version
+
+  # 2 x G.1X is the minimum shape a Glue 5.0 ETL job accepts. The work is a ~117k-row pandas
+  # validation that runs on the driver, so more workers would buy nothing.
+  worker_type       = "G.1X"
+  number_of_workers = 2
+
+  # Fail fast. The default is 2880 minutes; a DQ run that has not finished in 20 has hung,
+  # and the Step Function is waiting on it synchronously.
+  timeout = var.dq_timeout_minutes
+
+  command {
+    name = "glueetl"
+    # A plain .py, NOT a zipapp. glueetl runs the script directly and puts
+    # --extra-py-files on sys.path; only pythonshell executes the artifact as `python x.zip`.
+    script_location = "s3://${var.code_bucket}/${var.dq_script_key}"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    # The loteria package. Built by scripts/build_dq_package.sh; Terraform does not manage
+    # the object, same as the transformer zip.
+    "--extra-py-files" = "s3://${var.code_bucket}/${var.dq_lib_key}"
+
+    # Installed at run time rather than vendored: bundling great-expectations would mean
+    # pushing scipy and altair through S3 on every deploy. Pinned to match
+    # requirements/dq.txt, which PR-032 verified against the real Silver data.
+    #
+    # ⚠️ This needs egress to PyPI. The job runs in Glue's managed network (no `connections`
+    # block), which has internet access — putting it in the project VPC would break the
+    # install unless enable_internet is on, since there is no NAT otherwise.
+    "--additional-python-modules" = var.dq_python_modules
+
+    "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
+    "--job-language"       = "python"
+
+    # Per-job log group (see the local above). Both arguments are required: the group name
+    # alone does nothing unless continuous logging is enabled.
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--continuous-log-logGroup"          = local.dq_log_group
+
+    # Off deliberately. The Spark UI writes event logs to S3, and this job runs no Spark
+    # stages worth inspecting — it would be paying S3 writes for empty event files.
+    "--enable-spark-ui" = "false"
+  }
+
+  execution_property {
+    max_concurrent_runs = 1
+  }
+
+  tags = {
+    Name        = local.dq_job_name
+    Project     = "Loteria-Santa-Lucia"
+    Environment = var.environment
+  }
+
+  depends_on = [aws_cloudwatch_log_group.silver_dq]
+}

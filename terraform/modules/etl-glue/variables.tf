@@ -65,3 +65,46 @@ variable "manage_shared_glue_log_groups" {
   type        = bool
   default     = true
 }
+
+# --- PR-033: Silver data-quality job ---------------------------------------------------
+variable "enable_silver_dq" {
+  description = "Create the Silver DQ Glue job. Gated so the stack can be applied before the job artifacts have been uploaded to the code bucket — Glue accepts a script_location that does not exist yet, but a run would fail, so a fresh cloner should turn this on only after `make build`."
+  type        = bool
+  default     = true
+}
+
+variable "glue_dq_job_role_arn" {
+  description = "ARN of the Silver DQ job's role. Separate from the transform job's role: DQ only reads Silver, so it gets no write and no Secrets Manager access."
+  type        = string
+  default     = ""
+}
+
+variable "dq_script_key" {
+  description = "S3 key of the DQ job script (a plain .py, not a zipapp — glueetl runs the script directly)."
+  type        = string
+  default     = "loteria_silver_dq.py"
+}
+
+variable "dq_lib_key" {
+  description = "S3 key of the zipped loteria package passed to the DQ job as --extra-py-files."
+  type        = string
+  default     = "loteria_dq_lib.zip"
+}
+
+variable "dq_glue_version" {
+  description = "Glue version for the DQ job. Load-bearing (unlike glue_version above, which is inert for pythonshell): \"5.0\" is what selects Python 3.11, the minimum great-expectations 1.x accepts."
+  type        = string
+  default     = "5.0"
+}
+
+variable "dq_python_modules" {
+  description = "Value of --additional-python-modules for the DQ job. Installed from PyPI at run time; keep in sync with requirements/dq.txt."
+  type        = string
+  default     = "great-expectations==1.20.0"
+}
+
+variable "dq_timeout_minutes" {
+  description = "Timeout for the DQ job. Short on purpose: the Step Function waits on it synchronously, so a hung run stalls the whole pipeline."
+  type        = number
+  default     = 20
+}

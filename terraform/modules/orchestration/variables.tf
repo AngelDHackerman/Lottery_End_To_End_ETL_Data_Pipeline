@@ -107,3 +107,32 @@ variable "crawler_poll_max_attempts" {
     error_message = "crawler_poll_max_attempts must be between 1 and 200."
   }
 }
+
+# --- PR-033: Silver data-quality gate --------------------------------------------------
+variable "enable_silver_dq" {
+  description = "Insert the RunSilverDQ gate between the silver crawlers and the Gold CTAS Map. When false the definition renders exactly as it did before PR-033, so the state machine stays deployable before the DQ job artifacts have been uploaded."
+  type        = bool
+  default     = true
+}
+
+variable "dq_job_name" {
+  description = "Name of the Silver DQ Glue job (from module.etl_glue). Unused when enable_silver_dq = false."
+  type        = string
+  default     = ""
+}
+
+variable "dq_log_group_name" {
+  description = "Log group the DQ job writes its expectation report to. Quoted in the SNS alert so the reader is told where to look."
+  type        = string
+  default     = ""
+}
+
+variable "aws_region" {
+  description = "Region, used to build the SNS alerts topic ARN by name (taking it as a module output would close an orchestration <-> observability cycle)."
+  type        = string
+}
+
+variable "account_id" {
+  description = "Account id, used with aws_region to build the SNS alerts topic ARN."
+  type        = string
+}

@@ -188,6 +188,68 @@ class DQReport:
 
 
 # --------------------------------------------------------------------------------------
+# Rendering a report
+# --------------------------------------------------------------------------------------
+# These live here, not in the CLI, because PR-033's Glue entry point needs exactly the same
+# two renderings. Duplicating them would mean an alert and a terminal run could describe the
+# same failure differently.
+
+#: Glue truncates the ErrorMessage it reports for a failed run, and Step Functions caps a
+#: state's Cause before SNS ever sees it. Keep an alert summary short enough to survive both.
+MAX_SUMMARY_CHARS = 900
+
+
+def format_report(report: DQReport) -> str:
+    """A plain-text summary, sized for a log line rather than a terminal.
+
+    No colour and no box drawing: this is read out of a Glue job log, where ANSI escapes are
+    noise.
+    """
+    lines = []
+    for suite in report.suites:
+        status = "PASS" if suite.success else "FAIL"
+        lines.append(
+            f"[{status}] {suite.suite}: {len(suite.results)} expectations, "
+            f"{suite.rows} rows from {suite.files} files"
+        )
+        for failure in suite.failures:
+            column = f" on '{failure.column}'" if failure.column else ""
+            detail = ""
+            if failure.unexpected_count is not None:
+                detail = f" — {failure.unexpected_count} unexpected"
+                if failure.unexpected_percent is not None:
+                    detail += f" ({failure.unexpected_percent:.2f}%)"
+            lines.append(f"    FAILED {failure.expectation}{column}{detail}")
+            if failure.partial_unexpected:
+                lines.append(f"      e.g. {failure.partial_unexpected}")
+
+    lines.append("")
+    lines.append("DQ RESULT: " + ("PASS" if report.success else "FAIL"))
+    return "\n".join(lines)
+
+
+def summarize_failures(report: DQReport) -> str:
+    """One clause per failed expectation, truncated to fit an alert body.
+
+    Offending *values* are deliberately left out even though the report carries a sample:
+    this string ends up in an email, and a failing column can be full of vendor names. The
+    suite, expectation and column say where to look; the Glue log has the rest.
+    """
+    clauses = [
+        f"{suite.suite}: {failure.expectation}"
+        + (f" on '{failure.column}'" if failure.column else "")
+        + ("" if failure.unexpected_count is None else f" ({failure.unexpected_count} rows)")
+        for suite in report.suites
+        for failure in suite.failures
+    ]
+
+    summary = "; ".join(clauses)
+    if len(summary) > MAX_SUMMARY_CHARS:
+        summary = summary[: MAX_SUMMARY_CHARS - 3] + "..."
+    return summary
+
+
+# --------------------------------------------------------------------------------------
 # Making GX quiet enough to run unattended
 # --------------------------------------------------------------------------------------
 # Both of these exist because in PR-033 this runs as a batch job whose only output channel

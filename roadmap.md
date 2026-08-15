@@ -1091,6 +1091,62 @@ After the silver crawlers succeed and before the Gold CTAS map state, add:
 If DQ fails, transition to a Fail state that publishes to the SNS alerts topic with the failure details. Gold is NOT built when DQ fails.
 ```
 
+> **Notes from executing it (2026-08-15):** the gate is in, the rendered ASL validates clean
+> against the Step Functions API, and `terraform plan` is 5 to add / 3 to change / 0 to
+> destroy. See `docs/runbooks/PR-033-dq-gate.md`.
+>
+> - **🚨 THE PROMPT'S JOB TYPE IS IMPOSSIBLE, as PR-032 predicted.** "A Python Shell job that
+>   pip-installs great-expectations" cannot work: GX 1.x needs Python ≥ 3.10 and Python Shell
+>   supports only 3.6/3.9. Re-verified against the current AWS docs in this PR — Python 3.11
+>   arrived with Glue 5.0 but **only for Spark jobs**. So the DQ job is `glueetl` on Glue 5.0.
+>   It never creates a SparkContext; the cluster is the price of the interpreter version.
+>   Cost consequence worth stating: the pythonshell transformer runs at `max_capacity = 1`
+>   DPU, while a Glue 5.0 ETL job has a **floor of 2 workers**. There is no smaller shape.
+> - **The Fail state cannot publish.** The roadmap's "a Fail state that publishes to SNS" is
+>   two states: `NotifyDQFailure` (Task, `sns:publish`) then `DQFailed` (Fail). The Fail state
+>   type has no integration.
+> - **⚠️ Gating the states with `condition ? {...} : {}` does not compile.** Terraform requires
+>   both branches of a conditional to have the same type, and an ASL state map is
+>   heterogeneous by construction — a Task has Resource/Parameters/Catch, a Fail has
+>   Error/Cause, and they share no attributes, so it fails with *"the 'true' value includes
+>   object attribute "DQFailed", which is absent in the 'false' value"*. The gate is applied
+>   to a **JSON string** and `jsondecode`d instead, which sidesteps type unification.
+>   Verified: with `enable_silver_dq = false` the rendered definition is **byte-identical to
+>   the deployed one**, so the kill switch really is a no-op.
+> - **⚠️ SNS topic ARN is built from name + region + account, not read from
+>   `module.observability`.** That module already consumes `module.orchestration
+>   .state_machine_arn`, so the reverse reference closes a **module cycle** Terraform refuses
+>   to graph. Same technique PR-023 used for the vended-logs group ARN.
+> - **The alert message is the deliverable, not the alarm.** Step Functions puts Glue's
+>   `ErrorMessage` into the SNS body verbatim, and for a Python error that is the exception's
+>   string — so `glue_dq_main.py` raises with a summary naming the suite, expectation and
+>   column. Offending *values* are deliberately excluded (a failing column can be full of
+>   vendor names, and this lands in an inbox); the samples stay in the Glue log.
+> - **`States.Format` escaping was avoided rather than solved.** It delimits its literal with
+>   single quotes and uses `{}` as placeholders, so the message text deliberately contains no
+>   apostrophes and no braces. An escaping bug here is only discovered when the alert fires —
+>   the one moment it has to work.
+> - **This job gets its own log group**, `/aws-glue/jobs/loteria-silver-dq-prod`, via the
+>   Spark-only `--continuous-log-logGroup`. Not just tidier: the account-wide Spark groups
+>   `/aws-glue/jobs/{output,error,logs-v2}` **already exist and already carry another
+>   project's workload**, so the `manage_shared_glue_log_groups` escape hatch — justified for
+>   pythonshell by this being the account's only such job — does not extend to Spark.
+> - **A dedicated read-only role**, not the transform job's. A component whose purpose is to
+>   *judge* the data should not be able to change it, nor carry the scraper's Secrets Manager
+>   access. No `PutObject`, no `DeleteObject`, `GetObject` scoped to `silver/*`, and
+>   `AWSGlueServiceRole` deliberately not attached (it grants `glue:*` plus S3 write).
+>   Note `s3:ListBucket` is a bucket-level action and cannot take a prefixed ARN — the
+>   scoping has to come from an `s3:prefix` condition.
+> - **Deliberately NOT done: running DQ in parallel with the crawlers.** The job reads Silver
+>   Parquet straight from S3, not through the catalog, so it has no data dependency on
+>   `RunSilverCrawlers` and could overlap with it. Kept sequential because the gate's job is
+>   to stand between Silver and Gold, and a linear chain is far easier to read in the console
+>   when diagnosing a blocked run. The saving is minutes, once a week.
+> - **`format_report`/`summarize_failures` moved out of `scripts/run_dq.py` into
+>   `loteria/dq/runner.py`**, because the Glue entry point needs the identical rendering.
+>   Left duplicated, a terminal run and an email could describe the same failure differently.
+> - Coverage ratchet 56 → **57**.
+
 ## PR-034 — GitHub Actions CI
 **Prompt:**
 ```
@@ -1245,8 +1301,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 029 | pytest skeleton + parser tests | merged | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
-| 032 | GE Silver suite | in-progress | — |
-| 033 | DQ gate in Step Function | todo | — |
+| 032 | GE Silver suite | in-progress | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
+| 033 | DQ gate in Step Function | in-progress | — |
 | 034 | GitHub Actions CI | todo | — |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |

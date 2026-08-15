@@ -25,13 +25,16 @@ from moto import mock_aws
 
 from loteria.dq.runner import (
     DATASET_SUITES,
+    MAX_SUMMARY_CHARS,
     DQReport,
     ExpectationOutcome,
     SilverDatasetEmpty,
     SuiteOutcome,
+    format_report,
     list_parquet_keys,
     load_silver_dataset,
     run_dq,
+    summarize_failures,
 )
 
 REGION = "us-east-1"
@@ -324,6 +327,88 @@ class TestDQReport:
 
         assert DQReport(suites=[passing]).success
         assert not DQReport(suites=[passing, failing]).success
+
+
+# ==========================================================================================
+# Report rendering
+# ==========================================================================================
+class TestReportRendering:
+    """``format_report`` and ``summarize_failures`` live in the runner, not in the CLI,
+    because PR-033's Glue entry point renders the same two things. If they diverged, an
+    email alert and a terminal run could describe one failure differently."""
+
+    def _report(self, *, ok: bool):
+        results = [
+            ExpectationOutcome("expect_column_values_to_not_be_null", "monto", True, 0, 0.0),
+            ExpectationOutcome(
+                "expect_column_values_to_be_in_set", "departamento", ok, None if ok else 12, 1.25
+            ),
+        ]
+        return DQReport(
+            suites=[
+                SuiteOutcome(
+                    suite="silver_premios", dataset="premios", rows=800, files=4, results=results
+                )
+            ]
+        )
+
+    def test_a_pass_says_pass(self):
+        rendered = format_report(self._report(ok=True))
+
+        assert "[PASS] silver_premios" in rendered
+        assert rendered.strip().endswith("DQ RESULT: PASS")
+
+    def test_a_failure_names_the_expectation_and_the_count(self):
+        rendered = format_report(self._report(ok=False))
+
+        assert "FAILED expect_column_values_to_be_in_set on 'departamento'" in rendered
+        assert "12 unexpected" in rendered
+        assert rendered.strip().endswith("DQ RESULT: FAIL")
+
+    def test_the_header_reports_rows_and_files(self):
+        assert "800 rows from 4 files" in format_report(self._report(ok=True))
+
+    def test_summary_is_empty_when_nothing_failed(self):
+        assert summarize_failures(self._report(ok=True)) == ""
+
+    def test_summary_names_suite_expectation_and_column(self):
+        summary = summarize_failures(self._report(ok=False))
+
+        assert "silver_premios" in summary
+        assert "expect_column_values_to_be_in_set" in summary
+        assert "departamento" in summary
+
+    def test_summary_leaks_no_offending_values(self):
+        """This string goes into an email. A failing column can be full of vendor names, so
+        the summary names the column and stops there — the Glue log has the samples."""
+        results = [
+            ExpectationOutcome(
+                "expect_column_values_to_be_in_set",
+                "vendedor",
+                False,
+                2,
+                1.0,
+                partial_unexpected=["ALGUNA PERSONA", "OTRA PERSONA"],
+            )
+        ]
+        report = DQReport(suites=[SuiteOutcome("silver_premios", "premios", 10, 1, results)])
+
+        summary = summarize_failures(report)
+        assert "ALGUNA PERSONA" not in summary
+        assert "vendedor" in summary
+
+    def test_summary_is_truncated_to_survive_glue_and_sfn(self):
+        """Glue truncates its ErrorMessage and Step Functions caps a Cause; an oversized
+        summary would be cut at an arbitrary point by whichever hop got it first."""
+        results = [
+            ExpectationOutcome(f"expectation_number_{i}", f"column_{i}", False, i, 1.0)
+            for i in range(200)
+        ]
+        report = DQReport(suites=[SuiteOutcome("silver_premios", "premios", 10, 1, results)])
+
+        summary = summarize_failures(report)
+        assert len(summary) <= MAX_SUMMARY_CHARS
+        assert summary.endswith("...")
 
 
 # ==========================================================================================

@@ -225,6 +225,116 @@ locals {
       BackoffRate     = 2
     }
   ]
+
+  # ---- PR-033: the Silver DQ gate -----------------------------------------------------
+  #
+  # Placed between the crawlers and PrepGold, exactly where the roadmap asks for it. Worth
+  # stating what that placement does and does not buy, because it looks like a data
+  # dependency and is not one: the DQ job reads Silver Parquet straight from S3, not through
+  # the Glue catalog, so it does not actually need the crawlers to have finished. It could
+  # run in PARALLEL with them and shave a couple of minutes off the pipeline. Kept
+  # sequential anyway — the gate's job is to stand between Silver and Gold, and a linear
+  # chain is far easier to read in the console when someone is diagnosing a blocked run at
+  # 11pm. The saving is minutes on a weekly job.
+  #
+  # The whole gate is gated itself: with enable_silver_dq = false the crawlers flow straight
+  # to PrepGold as before, and none of these states are rendered. That keeps the state
+  # machine deployable before the DQ job artifacts have been uploaded.
+  dq_enabled     = var.enable_silver_dq
+  after_crawlers = local.dq_enabled ? "RunSilverDQ" : "PrepGold"
+
+  pipeline_comment = local.dq_enabled ? (
+    "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → silver DQ gate → gold CTAS"
+    ) : (
+    "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → gold CTAS"
+  )
+
+  # SNS topic ARN built from its name rather than taken as an input. `module.observability`
+  # already consumes `module.orchestration.state_machine_arn`, so accepting an observability
+  # output here would close a module cycle Terraform refuses to graph. Same technique the
+  # iam module uses for the vended-logs group ARN.
+  alerts_topic_arn = "arn:aws:sns:${var.aws_region}:${var.account_id}:loteria-alerts-${var.environment}"
+
+  # ⚠️ Gated as a JSON *string*, then decoded — not as `local.dq_enabled ? {...} : {}`.
+  #
+  # Terraform requires both branches of a conditional to have the same type, and an ASL
+  # state map is heterogeneous by construction: a Task state has Resource/Parameters/Catch,
+  # a Fail state has Error/Cause, and they share no attributes. So `{...} : {}` fails with
+  # "the 'true' value includes object attribute "DQFailed", which is absent in the 'false'
+  # value" — the object types genuinely differ. Applying the gate to a string sidesteps the
+  # type unification entirely, and jsondecode hands back a map the merge below accepts.
+  dq_states = jsondecode(local.dq_enabled ? local.dq_states_json : "{}")
+
+  dq_states_json = jsonencode({
+    # `.sync` is what makes this a gate rather than a notification: the task does not
+    # complete until the Glue run reaches a terminal state, and a FAILED run fails the task.
+    # (Contrast startCrawler, which has no `.sync` variant at all — the defect PR-026.1 had
+    # to hand-roll a poll loop to fix.)
+    RunSilverDQ = {
+      Type     = "Task",
+      Resource = "arn:aws:states:::glue:startJobRun.sync",
+      Parameters = {
+        JobName = var.dq_job_name,
+        Arguments = {
+          # PR-018: same correlation id as every other stage, so the DQ verdict can be
+          # stitched to the extractor and transformer logs it is judging.
+          "--CORRELATION_ID.$" = "$$.Execution.Name"
+        }
+      },
+      # Discard the Glue run metadata. PrepGold overwrites `$.gold` and the CTAS Map reads
+      # only that, so keeping ~1 KB of job-run detail in the state would be dead weight.
+      ResultPath = null,
+
+      # The catch is the entire point of the state. Without it a failed DQ run would fail
+      # the execution directly: Gold would still be correctly skipped, but the only signal
+      # would be PR-025's generic SFN_ExecutionFailed alarm, which cannot say *what* was
+      # wrong with the data. Catching lets the next state put the actual failing expectation
+      # in front of a human.
+      Catch = [
+        {
+          ErrorEquals = ["States.ALL"],
+          # Land the error under its own key so the SNS message can reference
+          # $.dqError.Cause without clobbering the payload.
+          ResultPath = "$.dqError",
+          Next       = "NotifyDQFailure"
+        }
+      ],
+      Next = "PrepGold"
+    },
+
+    # A Fail state cannot publish anything, so the alert has to happen in a Task first and
+    # the execution is failed immediately after.
+    #
+    # `$.dqError.Cause` is Glue's own failure payload, and the useful part of it is the
+    # ErrorMessage — which, for a Python exception, is the exception's string. That is why
+    # scripts/glue_dq_main.py raises with a summary naming the suite, expectation and column
+    # instead of a bare "DQ failed": this message is the whole content of the email.
+    NotifyDQFailure = {
+      Type     = "Task",
+      Resource = "arn:aws:states:::sns:publish",
+      Parameters = {
+        TopicArn = local.alerts_topic_arn,
+        Subject  = "Loteria ETL - Silver data quality FAILED, Gold not built",
+
+        # Two `{}` placeholders, filled by the two arguments after the format string. The
+        # message deliberately contains no apostrophes and no braces: States.Format
+        # delimits its literal with single quotes and uses braces as placeholders, so both
+        # would need escaping, and an escaping mistake here is only discovered when the
+        # alert fires — the one moment it must work.
+        "Message.$" = "States.Format('The Silver DQ gate failed, so the Gold layer was NOT rebuilt. The gold_* tables still hold the previous run data: stale, but correct.\n\nExecution: {}\nState machine: ${local.state_machine_name}\nDQ job: ${var.dq_job_name}\n\nGlue reported:\n{}\n\nNext step: read the full expectation report in log group ${var.dq_log_group_name}. Then either fix the Silver data and re-run the state machine, or update the suites in src/loteria/dq/suites.py if the source legitimately changed.', $$.Execution.Name, $.dqError.Cause)"
+      },
+      # Preserve the error for the Fail state's benefit rather than replacing the payload
+      # with SNS's MessageId.
+      ResultPath = null,
+      Next       = "DQFailed"
+    },
+
+    DQFailed = {
+      Type  = "Fail",
+      Error = "SilverDataQualityFailed",
+      Cause = "One or more Great Expectations checks failed against the Silver layer. Gold was NOT rebuilt — the gold_* tables still hold the previous run's data, which is stale but correct. An alert naming the failing expectation has been published to the loteria-alerts topic; the full report is in the DQ job's log group."
+    }
+  })
 }
 
 resource "aws_cloudwatch_log_group" "gold_purge" {
@@ -314,9 +424,12 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
   }
 
   definition = jsonencode({
-    Comment = "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → gold CTAS",
+    Comment = local.pipeline_comment,
     StartAt = "RunExtractorLambda",
-    States = {
+    # PR-033: the DQ gate's three states are merged in rather than written inline, so that
+    # `enable_silver_dq = false` renders exactly the pre-PR-033 definition (local.dq_states
+    # is an empty map, and local.after_crawlers points the crawlers back at PrepGold).
+    States = merge(local.dq_states, {
       RunExtractorLambda = {
         Type     = "Task",
         Resource = "arn:aws:states:::lambda:invoke",
@@ -377,7 +490,7 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Parameters = {},
         ResultPath = null,
         Branches   = local.crawler_branches,
-        Next       = "PrepGold"
+        Next       = local.after_crawlers
       },
 
       # Inject the (plan-time) list of gold SQL keys into the state so the Map can
@@ -433,7 +546,7 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         },
         End = true
       }
-    }
+    })
   })
 }
 

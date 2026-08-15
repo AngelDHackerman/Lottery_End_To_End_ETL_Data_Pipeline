@@ -10,10 +10,11 @@ bootstrap: ## Create the remote Terraform state backend (PR-003/PR-039)
 secrets: ## Seed Secrets Manager from prompts (PR-039)
 	@echo "TODO(PR-039): bash scripts/seed_secrets.sh"
 
-build: ## Build the lambda layer + code zip + the glue transformer zip (PR-019)
+build: ## Build the lambda layer + code zip + the glue transformer zip + the DQ job (PR-019/PR-033)
 	bash scripts/build_lambda_layer.sh
 	bash scripts/build_lambda_function.sh
 	bash scripts/build_glue_package.sh
+	bash scripts/build_dq_package.sh
 
 deploy: ## terraform apply the main stack (PR-039)
 	@echo "TODO(PR-039): cd terraform && terraform init && terraform apply"

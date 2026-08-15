@@ -154,3 +154,16 @@ variable "enable_object_count_emitter" {
   type        = bool
   default     = true
 }
+
+# --- PR-033: Silver data-quality gate --------------------------------------------------
+variable "enable_silver_dq" {
+  description = "Create the Silver DQ Glue job and insert its gate into the Step Function. Set false to deploy the stack before `make build` has produced and uploaded the DQ job artifacts — the state machine then renders exactly as it did before PR-033."
+  type        = bool
+  default     = true
+}
+
+variable "dq_python_modules" {
+  description = "Value of --additional-python-modules for the DQ job, installed from PyPI at run time. Keep in sync with requirements/dq.txt. Pinned rather than floating: great-expectations 1.x has an unstable enough API that an unpinned upgrade could break the gate on a weekly run nobody is watching."
+  type        = string
+  default     = "great-expectations==1.20.0"
+}

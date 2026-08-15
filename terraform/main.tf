@@ -7,6 +7,10 @@
 # in roughly dependency order: storage -> network -> iam -> etl-* -> catalog ->
 # orchestration -> lake-formation -> observability -> sagemaker.
 
+# PR-033: the orchestration module builds the SNS alerts topic ARN from region + account
+# (see the note on its `account_id` input for why it cannot take the ARN as a module output).
+data "aws_caller_identity" "current" {}
+
 # --- PR-007: storage (imported data buckets + athena results + lambda code) ---
 module "storage" {
   source      = "./modules/storage"
@@ -102,6 +106,13 @@ module "etl_glue" {
   # group for pythonshell — see the module note).
   log_retention_days            = var.log_retention_days
   manage_shared_glue_log_groups = var.manage_shared_glue_log_groups
+
+  # PR-033: the Silver DQ job. A Glue 5.0 Spark job rather than a second pythonshell one —
+  # great-expectations 1.x needs Python 3.11 and pythonshell tops out at 3.9. It gets its
+  # own read-only role, and its own log group (a Spark-only option).
+  enable_silver_dq     = var.enable_silver_dq
+  glue_dq_job_role_arn = module.iam.glue_dq_job_role_arn
+  dq_python_modules    = var.dq_python_modules
 }
 
 # --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---
@@ -150,6 +161,16 @@ module "orchestration" {
   # `AccessDeniedException: ... not authorized to perform: logs:CreateLogDelivery` when the
   # role isn't ready yet. Observed as a retry-and-it-works flake on the PR-023 apply; this
   # makes the ordering explicit so a fresh deploy doesn't depend on luck.
+  # PR-033: the DQ gate between the silver crawlers and the Gold CTAS Map. The topic ARN
+  # is built inside the module from region + account rather than read from
+  # module.observability — that module already consumes this one's state_machine_arn, so
+  # the reverse reference would close a cycle.
+  enable_silver_dq  = var.enable_silver_dq
+  dq_job_name       = module.etl_glue.dq_job_name
+  dq_log_group_name = module.etl_glue.dq_log_group_name
+  aws_region        = var.aws_region
+  account_id        = data.aws_caller_identity.current.account_id
+
   depends_on = [module.iam]
 }
 
