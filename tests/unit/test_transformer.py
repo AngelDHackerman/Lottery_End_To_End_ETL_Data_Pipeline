@@ -307,6 +307,56 @@ class TestSchema:
         assert df.loc[0, "reintegro_segundo_premio"] == 1
         assert df.loc[0, "reintegro_tercer_premio"] == 7
 
+    # PR-035: the padding branch of the reintegros split. The header regex is
+    # `REINTEGROS ([\d, ]+)`, so a draw that publishes fewer than three reintegros produces
+    # a split with fewer than three columns — and the Silver schema is fixed at three. Every
+    # real capture so far has exactly three, which is why this path had never run.
+    #
+    # It matters because the alternative to padding is a KeyError deep inside the transform,
+    # after the raw file has been read and before anything is written: the run fails, and the
+    # traceback points at `reintegro_split[1]` rather than at the site publishing a short
+    # header.
+    @pytest.mark.parametrize(
+        ("reintegros", "expected"),
+        [
+            ("REINTEGROS 3,1 ,7", (3, 1, 7)),
+            ("REINTEGROS 3,1", (3, 1, None)),
+            ("REINTEGROS 3", (3, None, None)),
+        ],
+    )
+    def test_a_short_reintegros_header_is_padded_to_three_columns(
+        self, s3, transformer, reintegros, expected
+    ):
+        body = (FIXTURES / "ordinario_3046.txt").read_text(encoding="utf-8")
+        body = body.replace("REINTEGROS 3,1 ,7", reintegros)
+        put_raw(s3, sorteo=3046, year=2024, body=body)
+        run(transformer)
+
+        df = read_parquet(s3, PARTITIONED, "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet")
+        actual = (
+            df.loc[0, "reintegro_primer_premio"],
+            df.loc[0, "reintegro_segundo_premio"],
+            df.loc[0, "reintegro_tercer_premio"],
+        )
+
+        for got, want in zip(actual, expected, strict=True):
+            if want is None:
+                assert pd.isna(got)
+            else:
+                assert got == want
+
+    def test_the_three_reintegro_columns_exist_even_when_the_header_is_short(self, s3, transformer):
+        """The Silver schema must not change shape with the input. A missing column would
+        make this Parquet file incompatible with every other one in the same prefix, which
+        is the one thing the module docstring says never to do."""
+        body = (FIXTURES / "ordinario_3046.txt").read_text(encoding="utf-8")
+        body = body.replace("REINTEGROS 3,1 ,7", "REINTEGROS 3")
+        put_raw(s3, sorteo=3046, year=2024, body=body)
+        run(transformer)
+
+        df = read_parquet(s3, PARTITIONED, "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet")
+        assert list(df.columns) == SORTEOS_COLUMNS
+
     def test_dates_are_parsed_from_day_first_format(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024)
         run(transformer)
@@ -460,3 +510,114 @@ class TestFailureModes:
 
         with pytest.raises(ValueError, match="HEADER or BODY"):
             run(transformer)
+
+
+# ==========================================================================================
+# The Glue entry point (PR-035)
+# ==========================================================================================
+class TestGlueEntryPoint:
+    """``main()`` is the seam between Glue and ``transform()``, and it is the only place the
+    job's arguments are named.
+
+    Worth testing on its own because the failure mode is invisible locally: rename an
+    argument in Terraform's ``default_arguments`` and nothing here breaks, but the weekly
+    Glue run dies at ``getResolvedOptions`` before a line of transform logic executes.
+
+    ``tests/conftest.py`` stubs ``getResolvedOptions`` to RAISE, deliberately — so that a
+    test wandering into ``main()`` by accident gets a loud TypeError instead of a silently
+    empty options dict. These tests opt in by replacing it explicitly.
+    """
+
+    @pytest.fixture
+    def glue_main(self, transformer, monkeypatch):
+        """Run ``main()`` with a given set of Glue job arguments, capturing the transform."""
+
+        def _run(args, argv=None):
+            monkeypatch.setattr(transformer, "getResolvedOptions", lambda _argv, _names: args)
+            monkeypatch.setattr(sys, "argv", argv or ["transformer.py"])
+
+            captured = {}
+            monkeypatch.setattr(transformer, "transform", lambda **kwargs: captured.update(kwargs))
+
+            transformer.main()
+            return captured
+
+        return _run
+
+    ARGS = {
+        "SIMPLE_BUCKET": "arg-simple-bucket",
+        "PARTITIONED_BUCKET": "arg-partitioned-bucket",
+        "RAW_PREFIX": "raw/",
+        "PROCESSED_PREFIX": "processed/",
+    }
+
+    def test_it_transforms_the_partitioned_bucket(self, glue_main):
+        assert glue_main(self.ARGS)["bucket_name"] == "arg-partitioned-bucket"
+
+    def test_prefixes_are_passed_through(self, glue_main):
+        captured = glue_main(self.ARGS)
+
+        assert captured["raw_prefix"] == "raw/"
+        assert captured["simple_prefix"] == "processed/"
+
+    def test_processed_prefix_is_treated_as_the_SIMPLE_bucket_prefix(self, glue_main):
+        """Naming trap kept for backwards compatibility: the argument is called
+        PROCESSED_PREFIX but it addresses the *simple* bucket's flat copies, not the legacy
+        `processed/` layer that Silver replaced. Anyone reading only Terraform would expect
+        it to control the Silver path — it does not."""
+        captured = glue_main({**self.ARGS, "PROCESSED_PREFIX": "flat/"})
+
+        assert captured["simple_prefix"] == "flat/"
+        assert captured["silver_prefix"] == "silver/"
+
+    def test_silver_prefix_is_not_an_argument(self, glue_main):
+        """Silver is the canonical layer and its location is a code constant, not a knob.
+        Making it settable per-run is how you end up with two prefixes holding two schemas —
+        the one thing the module docstring forbids."""
+        assert glue_main(self.ARGS)["silver_prefix"] == transformer_module_silver_prefix()
+
+    def test_bucket_arguments_override_the_import_time_secret(self, glue_main, transformer):
+        """`transform()` READS its bucket from an argument but WRITES to module globals. If
+        main() failed to override them, the job would read from the argument bucket and write
+        to whatever the Secrets Manager payload said at import — a split-brain that only
+        shows up in production."""
+        glue_main(self.ARGS)
+
+        assert transformer.partitioned_bucket == "arg-partitioned-bucket"
+        assert transformer.simple_bucket == "arg-simple-bucket"
+
+    def test_empty_bucket_arguments_leave_the_globals_alone(self, glue_main, transformer):
+        """The overrides are guarded by a truthiness check, so an empty value falls back to
+        the secret rather than pointing the job at a bucket named ""."""
+        glue_main({**self.ARGS, "PARTITIONED_BUCKET": "", "SIMPLE_BUCKET": ""})
+
+        assert transformer.partitioned_bucket == PARTITIONED
+        assert transformer.simple_bucket == SIMPLE
+
+    def test_it_asks_glue_for_exactly_the_four_documented_arguments(self, transformer, monkeypatch):
+        """These names are the contract with terraform/modules/etl-glue's
+        `default_arguments`. Adding one here without adding it there fails the job at
+        startup."""
+        requested = {}
+
+        def fake_resolve(argv, names):
+            requested["names"] = names
+            return self.ARGS
+
+        monkeypatch.setattr(transformer, "getResolvedOptions", fake_resolve)
+        monkeypatch.setattr(sys, "argv", ["transformer.py"])
+        monkeypatch.setattr(transformer, "transform", lambda **kwargs: None)
+
+        transformer.main()
+
+        assert set(requested["names"]) == {
+            "SIMPLE_BUCKET",
+            "PARTITIONED_BUCKET",
+            "RAW_PREFIX",
+            "PROCESSED_PREFIX",
+        }
+
+
+def transformer_module_silver_prefix() -> str:
+    """The Silver prefix constant, read without importing the module at collection time."""
+    return "silver/"

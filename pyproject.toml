@@ -106,13 +106,33 @@ pythonpath = ["src"]
 # and its end-to-end test drives the transformer again, which pushes logging_setup to 97%).
 # PR-033 57 (actual 57.81 — the Glue entry point's tests add coverage of the report
 # renderers that moved into loteria/dq/runner.py so the CLI and the Glue job share them).
-# Next stop PR-035, which takes it to 85; what is left uncovered is the extractor,
-# metrics.py, purge_and_load.py and object_count.py.
+# PR-035 98 (actual 98.45 — the ratchet's destination; see below).
+#
+# PR-035 CLOSED THE PLAN. The roadmap asked for 85; the suite reached 98.45 because the four
+# modules left (extractor/scraping.py, gold/purge_and_load.py, observability/object_count.py,
+# common/metrics.py) went from 0% to ~100% rather than to "just enough". The gate is set to
+# 98, not 85, because this file's whole convention is that the number sits at what the suite
+# ACHIEVES — an 85 gate on a 98.45 suite would leave 13 points of silent regression room,
+# which is the opposite of a ratchet. 85 is the floor the roadmap asked for and it is met.
+#
+# ⚠️ The gate is now tight enough that adding a module without tests fails CI. That is the
+# intent. If a genuinely untestable file has to land, exclude it explicitly and say why —
+# do not lower this number.
+#
+# The 10 statements still uncovered are documented dead ends, not gaps:
+#   - scraping.py 118-119: the year-parse `except` is UNREACHABLE because of the defect
+#     recorded in tests/unit/test_scraping.py (the date regex matches partial dates, so
+#     int() never raises). It becomes reachable when that regex is anchored.
+#   - purge_and_load.py 91: an `if not batch: continue` guard that pagination makes moot.
+#   - transformer.py 204-206: the `else` for a header with no REINTEGROS at all. Unreachable
+#     via the real parser, which raises before returning such a header.
+#   - transformer/__main__.py and the `if __name__ == "__main__"` guards: entry-point
+#     shims with no logic.
 #
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=57"
+addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=98"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see
