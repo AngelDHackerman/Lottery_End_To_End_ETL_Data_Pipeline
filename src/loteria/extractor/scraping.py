@@ -158,7 +158,7 @@ def extract_prize_body(soup: BeautifulSoup) -> str:
     return body_results
 
 
-def extract_lottery_data(lottery_number=None, output_folder="/tmp"):
+def extract_lottery_data(lottery_number=None, output_folder="/tmp"):  # nosec B108
     # 1️⃣ Main Page
     response = fetch_via_proxy("https://loteria.org.gt/site/award")
     soup = BeautifulSoup(response.content, "html.parser")
