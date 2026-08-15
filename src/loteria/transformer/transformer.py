@@ -117,7 +117,17 @@ def transform(
             logger.info("Skipping already processed sorteo", extra={"sorteo_number": numero_sorteo})
             continue
 
-        local_path = f"/tmp/{os.path.basename(raw_file)}"
+        # PR-034, on this line's B108 suppression and the two on the Parquet paths below.
+        # Bandit flags every hardcoded /tmp path, because on a shared multi-user host it is
+        # world-writable and predictable. Neither applies in Glue or Lambda: each job run
+        # gets its own container with a private /tmp that is destroyed afterwards, and it is
+        # the ONLY writable filesystem those runtimes offer. `tempfile.mkstemp` would land
+        # in the same directory and buy nothing.
+        #
+        # This comment spells the marker "B108" instead of writing it out, because bandit
+        # scans comment TEXT for its suppression token — an explanation that quotes the token
+        # becomes a suppression itself and silently disables the check.
+        local_path = f"/tmp/{os.path.basename(raw_file)}"  # nosec B108
         download_file_from_s3(bucket_name, raw_file, local_path)
 
         with open(local_path, encoding="utf-8") as f:
@@ -232,8 +242,8 @@ def transform(
         # -----------------------
         # Write Parquet locally
         # -----------------------
-        sorteos_local_path = f"/tmp/sorteos_{numero_sorteo}.parquet"
-        premios_local_path = f"/tmp/premios_{numero_sorteo}.parquet"
+        sorteos_local_path = f"/tmp/sorteos_{numero_sorteo}.parquet"  # nosec B108
+        premios_local_path = f"/tmp/premios_{numero_sorteo}.parquet"  # nosec B108
 
         sorteos_df.to_parquet(sorteos_local_path, index=False)
         premios_df.to_parquet(premios_local_path, index=False)

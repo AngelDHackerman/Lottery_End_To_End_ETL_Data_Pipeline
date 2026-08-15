@@ -52,6 +52,22 @@ target-version = "py312"
 line-length = 100
 src = ["src"]
 
+# PR-034. Until CI existed, ruff only ever ran through pre-commit — which passes it the
+# CHANGED files, so nothing here had been linted in full. `ruff check .` over the repo
+# reports 39 errors and `ruff format --check .` wants to reformat 8 files, every one of them
+# in the two directories below and none in src/, tests/ or scripts/.
+#
+# They are excluded rather than fixed, because neither ships:
+#   - notebooks/ is exploratory EDA. Reformatting a notebook rewrites its JSON wholesale for
+#     no benefit, and its hygiene is already nbstripout's job (see .pre-commit-config.yaml).
+#     E501 on a matplotlib call in a scratch cell is not a defect.
+#   - miscellaneous/ is one-off scripts kept for reference (a CSV downloader, an image
+#     converter, an XPath probe). Nothing imports them and nothing deploys them.
+#
+# The point is that `ruff check .` now means something: it covers exactly the code that runs
+# in AWS. A lint job that is red on arrival teaches everyone to ignore the lint job.
+extend-exclude = ["notebooks", "miscellaneous"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
