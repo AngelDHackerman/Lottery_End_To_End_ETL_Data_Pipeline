@@ -64,8 +64,33 @@ jobs:
           python -m pytest tests/integration/test_scraper_contract.py \
             -v --no-cov -p no:randomly 2>&1 | tee canary.log
 
+      # ⚠️ SECOND LINE OF DEFENCE, and it is not redundant.
+      #
+      # scrape.do authenticates by query parameter, so the token is in every request URL and
+      # every `requests` exception message. `fetch()` in the test now scrubs that at the
+      # source — but `tee` above writes whatever pytest printed to disk VERBATIM, and
+      # GitHub's secret masking only filters the log stream it ingests, not a file the job
+      # writes. The failure handler below builds the issue body from that FILE, and this
+      # repo is public.
+      #
+      # So the file gets scrubbed before anything reads it. `if: always()` because the whole
+      # point is the failing path.
+      - name: Redact the token from the log
+        if: always()
+        env:
+          SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
+        run: |
+          if [ -f canary.log ] && [ -n "$SCRAPE_DO_TOKEN" ]; then
+            python3 -c 'import os, pathlib; p = pathlib.Path("canary.log"); p.write_text(p.read_text(errors="replace").replace(os.environ["SCRAPE_DO_TOKEN"], "***"))'
+          fi
+
+      # `failure()` alone, NOT `steps.canary.outcome == 'failure'`. The token guard earlier
+      # in this job has no id, so when IT failed the condition evaluated false and no issue
+      # was ever filed — the canary failed silently three weeks running (2026-08-12 and
+      # before), with a red run as the only signal. Any failure of this job deserves an
+      # issue; the body below already distinguishes "pytest never ran" from a real break.
       - name: Open an issue on failure
-        if: failure() && steps.canary.outcome == 'failure'
+        if: failure()
         uses: actions/github-script@v7
         with:
           script: |
