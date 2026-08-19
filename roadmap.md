@@ -1161,6 +1161,57 @@ Create .github/workflows/ci.yml on push + PR:
 Also create .github/workflows/scraper-canary.yml: weekly cron Sundays 18:00 UTC running tests/integration/test_scraper_contract.py with RUN_LIVE_SCRAPER=1 and SCRAPE_DO_TOKEN from secrets. On failure, opens a GitHub issue with the failure log.
 ```
 
+> **Notes from executing it (2026-08-15):** six jobs in `.github/workflows/ci.yml`. Every
+> gate was RUN before being wired in — three of the six would have been red on arrival.
+>
+> - **`scraper-canary.yml` was NOT recreated.** PR-031 already shipped it, on a Wednesday
+>   cron rather than the prompt's Sunday (a Sunday run lands in the Cloudflare waiting-room
+>   window the Thursday pipeline move exists to dodge). Recreating it would have clobbered
+>   that. PR-031's note called this out in advance and it was honoured.
+> - **⚠️ `ruff check .` was red on arrival: 39 errors, plus 8 files `ruff format` wanted to
+>   rewrite.** Not a regression — pre-commit passes ruff only the CHANGED files, so the repo
+>   had never been linted in full. Every finding was in `notebooks/` or `miscellaneous/`, and
+>   none in `src/`, `tests/` or `scripts/`. Both directories are now `extend-exclude`d rather
+>   than reformatted: notebooks are EDA (rewriting their JSON wholesale buys nothing, and
+>   nbstripout already owns their hygiene) and `miscellaneous/` is one-off scripts nothing
+>   imports or deploys. `ruff check .` now covers exactly the code that runs in AWS.
+> - **⚠️ checkov reports 71 failures against the existing infrastructure**, mostly deliberate
+>   choices (SSE-S3 rather than a KMS CMK, no access logging on a personal project). Shipping
+>   that as a blocking gate would make every PR red from day one — the failure this repo has
+>   now written down three times. So `terraform/.checkov.baseline` captures today's findings
+>   and CI fails only on NEW ones: a ratchet, exactly like `--cov-fail-under`. Verified it
+>   exits 0 against its own baseline.
+> - **Trivy instead of tfsec.** Aqua has folded tfsec into Trivy — same Terraform engine,
+>   still maintained — and wiring a new CI to a tool its authors have stopped developing is
+>   not a defensible start. It runs **non-blocking with a SARIF upload** to the Security tab,
+>   because unlike checkov its finding volume could not be measured here (the release
+>   download is blocked in this environment). Shipping a blocking gate whose output nobody
+>   has looked at is precisely the mistake the checkov baseline exists to avoid. Promote it
+>   once the volume is known.
+> - **bandit found 5, all false positives for these runtimes, and all resolved rather than
+>   baselined** — so it blocks with no exemption file, and a new finding is a real red. One
+>   was `DEFAULT_SECRET_NAME` (a secret's NAME, not its value); four were `/tmp` paths, which
+>   in Lambda and Glue are per-execution-container and the only writable filesystem there is.
+> - **⚠️ Gotcha: bandit scans comment TEXT for its suppression token.** The first attempt at
+>   documenting the suppressions quoted the marker inside the explanatory comment — which
+>   turned the explanation itself into a suppression and silently disabled the check. The
+>   comments now spell it as "B108" instead of writing it out. (Bandit also emits a spurious
+>   "nosec encountered, but no failed test" warning for two of the f-string paths; removing
+>   those markers demonstrably re-reds the run, so they stay.)
+> - **The coverage threshold is deliberately NOT restated in CI.** The prompt says "fail
+>   under 70%, matches pyproject", but pyproject carries a ratchet (57), not a target.
+>   Hardcoding 70 would fail every PR today; duplicating the number would guarantee drift.
+>   `pytest` reads it from `addopts`, which is the single source of truth.
+> - `pip install -e '.[dev]'` works despite `[tool.uv] package = false` (that setting is
+>   uv-only), so the dev extra stays the one place test dependencies are declared. Verified
+>   in a clean venv: 149 passed.
+> - `terraform/bootstrap` is a **separate root module** and gets its own init + validate via
+>   a matrix; validating only `terraform/` would leave the state-backend stack unchecked.
+> - CI needs **no AWS credentials at all** — `init -backend=false` means nothing in the
+>   workflow can reach the real account.
+> - `build-artifacts` now builds four artifacts, not the prompt's three: PR-033 added the
+>   Silver DQ job script and its library zip.
+
 ## PR-035 — Bump coverage gate
 **Prompt:**
 ```
@@ -1302,8 +1353,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 032 | GE Silver suite | in-progress | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
-| 033 | DQ gate in Step Function | in-progress | — |
-| 034 | GitHub Actions CI | todo | — |
+| 033 | DQ gate in Step Function | in-progress | [PR #38](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/38) |
+| 034 | GitHub Actions CI | in-progress | — |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |
 | 037 | Diagrams in draw.io | todo | — |

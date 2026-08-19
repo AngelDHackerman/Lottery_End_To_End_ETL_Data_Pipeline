@@ -8,7 +8,11 @@ from botocore.exceptions import ClientError
 # Cloning into a new account should only require changing the secret name in ONE place:
 # the LOTERIA_SECRET_NAME env var (set by Terraform — see terraform/modules/etl-lambda
 # and etl-glue). The defaults keep the current prod behaviour when the vars are unset.
-DEFAULT_SECRET_NAME = "lottery_secret_prod_2"
+# PR-034: the B105 suppression below. This is the secret's NAME in Secrets Manager, not its
+# value — bandit's hardcoded-password heuristic fires on any assignment to an identifier
+# containing "secret". The name is deliberately public: it is what the IAM policies scope to,
+# and it appears in terraform/ and in the runbooks.
+DEFAULT_SECRET_NAME = "lottery_secret_prod_2"  # nosec B105
 DEFAULT_REGION = "us-east-1"
 
 # Matches an S3 bucket ARN like "arn:aws:s3:::my-bucket-name" (also aws-us-gov / aws-cn).
