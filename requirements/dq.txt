@@ -1,0 +1,13 @@
+# Runtime dependencies for the Silver data-quality job (PR-032), pinned the same way as
+# extractor.txt and glue.txt so the job installs a known set rather than "whatever PyPI has".
+#
+# ⚠️ Python 3.10+ ONLY. great-expectations 1.x declares `requires-python >=3.10,<3.14`, and
+# Glue Python Shell offers only 3.6 and 3.9 (PR-020's runtime spike). Installing this file
+# on Python 3.9 makes pip fall back to the great-expectations 0.18 line, whose API bears no
+# resemblance to the one `src/loteria/dq` is written against — it would install cleanly and
+# then fail at import. PR-033 must pick a 3.10+ runtime; see the note in pyproject.toml.
+great-expectations==1.20.0
+pandas==2.2.3
+pyarrow==20.0.0
+# boto3 is deliberately absent, same as extractor.txt and glue.txt: every AWS runtime we
+# would use ships it, and pinning it here would fight the runtime's own version.
