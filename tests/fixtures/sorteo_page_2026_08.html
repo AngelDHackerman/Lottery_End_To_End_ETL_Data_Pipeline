@@ -1,0 +1,90 @@
+<!-- Trimmed capture of a loteria.org.gt sorteo detail page, 2026-08-27 (PR-031.1).
+
+     Hand-reduced from the live 408 KB page down to the structure the extractor depends on.
+     Two reasons it is not a verbatim capture:
+
+       * the real page carries ~900 prize lines and the winners' full names and home towns
+         ("VENDIDO POR <name>, DE <town>, <department>"), which do not belong in a git repo;
+         the names below are invented, matching tests/fixtures/sorteos/README.md's policy.
+       * what these tests defend is the SHAPE — three sibling rows that no longer hold the
+         prizes, plus a separate named container that does. Every one of those elements is
+         reproduced faithfully, including the whitespace padding the rendered page emits.
+
+     The `div.card-body div.row` trio is the trap PR-031.1 fixes: it is still present and
+     still three deep, so the OLD locator would still "work" here and still return
+     boilerplate. Deleting these rows from the fixture would make the regression test
+     vacuous. -->
+<html lang="es">
+<body>
+<div class="container">
+  <div class="card">
+    <div class="card-body">
+
+      <div class="col-12 text-center">
+        <div class="heading_s1 text-center">
+          <h2>LISTA DEL SORTEO ORDINARIO NO. 3133</h2>
+          <label>PRIMER PREMIO 01605</label>
+          <label>SEGUNDO PREMIO 62068</label>
+          <label>TERCER PREMIO 10872</label>
+          REINTEGROS 5,8,2
+          FECHA DEL SORTEO: 22/08/2026 --- FECHA DE CADUCIDAD: 22/02/2027
+        </div>
+      </div>
+
+      <!-- row[0]: the ticket search box -->
+      <div class="row">
+        <div class="col-12">
+          B&uacute;squeda: Ingresa los 5 d&iacute;gitos del billete; los ceros al inicio son
+          v&aacute;lidos. Buscar Limpiar
+        </div>
+      </div>
+
+      <!-- row[1]: empty until the visitor searches -->
+      <div class="row">
+        <div class="col-xs-12 col-sm-12 col-md-12 col-lg-12" id="div_resultado">
+        </div>
+      </div>
+
+      <!-- row[2]: legal boilerplate. This is what the pre-PR-031.1 extractor read as the
+           prize list. -->
+      <div class="row">
+        <div class="col-12">
+          7,920 reintegros de Q100.00 c/u para todos los n&uacute;meros enteros terminados en
+          5, 8 y 2 y Q10.00 s&iacute; es un cachito exceptu&aacute;ndose el Primero, Segundo
+          y Tercer Premio y los que tengan las tres &uacute;ltimas cifras de estos premios.
+          ESTIMADO PUBLICO
+          Para cambiar sus billetes premiados deber&aacute; presentar su DPI (original y
+          fotocopia), carn&eacute; del NIT y el billete premiado.
+        </div>
+      </div>
+
+      <!-- The prizes, in their own container. Whitespace padding is reproduced as the
+           rendered page emits it. -->
+      <div class="lista-premios-columnas text-justify">
+        <div class="premio-item">00068                            TT                            .... 800.00</div>
+        <div class="premio-item">00099                            P                            .... 700.00</div>
+        <div class="premio-item">00110                            P                            .... 1,000.00</div>
+        <div class="premio-item">00605                            TT                            .... 1,000.00</div>
+        <div class="premio-item">00653                            P                            .... 700.00</div>
+        <div class="premio-item">00841                            P                            .... 800.00</div>
+        <div class="premio-item">00858                            PR                            .... 900.00</div>
+        <div class="premio-item">00872                            TT                            .... 700.00</div>
+        <div class="premio-item">MIL</div>
+        <div class="premio-item">01003                            P                            .... 800.00</div>
+        <div class="premio-item">01068                            TT                            .... 800.00</div>
+        <div class="premio-item">01207                            P                            .... 1,000.00</div>
+        <div class="premio-item">01232                            PR                            .... 2,100.00</div>
+        <div class="premio-item">VENDIDO POR PERSONA DE PRUEBA UNO, DE CIUDAD FICTICIA, DEPARTAMENTO FICTICIO</div>
+        <div class="premio-item">01605                            P                            .... 1,000,000.00</div>
+        <div class="premio-item">VENDIDO POR PERSONA DE PRUEBA DOS, DE OTRA CIUDAD, OTRO DEPARTAMENTO</div>
+        <div class="premio-item">79584                            P                            .... 1,000.00</div>
+        <div class="premio-item">79605                            TT                            .... 1,000.00</div>
+        <div class="premio-item">79868                            PR                            .... 900.00</div>
+        <div class="premio-item">79872                            TT                            .... 700.00</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

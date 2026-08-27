@@ -995,6 +995,51 @@ Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at
 >   loudly if `SCRAPE_DO_TOKEN` is unset (a canary that silently skips everything is worse
 >   than none). **The owner must add that repository secret.**
 
+## PR-031.1 — Restore the scraper (unplanned; outage 2026-08-20 → 2026-08-27)
+
+Not a roadmap item — an incident fix, filed like PR-026.1 was. Runbook:
+`docs/runbooks/PR-031.1-scraper-restore.md`.
+
+> **Two independent failures, and the roadmap should record both because each one has a
+> lesson.**
+>
+> - **The proxy profile died.** loteria.org.gt tightened Cloudflare; every request came back
+>   `502 ROTATION_FAILED / "cannot connect target url"` after ~57 s. That error reads like an
+>   unreachable host but is scrape.do's plain HTTP client failing a browser check — the tell
+>   is that a direct `curl` gets a **fast 403 block page** while the proxy gets **no response
+>   at all**. The fix is `render=true` + `super=true` + `geoCode=GT` **together**; all six
+>   proper subsets were tested live and every one still failed. So geo-targeting does matter
+>   (GT is residential-only), just never on its own.
+> - **The site moved the prize list, and the old locator failed SILENTLY.** The extractor read
+>   `div.card-body div.row` at index `[2]`; the redesigned page still has exactly three rows
+>   and index 2 now holds legal boilerplate. `len(rows) >= 3` passed, the run would have gone
+>   green, and `raw/` would have gained a prize-less file. **PR-031's canary predicted this
+>   exact failure and added the companion test for it** (see the note above) — the canary was
+>   right, but it had been red since 2026-08-09 on the unset `SCRAPE_DO_TOKEN` secret, so
+>   nobody read it. *A canary nobody can hear is not a canary.*
+>
+> **The alarm stayed green through all of it.** `record_scraper_status()` needs a response
+> object, so a `ReadTimeout` emitted no datapoint and `ScrapeDo_Failed` sat in OK for two
+> weeks. `ScraperHttpStatus` had never recorded any dimension value but `200`. New
+> `record_scraper_no_response()` emits `StatusCode=NoResponse` onto the series the alarm
+> already watches — no alarm or dashboard change needed.
+>
+> **The 25 s timeout was hiding the evidence:** it sat *below* scrape.do's own ~57 s give-up,
+> so prod only ever saw a local `ReadTimeout` and never the real 502. Raised to 60 s.
+> Generalizable: **a client timeout shorter than the upstream's own timeout converts a
+> diagnosable error into an anonymous one.**
+>
+> **Cost changed by 25x** — 25 credits per successful request instead of 1, on a 1000/month
+> plan, ~215/month at the current cadence (~26% of quota). Retries are therefore explicitly
+> scoped to transient errors rather than `States.ALL`. Failed requests are not charged, which
+> means **a full quota counter is not evidence the pipeline ran** — during the outage it read
+> a pristine 1000/1000.
+>
+> **Deferred (filed, not built):** the detail page ships a 52 KB inline
+> `premiosBusqueda = {"00068":{"monto":800,"vendidoPor":""}, …}` object — number → amount +
+> vendor, already structured. Parsing that instead of the DOM would make the extractor immune
+> to this whole class of redesign. Worth a PR of its own.
+
 ## PR-032 — Great Expectations suite for Silver
 **Prompt:**
 ```
@@ -1245,7 +1290,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 029 | pytest skeleton + parser tests | merged | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
-| 032 | GE Silver suite | in-progress | — |
+| 031.1 | **Restore the scraper** (outage since 2026-08-20: Cloudflare profile + site redesign moved the prize list + no retries) | in-progress | — |
+| 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | todo | — |
 | 034 | GitHub Actions CI | todo | — |
 | 035 | Coverage ratchet to 85% | todo | — |
