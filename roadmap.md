@@ -1000,34 +1000,105 @@ Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at
 Not a roadmap item — an incident fix, filed like PR-026.1 was. Runbook:
 `docs/runbooks/PR-031.1-scraper-restore.md`.
 
-### 🔴 STATE AS OF 2026-08-27 — the pipeline is still broken until this is applied
+### ✅ RESOLVED 2026-08-27 — applied, merged, and the missing sorteos recovered
 
-The code fix is written, tested and pushed as **[PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42)** (branch `fix/PR-031.1-scraper-restore`). **Nothing has been applied to AWS.** The last two weekly runs failed and the next one will fail too until the steps below are done.
+[PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42)
+is applied to AWS and merged. The outage ran 2026-08-20 → 2026-08-27 (two failed weekly
+runs). Verified live after the apply:
 
-**Data state — stale, not corrupt.** Both failed runs died at step 1, so Glue, the crawlers and the gold CTAS never executed and there are no partial writes.
-
-| Layer | Where it stops |
+| Check | Result |
 |---|---|
-| `raw/` | `sorteo_3132.txt` (110 objects) |
-| `silver/` | `year=2026/sorteo=3132/` |
-| `gold/` | all 7 tables, rebuilt 2026-08-13 15:12 |
+| `extractor_lambda` `CodeSha256` | `dTb0IUUM9hoRGFr66sfOGwKp8onAb/w0IXuor+KadnA=`, matches the built zip |
+| Lambda env | `SCRAPE_GEO_CODE=GT`, `SCRAPE_RENDER=true`, `SCRAPE_SUPER=true`, `SCRAPE_TIMEOUT=60` — none existed before |
+| Layer | `loteria-deps-prod:3` |
+| `RunExtractorLambda` | the 7-error `Retry` block is live in the deployed ASL |
+| `raw/sorteo_3133.txt` | 1061 lines, **896 prize lines** (historical 3132: 1060 / 895) |
+| `raw/sorteo_414.txt` | 1769 lines, **1608 prize lines** (Extraordinario, larger by nature) |
 
-Missing: **Ordinario 3133** (drawn 22/08/2026) and **Extraordinario 414**. 413 is already in.
+Both raw files were checked for the silent failure this PR fixes — they carry real prizes,
+not the legal boilerplate the old positional selector would have written.
 
-### Owner actions, in order
+**The data was stale, never corrupt.** Both failed runs died at step 1, so Glue, the
+crawlers and the gold CTAS never executed and no partial writes existed to clean up.
 
-1. **Apply PR #42.** Plan should be `0 add, 2 change, 0 destroy` (the Lambda + the state machine).
+#### The apply did not match the prediction — and the prediction was the wrong shape
+
+The runbook promised `0 add, 2 change, 0 destroy`. The real plan, taken against the live
+account after `make build`, was **`1 add, 5 change, 1 destroy`**; the apply reported
+`1 added, 4 changed, 1 destroyed` (one planned update resolved to a no-op at apply time).
+PR-031.1's own share *is* exactly 2 — `extractor_lambda` and `pipeline_state_machine`. The
+rest is the artifact churn this repo produces on every build:
+
+| Extra change | Why |
+|---|---|
+| `aws_lambda_layer_version` (add + destroy) | pip rebuilds the layer, the hash moves, `create_before_destroy` makes a new version and retires the old one |
+| `aws_s3_object.lambda_layer` / `.lambda_package` | the rebuilt zips |
+| `aws_lambda_function.gold_purge` | the `data.archive_file` phantom from the deferred module data-source read |
+
+**Lesson, and it is the same one as PR-019: predict plans against the live account, not
+against the PR in isolation.** A prediction that counts only the PR's own resources will be
+wrong every time `make build` runs, and an owner who trusts it has no way to tell expected
+churn from a real surprise.
+
+#### `SCRAPE_DO_TOKEN` lives in two unrelated places — do not conflate them
+
+This cost time during the apply. There are two tokens with the same purpose and no
+relationship:
+
+- **AWS Secrets Manager `lottery_secret_prod_2`** already held `scrape_do_token` and always
+  had; the extractor reads it at import time. **Nothing was ever owed here.**
+- **The GitHub Actions repository secret `SCRAPE_DO_TOKEN`** is what PR-031 left open and
+  what the `scraper-canary` workflow reads. It was set on 2026-08-27.
+
+The name has to match `secrets.SCRAPE_DO_TOKEN` in `.github/workflows/scraper-canary.yml`
+**exactly** — GitHub resolves an undefined secret to the empty string, so a near-miss name
+reproduces the original bug (a canary that fails at the token guard) with no hint that the
+secret exists at all. `gh secret list` / `gh secret set` return `403` with the owner's PAT;
+this is a web-UI operation.
+
+### Owner actions — done 2026-08-27, except the standing one
+
+1. ~~**Apply PR #42.**~~ Done. `make build` first (mandatory — `filemd5`/`filebase64sha256`
+   read the zips at plan time, so a stale artifact fails the *plan*), then
+   `terraform plan -out=tfplan && terraform apply tfplan`. See the plan-shape note above.
+   ⚠️ The warning that made this step worth writing still stands for every future PR:
+   **merging is not applying, and the zip re-upload is the step that gets skipped** — the
+   PR-019 trap, where the extractor ran three PRs behind for weeks.
+2. ~~**Recover the two missing sorteos.**~~ Done — both landed and were checked for prize
+   content. **`lottery_number` in the invoke payload is the site's internal `id`, not the
+   sorteo number**, because `extract_lottery_data` matches on `href*="id={lottery_number}"`.
+   Passing `3133` finds nothing and raises "No se pudo encontrar el enlace al sorteo". The
+   ids are only discoverable from the listing page:
+
+   | Sorteo | site `id` |
+   |---|---|
+   | Ordinario 3133 (22/08/2026) | `291` |
+   | Extraordinario 414 (15/08/2026) | `288` |
+   | Ordinario 3132 | `290` |
+
    ```bash
-   make build          # MANDATORY FIRST — filemd5/filebase64sha256 read the zips at plan time
-   cd terraform && terraform plan -out=tfplan && terraform apply tfplan
+   aws lambda invoke --function-name lottery-extractor-prod \
+     --cli-binary-format raw-in-base64-out --payload '{"lottery_number": 291}' /dev/stdout
    ```
-   ⚠️ **Merging is not applying, and the zip re-upload is the step that gets skipped** — the same trap as PR-019, where the extractor ran three PRs behind for weeks. The code change *is* the entire fix: without a rebuilt artifact the plan looks clean and the pipeline stays broken.
-2. **Recover the two missing sorteos.** One run only picks up the *latest* sorteo, so this needs two executions, or one invocation per `lottery_number`. Verify the raw file actually contains prizes and not boilerplate — that is the silent failure this PR fixes:
-   ```bash
-   aws s3 cp s3://lottery-data-simple-prod/raw/sorteo_3133.txt - | head -20
-   ```
-3. **Set the `SCRAPE_DO_TOKEN` repository secret.** Still open from PR-031. The canary has failed every week since 2026-08-09 (runs 12/19/26-ago, each ~13 s, dying at the token guard without ever reaching the site). It had the test that would have caught the redesign a day early.
-4. **Watch the credit burn** for a month. See the cost note below — the budget is no longer negligible.
+   Worth fixing properly one day: the payload field is named `lottery_number` but holds a
+   site id, which is exactly the kind of naming that makes a recovery take three attempts
+   under pressure.
+3. ~~**Set the `SCRAPE_DO_TOKEN` repository secret.**~~ Done — open since PR-031, during
+   which the canary failed every week from 2026-08-09 (runs 12/19/26-ago, each ~13 s, dying
+   at the token guard without ever reaching the site). It held the test that would have
+   caught the redesign a day early. See the two-tokens warning above.
+4. **Watch the credit burn** for a month — *still open.* See the cost note below; the budget
+   is no longer negligible. Recovering this outage alone cost ~150 credits (2 invocations at
+   50 + one listing fetch during diagnosis).
+
+### One run does not equal one sorteo
+
+The transformer scans **all** of `raw/` and skips whatever is already in Silver
+(`transformer.py:92-117`), so a single Step Functions execution picks up every recovered
+sorteo at once — 3133 and 414 were processed in the same run. The extractor step ahead of it
+is a safe no-op when the latest sorteo already exists: `check_if_sorteo_exists` makes
+`extract_lottery_data` return `None`, the handler still returns `{"status": "ok"}`, and the
+state machine moves on. It does still spend 50 credits re-fetching to find that out.
 
 ### The proxy profile — all six subsets fail, keep all three parameters
 
@@ -1333,7 +1404,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 029 | pytest skeleton + parser tests | merged | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
-| 031.1 | **Restore the scraper** (outage since 2026-08-20: Cloudflare profile + site redesign moved the prize list + no retries) | in-progress | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
+| 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | todo | — |
 | 034 | GitHub Actions CI | todo | — |
