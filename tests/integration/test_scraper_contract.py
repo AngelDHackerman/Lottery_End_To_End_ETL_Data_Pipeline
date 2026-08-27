@@ -39,7 +39,13 @@ from bs4 import BeautifulSoup  # noqa: E402
 
 AWARD_URL = "https://loteria.org.gt/site/award"
 BASE_PROXY_URL = "http://api.scrape.do/"
-GEO_CODE = "MX"  # the extractor geo-targets Mexico; keep the canary on the same path
+
+# PR-031.1: the canary must take the SAME proxy path as the extractor or it stops being a
+# canary. All three parameters are required together to get past Cloudflare — see the long
+# note in scraping.py. Keep in sync with GEO_CODE / PROXY_RENDER / PROXY_SUPER there.
+GEO_CODE = "GT"  # Guatemala; only available on residential (super=true)
+PROXY_RENDER = "true"
+PROXY_SUPER = "true"
 
 SCRAPING_SRC = Path(__file__).parents[2] / "src" / "loteria" / "extractor" / "scraping.py"
 
@@ -50,7 +56,10 @@ SCRAPING_SRC = Path(__file__).parents[2] / "src" / "loteria" / "extractor" / "sc
 EXTRACTOR_LOCATORS = {
     "sorteo link": "div.container a[href*='id=']",
     "header block": "div.heading_s1.text-center",
-    "results rows": "div.card-body div.row",
+    # PR-031.1: was "div.card-body div.row", read positionally as [2]. The site moved the
+    # prize list into its own named container and left three rows of unrelated content
+    # behind, so the old locator kept passing while pointing at boilerplate.
+    "prize list": "div.lista-premios-columnas",
     "sorteo number regex": r"SORTEO.*?NO\.?\s+(\d+)",
     "fecha regex": r"FECHA DEL SORTEO:\s*([\d/]+)",
 }
@@ -60,14 +69,23 @@ EXTRACTOR_LOCATORS = {
 # "the site changed its markup" and "we were queued" — very different actions.
 WAITING_ROOM_MARKERS = ("waiting room", "just a moment", "cf-browser-verification")
 
+# PR-031.1: a hard WAF block is NOT the waiting room and must not be skipped like one. The
+# waiting room clears by itself; a block page means the proxy profile has stopped working
+# and someone has to change it (see scraping.py's GEO_CODE note). Skipping this would be
+# the canary going quiet exactly when it has something to say.
+BLOCKED_MARKERS = ("you have been blocked", "attention required", "error 1020")
+
 
 def fetch(url: str, token: str) -> requests.Response:
-    """Fetch through scrape.do, the same proxy and geo the extractor uses."""
+    """Fetch through scrape.do, the same proxy profile the extractor uses."""
     proxy_url = (
         f"{BASE_PROXY_URL}?url={urllib.parse.quote(url, safe='')}"
         f"&token={token}&geoCode={GEO_CODE}"
+        f"&render={PROXY_RENDER}&super={PROXY_SUPER}"
     )
-    return requests.get(proxy_url, timeout=45)
+    # 60 s, matching scraping.py: a rendered success returns in ~5-6 s but scrape.do itself
+    # takes ~57 s to give up, and cutting below that hides the real error behind a timeout.
+    return requests.get(proxy_url, timeout=60)
 
 
 # ==========================================================================================
@@ -124,6 +142,13 @@ def award_page(token) -> BeautifulSoup:
         )
 
     lowered = resp.text.lower()
+    if any(marker in lowered for marker in BLOCKED_MARKERS):
+        pytest.fail(
+            "Cloudflare served a hard block page for loteria.org.gt. The render+super+GT "
+            "proxy profile has stopped working — this needs a new profile, not a retry. "
+            "See docs/runbooks/PR-031.1-scraper-restore.md."
+        )
+
     if any(marker in lowered for marker in WAITING_ROOM_MARKERS):
         pytest.skip(
             "loteria.org.gt is behind its Cloudflare waiting room (HTTP 200 with a queue "
@@ -197,27 +222,32 @@ class TestSorteoPageContract:
             EXTRACTOR_LOCATORS["fecha regex"], text
         ), f"no 'FECHA DEL SORTEO:' in the header block: {text[:200]!r}"
 
-    def test_results_section_has_at_least_three_rows(self, sorteo_page):
-        """The extractor reads `result_divs[2]` — the THIRD row — as the prize list.
+    def test_prize_list_container_exists(self, sorteo_page):
+        """`div.lista-premios-columnas` becomes the BODY section of the raw .txt.
 
-        A positional index into someone else's markup is the most fragile locator in the
-        pipeline: inserting one row above it silently shifts the body to different content,
-        and the run would succeed while writing the wrong text to raw/.
+        PR-031.1 replaced a positional index (`div.card-body div.row` read as `[2]`) with
+        this named container. The index was the most fragile locator in the pipeline and it
+        did fail exactly as feared: the site inserted content, the prizes moved, and the old
+        selector went on returning a div full of legal boilerplate.
         """
-        rows = sorteo_page.select(EXTRACTOR_LOCATORS["results rows"])
-        assert len(rows) >= 3, f"expected >= 3 result rows, found {len(rows)}"
+        container = sorteo_page.select_one(EXTRACTOR_LOCATORS["prize list"])
+        assert container is not None, (
+            f"{EXTRACTOR_LOCATORS['prize list']} missing — the prize list has moved again "
+            "and the extractor would write a BODY with no prizes in it"
+        )
 
-    def test_third_row_actually_looks_like_prize_data(self, sorteo_page):
-        """Guards the positional index above: row 3 must contain prize-shaped lines.
+    def test_prize_list_actually_looks_like_prize_data(self, sorteo_page):
+        """Guards the container above: existing is not the same as holding the prizes.
 
-        `len(rows) >= 3` only proves the rows exist, not that the third is still the one with
-        the prizes in it. A prize line looks like `00046 P .... 700.00`.
+        This is the assertion that would have caught the 2026-08 redesign a day early. A
+        prize line looks like `00046 P .... 700.00`; the rendered page pads the fields with
+        runs of whitespace, which `\\s+` absorbs here exactly as it does in parser.py:89.
         """
-        rows = sorteo_page.select(EXTRACTOR_LOCATORS["results rows"])
-        body = rows[2].get_text("\n")
+        container = sorteo_page.select_one(EXTRACTOR_LOCATORS["prize list"])
+        body = container.get_text("\n")
 
         prize_lines = re.findall(r"\d+\s+\w+\s+\.+\s+[\d,]+\.?\d*", body)
         assert len(prize_lines) >= 10, (
-            f"row 3 holds {len(prize_lines)} prize-shaped lines; the results section has "
-            "probably moved to a different row index"
+            f"{EXTRACTOR_LOCATORS['prize list']} holds {len(prize_lines)} prize-shaped "
+            "lines; the prize list has probably moved to a different container"
         )

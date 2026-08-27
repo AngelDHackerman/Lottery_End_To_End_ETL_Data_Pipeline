@@ -113,6 +113,15 @@ resource "aws_lambda_function" "extractor_lambda" {
       SIMPLE_BUCKET       = var.simple_bucket_name
       REGION              = var.region
       LOTERIA_SECRET_NAME = var.secret_name
+
+      # PR-031.1: the scrape.do profile, surfaced as env vars so the next Cloudflare change
+      # can be answered with a console edit instead of a rebuild-and-redeploy of the zip.
+      # The code defaults to exactly these values, so they are documentation as much as
+      # configuration. All three are required together — see scraping.py.
+      SCRAPE_GEO_CODE = var.scrape_geo_code
+      SCRAPE_RENDER   = tostring(var.scrape_render)
+      SCRAPE_SUPER    = tostring(var.scrape_super)
+      SCRAPE_TIMEOUT  = tostring(var.scrape_timeout)
     }
   }
 

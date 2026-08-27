@@ -39,6 +39,12 @@ NAMESPACE = "Loteria/Pipeline"
 METRIC_HTTP_STATUS = "ScraperHttpStatus"
 METRIC_HTTP_ERRORS = "ScraperHttpErrors"
 
+# PR-031.1: the StatusCode dimension value used when the proxy never answered at all, so
+# there is no HTTP status to report. A string rather than a number (0, -1) because the
+# dimension is already a string and "NoResponse" reads correctly in the dashboard
+# breakdown, where a "0" would look like a metric bug.
+STATUS_NO_RESPONSE = "NoResponse"
+
 
 def put_metric(
     metric_name: str,
@@ -84,3 +90,29 @@ def record_scraper_status(status_code: int) -> None:
 
     if status_code != 200:
         put_metric(METRIC_HTTP_ERRORS)
+
+
+def record_scraper_no_response(reason: str) -> None:
+    """Record a scrape.do request that produced no HTTP response at all (PR-031.1).
+
+    This is the gap that let the 2026-08-20 outage run for two weeks with
+    ``ScrapeDo_Failed`` sitting in OK. ``record_scraper_status`` can only be called once a
+    response object exists, so a connect/read timeout — the exact shape of that outage —
+    emitted nothing, and the alarm had no datapoint to fire on. Silence looked identical to
+    "no runs happened".
+
+    Emits the same pair as ``record_scraper_status`` so no alarm or dashboard widget needs
+    to change: ``ScraperHttpStatus`` dimensioned ``StatusCode=NoResponse``, plus the
+    dimensionless ``ScraperHttpErrors`` that PR-025's alarm watches.
+
+    ``reason`` is the exception class name (``ReadTimeout``, ``ConnectionError``, …). It is
+    logged rather than made a dimension: every distinct dimension value is a separate
+    CloudWatch time series, and an unbounded set of exception names would fragment the
+    metric that the alarm depends on being a single series.
+    """
+    logger.warning(
+        "scrape.do produced no response",
+        extra={"reason": reason, "status_code": STATUS_NO_RESPONSE},
+    )
+    put_metric(METRIC_HTTP_STATUS, dimensions={"StatusCode": STATUS_NO_RESPONSE})
+    put_metric(METRIC_HTTP_ERRORS)

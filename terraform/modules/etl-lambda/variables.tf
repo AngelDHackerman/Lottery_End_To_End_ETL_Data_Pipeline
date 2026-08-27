@@ -67,3 +67,51 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+# --- scrape.do proxy profile (PR-031.1) ---
+#
+# On 2026-08-20 loteria.org.gt tightened Cloudflare and the previous profile (geoCode=MX,
+# no render, no super) stopped working entirely: every request came back
+# `502 ROTATION_FAILED / "cannot connect target url"`. Only Guatemalan residential IPs with
+# headless rendering get through, and all three settings are required TOGETHER — every
+# proper subset was tested against the live site and still failed.
+#
+# These are exposed as variables so the profile can be retuned without rebuilding the
+# Lambda zip. The defaults match the code's own defaults in scraping.py; changing one here
+# without changing the other leaves two sources of truth disagreeing.
+
+variable "scrape_geo_code" {
+  description = "scrape.do geoCode for the extractor. GT (Guatemala) is residential-only."
+  type        = string
+  default     = "GT"
+}
+
+variable "scrape_render" {
+  description = "Route through scrape.do's headless browser. Required to pass Cloudflare."
+  type        = bool
+  default     = true
+}
+
+variable "scrape_super" {
+  description = "Use residential/mobile IPs. Required for geoCode=GT and to pass Cloudflare."
+  type        = bool
+  default     = true
+}
+
+variable "scrape_timeout" {
+  description = <<-EOT
+    Per-request timeout in seconds for the scrape.do call.
+
+    Must stay ABOVE scrape.do's own ~57 s give-up, or a proxy failure surfaces as a local
+    ReadTimeout and the real 502 never reaches the logs — the bug that made the 2026-08
+    outage take two weeks to diagnose. Must also leave room for two calls inside the
+    Lambda's 120 s timeout.
+  EOT
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.scrape_timeout >= 58 && var.scrape_timeout <= 110
+    error_message = "scrape_timeout must be 58-110s: above scrape.do's ~57s give-up, below the Lambda's 120s ceiling."
+  }
+}

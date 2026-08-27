@@ -328,6 +328,43 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
             "CORRELATION_ID.$" = "$$.Execution.Name"
           }
         },
+
+        # PR-031.1: the extractor had NO retry at all. One 25 s timeout and the whole
+        # weekly execution died — and because the trigger runs once a week, each transient
+        # blip cost a full sorteo that nothing ever went back for. Both the 2026-08-20 and
+        # 2026-08-27 runs failed this way, ~26 s after starting.
+        #
+        # The error list is deliberate rather than States.ALL. A retry is not free here:
+        # every attempt costs 2 proxied requests at 25 credits each on a 1000/month plan
+        # (PR-031.1 raised the per-request cost 25x), so retrying a deterministic bug —
+        # a parser failure, a missing selector — would just burn quota to fail three times
+        # instead of once. Listed here are the errors a second attempt can actually fix:
+        # network faults from `requests`, and Lambda's own transient service errors.
+        #
+        # Retrying is safe: extract_lottery_data() calls check_if_sorteo_exists() and
+        # returns without writing when the sorteo is already in S3, so a retry after a
+        # partial success is a no-op rather than a duplicate.
+        #
+        # 60 s / 2 attempts / 2.0 backoff = attempts at t+0, t+60, t+180. The Cloudflare
+        # block this PR fixes was persistent, so retries would NOT have saved those two
+        # runs — this is for the transient case, and the runbook says so plainly.
+        Retry = [
+          {
+            ErrorEquals = [
+              "ReadTimeout",
+              "ConnectTimeout",
+              "ConnectionError",
+              "Lambda.ServiceException",
+              "Lambda.AWSLambdaException",
+              "Lambda.SdkClientException",
+              "Lambda.TooManyRequestsException",
+            ],
+            IntervalSeconds = 60,
+            MaxAttempts     = 2,
+            BackoffRate     = 2.0
+          }
+        ],
+
         Next = "RunTransformerGlueJob"
       },
 
