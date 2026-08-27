@@ -1000,6 +1000,49 @@ Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at
 Not a roadmap item — an incident fix, filed like PR-026.1 was. Runbook:
 `docs/runbooks/PR-031.1-scraper-restore.md`.
 
+### 🔴 STATE AS OF 2026-08-27 — the pipeline is still broken until this is applied
+
+The code fix is written, tested and pushed as **[PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42)** (branch `fix/PR-031.1-scraper-restore`). **Nothing has been applied to AWS.** The last two weekly runs failed and the next one will fail too until the steps below are done.
+
+**Data state — stale, not corrupt.** Both failed runs died at step 1, so Glue, the crawlers and the gold CTAS never executed and there are no partial writes.
+
+| Layer | Where it stops |
+|---|---|
+| `raw/` | `sorteo_3132.txt` (110 objects) |
+| `silver/` | `year=2026/sorteo=3132/` |
+| `gold/` | all 7 tables, rebuilt 2026-08-13 15:12 |
+
+Missing: **Ordinario 3133** (drawn 22/08/2026) and **Extraordinario 414**. 413 is already in.
+
+### Owner actions, in order
+
+1. **Apply PR #42.** Plan should be `0 add, 2 change, 0 destroy` (the Lambda + the state machine).
+   ```bash
+   make build          # MANDATORY FIRST — filemd5/filebase64sha256 read the zips at plan time
+   cd terraform && terraform plan -out=tfplan && terraform apply tfplan
+   ```
+   ⚠️ **Merging is not applying, and the zip re-upload is the step that gets skipped** — the same trap as PR-019, where the extractor ran three PRs behind for weeks. The code change *is* the entire fix: without a rebuilt artifact the plan looks clean and the pipeline stays broken.
+2. **Recover the two missing sorteos.** One run only picks up the *latest* sorteo, so this needs two executions, or one invocation per `lottery_number`. Verify the raw file actually contains prizes and not boilerplate — that is the silent failure this PR fixes:
+   ```bash
+   aws s3 cp s3://lottery-data-simple-prod/raw/sorteo_3133.txt - | head -20
+   ```
+3. **Set the `SCRAPE_DO_TOKEN` repository secret.** Still open from PR-031. The canary has failed every week since 2026-08-09 (runs 12/19/26-ago, each ~13 s, dying at the token guard without ever reaching the site). It had the test that would have caught the redesign a day early.
+4. **Watch the credit burn** for a month. See the cost note below — the budget is no longer negligible.
+
+### The proxy profile — all six subsets fail, keep all three parameters
+
+| Attempt | Result |
+|---|---|
+| `geoCode` plain: AR, BR, CL, CR, US, MX | `ROTATION_FAILED` |
+| `super=true` + GT / MX / CO / SV | `ROTATION_FAILED` |
+| `render=true` alone | `ROTATION_FAILED` |
+| `render` + `geoCode=MX` | `ROTATION_FAILED` |
+| `render` + `geoCode=GT`, no `super` | `ROTATION_FAILED` |
+| `render` + `super`, no `geoCode` | `ROTATION_FAILED` |
+| **`render` + `super` + `geoCode=GT`** | **HTTP 200 in ~5-6 s** |
+
+scrape.do's country pools: datacenter covers a limited set (the published list omits `MX`, which nonetheless works — the list is incomplete); residential (`super=true`) covers 22 LATAM countries including `GT`. Guatemala is **residential-only**, which is why `super` and `geoCode` cannot be separated here. Verified by fetching `ipinfo.io/json` through the proxy: `geoCode=GT&super=true` really does exit via `AS52362`, a Guatemalan ISP.
+
 > **Two independent failures, and the roadmap should record both because each one has a
 > lesson.**
 >
