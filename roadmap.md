@@ -1290,7 +1290,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 029 | pytest skeleton + parser tests | merged | [PR #34](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/34) |
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
-| 031.1 | **Restore the scraper** (outage since 2026-08-20: Cloudflare profile + site redesign moved the prize list + no retries) | in-progress | — |
+| 031.1 | **Restore the scraper** (outage since 2026-08-20: Cloudflare profile + site redesign moved the prize list + no retries) | in-progress | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | todo | — |
 | 034 | GitHub Actions CI | todo | — |
