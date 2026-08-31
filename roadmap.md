@@ -994,6 +994,33 @@ Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at
 > - The workflow reuses one open issue instead of filing a duplicate every week, and fails
 >   loudly if `SCRAPE_DO_TOKEN` is unset (a canary that silently skips everything is worse
 >   than none). **The owner must add that repository secret.**
+>
+> **⚠️ FOLLOW-UP FIX 2026-08-15 (branch `fix/canary-token-leak`, non-roadmap) — this PR could
+> have published the scrape.do token.** scrape.do authenticates by **query parameter**, so
+> the token sits in every request URL, and every `requests` exception embeds that URL. Chain:
+> a ConnectionError prints the token in the traceback → `tee canary.log` writes it to disk
+> **raw** (GitHub masks its log *stream*, not a file the job writes) → the failure handler
+> builds the issue body from that file → **the repo is public**. Observed for real: a local
+> run on 2026-08-15 failed with the live token in full in the traceback. Fixed in two layers
+> — `fetch()` now catches `requests.RequestException` and re-raises scrubbed (`from None` is
+> load-bearing: without it Python still prints the original under "During handling of the
+> above exception"), and the workflow scrubs `canary.log` before anything reads it. Seven
+> unmarked (offline, always-run) tests guard it, including one that renders the full
+> traceback the way pytest would and asserts the token is absent. **Also fixed here:** the
+> issue step's `steps.canary.outcome == 'failure'` condition never fired when the *token
+> guard* failed (different step, no id), which is why three weeks of red canary runs filed
+> no issue at all. Now plain `failure()`.
+>
+> **The ordering was botched, and that is the part worth remembering.** This PR's own
+> description said *"merge this before adding the `SCRAPE_DO_TOKEN` repository secret"* — and
+> on 2026-08-27 the secret was added first, during the PR-031.1 restore, while this fix sat
+> open and conflicting. That left a real exposure window: the repo is public, the canary was
+> now armed, and any connection failure would have posted the token into an issue. Nothing
+> fired (the next scheduled run was 2026-09-02 and no manual dispatch happened), so it closed
+> clean — but only by luck of the calendar. **A security fix that gates another action has to
+> be merged when that action happens, not filed next to it**; an open PR is not a guardrail.
+> The rebase over PR-031.1 also had to keep `timeout=60`, not the 45 s this branch was written
+> against — lowering it would have quietly reverted the change PR-031.1 exists for.
 
 ## PR-031.1 — Restore the scraper (unplanned; outage 2026-08-20 → 2026-08-27)
 

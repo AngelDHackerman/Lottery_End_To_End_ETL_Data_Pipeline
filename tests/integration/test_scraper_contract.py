@@ -76,8 +76,37 @@ WAITING_ROOM_MARKERS = ("waiting room", "just a moment", "cf-browser-verificatio
 BLOCKED_MARKERS = ("you have been blocked", "attention required", "error 1020")
 
 
+class ProxyRequestFailed(RuntimeError):
+    """A scrape.do request that never got a response, with the token scrubbed out."""
+
+
+def redact(text: str, token: str) -> str:
+    """Replace every occurrence of the token with ``***``."""
+    return text.replace(token, "***") if token else text
+
+
 def fetch(url: str, token: str) -> requests.Response:
-    """Fetch through scrape.do, the same proxy profile the extractor uses."""
+    """Fetch through scrape.do, the same proxy profile the extractor uses.
+
+    ⚠️ THE TRY/EXCEPT IS A CREDENTIAL CONTROL, NOT ERROR HANDLING. scrape.do takes its token
+    as a **query parameter**, so the token sits in `proxy_url` in cleartext — and every
+    ``requests`` exception embeds the URL it was trying to reach. A plain ConnectionError
+    therefore carries the live token in its message, pytest prints that traceback, and the
+    workflow around this file pipes the output to a file it later posts into a GitHub issue.
+    On a public repo that publishes the token to the world.
+
+    So: catch, scrub, re-raise. ``from None`` is load-bearing — with ``from exc`` (or no
+    ``from`` at all) Python still prints the original exception under "During handling of the
+    above exception...", token and all, and the scrubbing would achieve nothing.
+
+    Successful responses need no such care: the token is not echoed in the body, and
+    ``resp.url`` is only reachable from code that goes looking for it.
+
+    The two concerns meet in the timeout below, and they pull the same way. PR-031.1 raised
+    it to 60 s so a proxy failure surfaces as the real 502 instead of an anonymous local
+    ReadTimeout — and an anonymous timeout is also the exception shape most likely to be
+    dumped straight into an issue body. A clearer error and a scrubbed one are the same fix.
+    """
     proxy_url = (
         f"{BASE_PROXY_URL}?url={urllib.parse.quote(url, safe='')}"
         f"&token={token}&geoCode={GEO_CODE}"
@@ -85,7 +114,13 @@ def fetch(url: str, token: str) -> requests.Response:
     )
     # 60 s, matching scraping.py: a rendered success returns in ~5-6 s but scrape.do itself
     # takes ~57 s to give up, and cutting below that hides the real error behind a timeout.
-    return requests.get(proxy_url, timeout=60)
+    # Do NOT lower this to make the canary faster — PR-031.1 exists because it was 25 s.
+    try:
+        return requests.get(proxy_url, timeout=60)
+    except requests.RequestException as exc:
+        raise ProxyRequestFailed(
+            f"{type(exc).__name__} reaching scrape.do for {url}: {redact(str(exc), token)}"
+        ) from None
 
 
 # ==========================================================================================
@@ -112,6 +147,106 @@ def test_selectors_match_the_extractor():
         "These locators are asserted by the canary but no longer appear in "
         f"{SCRAPING_SRC.name} — update both together:\n  " + "\n  ".join(missing)
     )
+
+
+# ==========================================================================================
+# Offline guard — the token must never reach a log
+# ==========================================================================================
+# Deliberately UNMARKED, like the selector guard above: it needs no network and no token, so
+# it runs in every CI build. A leak control that only runs on Wednesdays is not a control.
+FAKE_TOKEN = "s3cr3t-t0ken-value"  # nosec B105 - not a real credential
+
+
+def _rendered_traceback(exc: BaseException) -> str:
+    """The exception exactly as pytest would print it, chained causes included."""
+    import traceback
+
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+class TestTokenIsNeverLeaked:
+    """scrape.do authenticates by query parameter, so the token is in every request URL.
+
+    The path that made this urgent: a connection error embeds that URL in its message ->
+    pytest prints the traceback -> the workflow pipes stdout through `tee canary.log` ->
+    the failure handler posts the tail of that file into a GitHub issue -> this repo is
+    PUBLIC. GitHub masks secrets in the Actions log view, but `tee` writes the raw bytes to
+    disk and the issue body is built from the file, not from the masked stream.
+
+    Observed for real on 2026-08-15: a local run failed with a ConnectionError whose message
+    contained the live token in full.
+    """
+
+    @staticmethod
+    def _raise_connection_error(*_args, **_kwargs):
+        raise requests.ConnectionError(
+            "HTTPConnectionPool(host='api.scrape.do', port=80): Max retries exceeded with "
+            f"url: /?url=https%3A%2F%2Floteria.org.gt&token={FAKE_TOKEN}&geoCode=MX"
+        )
+
+    def test_redact_replaces_every_occurrence(self):
+        assert redact(f"a {FAKE_TOKEN} b {FAKE_TOKEN}", FAKE_TOKEN) == "a *** b ***"
+
+    def test_redact_tolerates_an_empty_token(self):
+        """The token fixture skips on an empty value, but redact() must not turn "" into a
+        match that replaces every character boundary in the string."""
+        assert redact("nothing to hide", "") == "nothing to hide"
+
+    def test_a_connection_error_does_not_carry_the_token(self, monkeypatch):
+        monkeypatch.setattr(requests, "get", self._raise_connection_error)
+
+        with pytest.raises(ProxyRequestFailed) as excinfo:
+            fetch(AWARD_URL, FAKE_TOKEN)
+
+        assert FAKE_TOKEN not in str(excinfo.value)
+
+    def test_the_original_exception_is_suppressed(self, monkeypatch):
+        """`from None` is what stops Python printing the untouched original under "During
+        handling of the above exception". Without it the scrubbing is cosmetic."""
+        monkeypatch.setattr(requests, "get", self._raise_connection_error)
+
+        with pytest.raises(ProxyRequestFailed) as excinfo:
+            fetch(AWARD_URL, FAKE_TOKEN)
+
+        assert excinfo.value.__cause__ is None
+        assert excinfo.value.__suppress_context__ is True
+
+    def test_the_rendered_traceback_is_clean(self, monkeypatch):
+        """The one that actually matters: format the exception the way pytest does and check
+        the whole thing, not just the message."""
+        monkeypatch.setattr(requests, "get", self._raise_connection_error)
+
+        with pytest.raises(ProxyRequestFailed) as excinfo:
+            fetch(AWARD_URL, FAKE_TOKEN)
+
+        assert FAKE_TOKEN not in _rendered_traceback(excinfo.value)
+
+    def test_the_failure_still_says_what_broke(self, monkeypatch):
+        """Scrubbing must not cost the diagnosis. The message keeps the exception type and
+        the target URL, which is what distinguishes "no network" from "site moved"."""
+        monkeypatch.setattr(requests, "get", self._raise_connection_error)
+
+        with pytest.raises(ProxyRequestFailed) as excinfo:
+            fetch(AWARD_URL, FAKE_TOKEN)
+
+        message = str(excinfo.value)
+        assert "ConnectionError" in message
+        assert AWARD_URL in message
+        assert "***" in message
+
+    def test_a_timeout_is_scrubbed_too(self, monkeypatch):
+        """Not just ConnectionError — every requests exception embeds the URL, so the except
+        clause has to catch the base class."""
+
+        def _timeout(*_args, **_kwargs):
+            raise requests.Timeout(f"timed out for /?token={FAKE_TOKEN}")
+
+        monkeypatch.setattr(requests, "get", _timeout)
+
+        with pytest.raises(ProxyRequestFailed) as excinfo:
+            fetch(AWARD_URL, FAKE_TOKEN)
+
+        assert FAKE_TOKEN not in _rendered_traceback(excinfo.value)
 
 
 # ==========================================================================================
