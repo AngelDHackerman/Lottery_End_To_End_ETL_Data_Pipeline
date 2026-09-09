@@ -1021,6 +1021,31 @@ Document a GitHub Actions cron workflow that runs ONLY this test every Sunday at
 > be merged when that action happens, not filed next to it**; an open PR is not a guardrail.
 > The rebase over PR-031.1 also had to keep `timeout=60`, not the 45 s this branch was written
 > against — lowering it would have quietly reverted the change PR-031.1 exists for.
+>
+> **⚠️ FOLLOW-UP FIX 2026-09-09 (branch `fix/canary-coverage-addopts`, non-roadmap) — the
+> canary had never once run its tests.** The first issue it ever filed (GH #43, the run on
+> `d791c83`) did not report a site change: it reported `pytest: error: unrecognized
+> arguments: --cov=src/loteria --cov-report=term-missing --cov-fail-under=56 --no-cov`. The
+> job installs `pytest requests beautifulsoup4` and no pytest-cov, so **every one of those
+> flags, `--no-cov` included, is unknown to it** — `--no-cov` is a pytest-cov option, and
+> disabling a plugin you never installed is not a thing pytest can parse. It exited at
+> argument parsing, before collection, in 9 seconds. That has been true since PR-031 first
+> shipped the workflow (the `--cov` addopts predate it, from PR-029); it stayed invisible
+> because the *previous* bug swallowed the alert — three weeks of red runs filed no issue,
+> and the token-leak fix above is what finally let the real error speak.
+>
+> Fixed by replacing `--no-cov` with `-o addopts="-ra --strict-markers"`, which **overwrites**
+> the pyproject line instead of trying to opt out of one of its flags. Chosen over adding
+> pytest-cov to the install step because it also insulates the canary from whatever the repo
+> bolts onto `addopts` next. Verified by running the exact command with the plugin blocked
+> (`-p no:cov`): 8 passed, 6 skipped, exit 0.
+>
+> **The lesson is about layered alerting, not about pytest.** Two independent defects sat on
+> the same path — a broken alert condition in front of a broken command — and the outer one
+> made the inner one unobservable for a month. A monitor is not verified until you have seen
+> it produce a *green* run, not merely a red one; "no issue filed" was indistinguishable from
+> "nothing wrong". Neither bug could reach the pipeline (the canary is read-only, and the
+> Thursday runs kept working), but the lead time it exists to buy was zero the whole time.
 
 ## PR-031.1 — Restore the scraper (unplanned; outage 2026-08-20 → 2026-08-27)
 

@@ -59,10 +59,24 @@ jobs:
           SCRAPE_DO_TOKEN: ${{ secrets.SCRAPE_DO_TOKEN }}
         run: |
           set -o pipefail
-          # --no-cov: this job installs no source deps and runs one file, so the repo-wide
-          # coverage gate in pyproject would fail on an unrelated number.
+          # `-o addopts=` REPLACES pyproject's addopts line; it does not append to it.
+          #
+          # That line carries the repo-wide coverage gate (`--cov=src/loteria
+          # --cov-fail-under=NN`), which only exists as arguments while pytest-cov is
+          # installed — and this job installs pytest, requests and beautifulsoup4, nothing
+          # else. `--no-cov` was the wrong tool: it is itself a pytest-cov option, so with
+          # the plugin absent pytest rejected the whole line ("unrecognized arguments:
+          # --cov=src/loteria ... --no-cov") and exited at ARGUMENT PARSING, before
+          # collecting a single test. Every canary run since PR-031 died there; the failure
+          # only became visible once PR-041 fixed the issue-filing condition.
+          #
+          # Overriding wholesale, rather than adding pytest-cov to the install line, keeps
+          # this job independent of whatever else the repo adds to addopts later. The two
+          # flags kept are the ones that need no plugin. `-p no:randomly` is safe whether or
+          # not pytest-randomly is installed — `-p no:NAME` blocks a plugin, it does not
+          # require one.
           python -m pytest tests/integration/test_scraper_contract.py \
-            -v --no-cov -p no:randomly 2>&1 | tee canary.log
+            -v -o addopts="-ra --strict-markers" -p no:randomly 2>&1 | tee canary.log
 
       # ⚠️ SECOND LINE OF DEFENCE, and it is not redundant.
       #
