@@ -17,6 +17,7 @@ crawlers to the seven gold CTAS with no quality check anywhere in it.
 | IAM | `terraform/modules/iam/main.tf` | **new** read-only `glue_dq_role`; SFN gains `glue:StartJobRun` on the DQ job and `sns:Publish` |
 | Gate states | `terraform/modules/orchestration/main.tf` | `RunSilverDQ` → `NotifyDQFailure` → `SilverDQFailed` |
 | Wiring | `terraform/main.tf` | `data.aws_caller_identity` + `local.alerts_topic_arn` |
+| Kill switch | `terraform/variables.tf` | `enable_silver_dq` (default `true`) |
 | Coverage | `pyproject.toml` | ratchet 56 → 67 |
 
 ## The state machine, after this PR
@@ -36,6 +37,33 @@ more here than in most pipelines: `loteria.gold.purge_and_load` **drops each gol
 empties its S3 prefix before the CTAS writes it**, so letting bad Silver through would not
 just produce wrong Gold — it would destroy the last known-good Gold on the way there. The
 gate protects the existing data as much as the incoming data.
+
+## The kill switch: `enable_silver_dq`
+
+One root variable drives both modules. With `enable_silver_dq = false`:
+
+- `module.etl_glue` creates neither the Glue job nor its log group (`count = 0`), and
+- `module.orchestration` renders the state machine **byte-identically to its pre-PR-033
+  form** — `local.dq_states` is an empty map and the crawlers point straight at `PrepGold`.
+
+This exists so the stack is applyable **before** the job artifacts have been built and
+uploaded. Without it, a fresh clone has to either upload artifacts it has not built yet, or
+apply a Glue job whose `script_location` points at a key that does not exist — and Glue
+accepts the second quietly, failing only at the first run, which is the worse of the two.
+
+It is also the rollback: flip the flag and apply, no revert needed.
+
+> ⚠️ **The flag must have the same value in both modules.** It is threaded from a single
+> root variable for exactly that reason. `true` in orchestration with `false` in etl-glue
+> would render a state machine that starts a Glue job that does not exist.
+
+**Why the states are gated as a JSON string and then `jsondecode`d**, rather than
+`var.enable_silver_dq ? {...} : {}`: Terraform requires both branches of a conditional to
+unify to one type, and an ASL state map is heterogeneous by construction — a `Task` has
+`Resource`/`Parameters`/`Catch`, a `Fail` has `Error`/`Cause`, and they share no attributes.
+The direct form fails with *"the 'true' value includes object attribute "SilverDQFailed",
+which is absent in the 'false' value"*. That is a real type mismatch, not a Terraform quirk.
+Gating a string sidesteps unification, and `jsondecode` returns a map `merge()` accepts.
 
 ## ⚠️ The job is a Spark job, and the roadmap said it would not be
 
@@ -126,6 +154,13 @@ target names a state that exists.
 terraform apply tfplan
 ```
 
+If the artifacts are not uploaded yet, apply with the gate off first — this is a real no-op
+on the state machine, not an approximation:
+
+```bash
+terraform apply -var="enable_silver_dq=false"
+```
+
 New resources: 1 Glue job, 1 log group, 1 IAM role, 1 IAM policy, 1 attachment. Modified:
 `sfn_execution_policy` and the state machine definition. **No data resources are touched.**
 
@@ -197,9 +232,15 @@ than by breaking production:
 
 ## Rollback
 
-The gate is one state and two error states. To disable it without reverting the code, point
-`RunSilverCrawlers.Next` back at `"PrepGold"` and apply — the Glue job, the role and the log
-group can stay, costing nothing while idle.
+```bash
+terraform apply -var="enable_silver_dq=false"
+```
+
+That is the whole rollback. The state machine returns to its exact pre-PR-033 definition and
+the Glue job and its log group are destroyed. The read-only IAM role stays — it is
+deliberately **not** gated, because an unused role costs nothing and grants nothing (only
+`glue.amazonaws.com` can assume it, and only for a job that no longer exists), while gating
+it would add a null-ARN dependency to `module.etl_glue` for no benefit.
 
 Reverting the whole PR is also safe: it creates no data and deletes nothing. The one
 non-obvious piece is the coverage ratchet (67 → 56) in `pyproject.toml`, which must go back

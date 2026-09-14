@@ -154,3 +154,10 @@ variable "enable_object_count_emitter" {
   type        = bool
   default     = true
 }
+
+# --- PR-033: Silver data-quality gate ---
+variable "enable_silver_dq" {
+  description = "Create the Silver DQ Glue job and insert its gate between the silver crawlers and the Gold CTAS. Set false to deploy the stack before `bash scripts/build_dq_package.sh` has produced and uploaded the job artifacts — the state machine then renders byte-identically to its pre-PR-033 form. One flag drives both modules on purpose: enabling the gate without the job would start a Glue job that does not exist."
+  type        = bool
+  default     = true
+}

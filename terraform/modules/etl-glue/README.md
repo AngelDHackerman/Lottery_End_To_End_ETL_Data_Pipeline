@@ -114,7 +114,12 @@ Build the artifacts with `bash scripts/build_dq_package.sh` and upload **both** 
 does not manage these objects, and a stale lib zip fails at import inside the job rather
 than at deploy time. Full procedure: `docs/runbooks/PR-033-dq-gate.md`.
 
-Extra inputs: `dq_job_role_arn`, `dq_script_key`, `dq_lib_key`, `dq_glue_version`,
+`enable_silver_dq = false` gives both the job and its log group `count = 0`, leaving the
+rest of the module untouched — so the stack can be applied before the artifacts exist. The
+three `dq_*` outputs return `null` in that state, the same shape `module.observability` uses
+for its optional object-count emitter.
+
+Extra inputs: `enable_silver_dq`, `dq_job_role_arn`, `dq_script_key`, `dq_lib_key`, `dq_glue_version`,
 `great_expectations_version` (**must match `requirements/dq.txt`**), `silver_prefix`,
 `dq_timeout_minutes`.
 Extra outputs: `dq_job_name`, `dq_job_arn`, `dq_log_group_name`.

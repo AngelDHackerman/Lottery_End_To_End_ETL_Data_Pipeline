@@ -144,6 +144,8 @@ resource "aws_glue_job" "lottery_transform" {
 # /aws-glue/jobs/output and /aws-glue/jobs/error. Continuous logging carries the application
 # logs, which is where `format_report`'s verdict lands.
 resource "aws_cloudwatch_log_group" "silver_dq" {
+  count = var.enable_silver_dq ? 1 : 0
+
   name              = "/aws-glue/jobs/loteria-silver-dq-${var.environment}"
   retention_in_days = var.log_retention_days
 
@@ -154,6 +156,12 @@ resource "aws_cloudwatch_log_group" "silver_dq" {
 }
 
 resource "aws_glue_job" "silver_dq" {
+  # Gated so the stack is deployable BEFORE `make build` has produced and uploaded the two
+  # job artifacts. Without this, a fresh clone must either upload artifacts it has not built
+  # yet or apply a job whose script_location points at a key that does not exist — Glue
+  # accepts the second quietly and fails at the first run, which is the worse of the two.
+  count = var.enable_silver_dq ? 1 : 0
+
   name     = "loteria-silver-dq-${var.environment}"
   role_arn = var.dq_job_role_arn
 
@@ -193,7 +201,7 @@ resource "aws_glue_job" "silver_dq" {
 
     # Per-job logging (Spark-only; see the log group above).
     "--enable-continuous-cloudwatch-log" = "true"
-    "--continuous-log-logGroup"          = aws_cloudwatch_log_group.silver_dq.name
+    "--continuous-log-logGroup"          = aws_cloudwatch_log_group.silver_dq[0].name
 
     # Off on purpose. The Spark UI writes event logs to S3, which would mean granting this
     # job's otherwise read-only role a PutObject it has no other use for — and there is no

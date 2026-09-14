@@ -127,7 +127,8 @@ module "etl_glue" {
 
   # PR-033: the Silver DQ gate job. Its own READ-ONLY role, not glue_job_role_arn — a
   # validator that can write to the layer it validates is not a gate.
-  dq_job_role_arn = module.iam.glue_dq_role_arn
+  enable_silver_dq = var.enable_silver_dq
+  dq_job_role_arn  = module.iam.glue_dq_role_arn
 }
 
 # --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---
@@ -164,7 +165,9 @@ module "orchestration" {
   athena_workgroup_name      = module.catalog.athena_workgroup_name
   gold_purge_lambda_role_arn = module.iam.gold_purge_lambda_role_arn
 
-  # PR-033: the DQ gate between the silver crawlers and the gold CTAS map.
+  # PR-033: the DQ gate between the silver crawlers and the gold CTAS map. The same flag
+  # feeds both modules — the job and the state that starts it have to appear together.
+  enable_silver_dq  = var.enable_silver_dq
   dq_glue_job_name  = module.etl_glue.dq_job_name
   dq_log_group_name = module.etl_glue.dq_log_group_name
   alerts_topic_arn  = local.alerts_topic_arn

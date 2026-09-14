@@ -185,4 +185,21 @@ cycle. The ARN is built by name in `terraform/main.tf`. **A rename of the topic 
 up in a plan** — both sides stay valid strings and the failure is an `AccessDenied` at the
 first DQ failure.
 
-Extra inputs: `dq_glue_job_name`, `dq_log_group_name`, `alerts_topic_arn`.
+### The gate is itself gated
+
+`enable_silver_dq = false` renders the definition **byte-identically** to its pre-PR-033
+form: `local.dq_states` is an empty map and `local.after_crawlers` sends the crawlers
+straight to `PrepGold`. That makes the stack deployable before the DQ artifacts exist, and
+makes the rollback a variable flip rather than a revert.
+
+⚠️ The three states are gated as a **JSON string** that is then `jsondecode`d, not as
+`var.enable_silver_dq ? {...} : {}`. Terraform needs both branches of a conditional to unify
+to one type, and an ASL state map is heterogeneous by construction — a `Task` has
+`Resource`/`Parameters`/`Catch`, a `Fail` has `Error`/`Cause`, and they share no attributes.
+The direct form fails with *"the 'true' value includes object attribute "SilverDQFailed",
+which is absent in the 'false' value"*. Gating a string sidesteps the unification; `merge()`
+then folds the decoded map into the rest of the machine.
+
+Extra inputs: `enable_silver_dq`, `dq_glue_job_name`, `dq_log_group_name`,
+`alerts_topic_arn`. The flag must match `module.etl_glue`'s — a gate pointing at a job that
+was not created would fail at run time, which is why both come from one root variable.

@@ -71,6 +71,12 @@ variable "manage_shared_glue_log_groups" {
 # almost nothing else with the transform job above: different job type, different runtime,
 # different role, read-only. Hence its own variable block rather than reusing the ones above.
 
+variable "enable_silver_dq" {
+  description = "Create the Silver DQ job and its log group. Off leaves the rest of the module untouched, so the stack can be applied before scripts/build_dq_package.sh has produced and uploaded the artifacts."
+  type        = bool
+  default     = true
+}
+
 variable "dq_job_role_arn" {
   description = "ARN of the READ-ONLY Glue role for the Silver DQ job (from module.iam). Deliberately not glue_job_role_arn: the transform role can write and delete across both data buckets, and a validator that can modify what it validates is not a gate."
   type        = string

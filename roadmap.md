@@ -1362,6 +1362,34 @@ If DQ fails, transition to a Fail state that publishes to the SNS alerts topic w
 >   `sorteos`), which PR-032 flagged for this PR. It needs a value set computed at run time
 >   from a second dataset — a change to the runner's validation model, not to this PR's
 >   plumbing. Carried to PR-035.
+> - **A kill switch, `enable_silver_dq` (default true), ported from the abandoned first
+>   attempt.** With it false, `module.etl_glue` creates neither the job nor its log group and
+>   the state machine renders **byte-identically** to its pre-PR-033 form — so the stack is
+>   applyable before the artifacts are built, and the rollback is a variable flip rather than
+>   a revert. ⚠️ The three states are gated as a **JSON string** that is then `jsondecode`d,
+>   not as `cond ? {...} : {}`: Terraform needs both branches of a conditional to unify to one
+>   type, and an ASL state map is heterogeneous by construction (a `Task` has
+>   `Resource`/`Parameters`/`Catch`, a `Fail` has `Error`/`Cause`, sharing no attributes), so
+>   the direct form fails with *"the 'true' value includes object attribute
+>   \"SilverDQFailed\", which is absent in the 'false' value"*. A real type mismatch, not a
+>   Terraform quirk. One root variable feeds both modules on purpose — the gate and the job it
+>   starts have to appear together.
+> - **⚠️ HISTORY: this PR was attempted once before, and it was NOT rejected.** PR #38
+>   (2026-08-15) implemented essentially this same design and was **closed unmerged** on
+>   2026-08-19 with no comment, no review and no failing check. The forensics: #38's base was
+>   still `feat/PR-032-gx-silver-suite`, and its state was `CONFLICTING`/`DIRTY`. The PR body
+>   had assumed *"GitHub retargets to master automatically when #37 merges"* — **it did not**,
+>   so when #37 merged and its branch was deleted, #38 was left pointing at a base that no
+>   longer existed and became unmergeable. The 84-second sequence at 02:05–02:07 tells the
+>   rest: #38 closed, #39 (PR-034) merged **into the PR-033 branch** to consolidate the work,
+>   and #40 auto-closed one second later when its own base was deleted by that merge. The
+>   scraper outage began the next day (2026-08-20) and buried it. **Lesson: do not stack PRs
+>   in this repo.** Each roadmap PR branches from `master` and merges to `master`.
+> - **Work still stranded on `origin/feat/PR-033-dq-gate`** (kept, not deleted): PR-034's
+>   complete `.github/workflows/ci.yml` (241 lines) plus `terraform/.checkov.baseline`, and on
+>   `origin/feat/PR-035-coverage-85` a coverage arc reaching **98.45%** (149 → 257 tests, the
+>   four 0% modules brought to ~98%). Both to be rescued as independent PRs off `master`. Note
+>   this PR's ratchet of 67 is superseded the moment PR-035 lands.
 > - **Verified without running the pipeline** (no scrape.do credits spent): 178 tests green,
 >   `terraform validate` clean, the state graph checked statically (every `Next` target names
 >   a real state), and the built artifacts executed standalone with only
