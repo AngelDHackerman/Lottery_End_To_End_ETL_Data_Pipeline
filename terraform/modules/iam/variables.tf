@@ -100,3 +100,16 @@ variable "metrics_namespace" {
   type        = string
   default     = "Loteria/Pipeline"
 }
+
+# --- PR-033: Silver DQ gate ---
+variable "dq_glue_job_name" {
+  description = "Name of the Silver data-quality Glue job the Step Function starts. Built into an ARN here (not taken as a module output) to keep the iam -> etl-glue dependency one-way; must match aws_glue_job.silver_dq in modules/etl-glue."
+  type        = string
+  default     = "loteria-silver-dq-prod"
+}
+
+variable "silver_prefix" {
+  description = "Silver layer prefix the DQ role may read. Scopes the read-only grant to the layer being validated rather than the whole bucket."
+  type        = string
+  default     = "silver/"
+}

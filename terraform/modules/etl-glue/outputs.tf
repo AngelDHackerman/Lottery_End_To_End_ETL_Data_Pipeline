@@ -32,3 +32,23 @@ output "error_log_group_name" {
   description = "Log group carrying the Glue job's stderr and tracebacks."
   value       = local.glue_error_log_group
 }
+
+# --- PR-033: the Silver DQ job ---
+# Consumed by module.orchestration (the RunSilverDQ state names the job) and module.iam
+# (the Step Function's glue:StartJobRun grant is narrowed to these two job ARNs).
+# Null when enable_silver_dq = false, the same shape module.observability uses for the
+# optional object-count emitter, so a caller can branch on it.
+output "dq_job_name" {
+  description = "Name of the Silver data-quality Glue job (null when disabled)."
+  value       = var.enable_silver_dq ? aws_glue_job.silver_dq[0].name : null
+}
+
+output "dq_job_arn" {
+  description = "ARN of the Silver data-quality Glue job (null when disabled)."
+  value       = var.enable_silver_dq ? aws_glue_job.silver_dq[0].arn : null
+}
+
+output "dq_log_group_name" {
+  description = "Per-job log group carrying the DQ verdict (null when disabled). Unlike the transform job, a Spark job can have its own group — this is the one to open after a DQ alert."
+  value       = var.enable_silver_dq ? aws_cloudwatch_log_group.silver_dq[0].name : null
+}

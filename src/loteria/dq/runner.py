@@ -312,3 +312,73 @@ def run_dq(
         outcomes.append(validate_dataframe(dataset, df, files=len(keys)))
 
     return DQReport(suites=outcomes)
+
+
+# --------------------------------------------------------------------------------------
+# Reporting
+# --------------------------------------------------------------------------------------
+# These live in the library, not in scripts/run_dq.py, because PR-033 gave them a second
+# caller: the Glue job's entry point renders the same verdict into a CloudWatch log and the
+# same one-line summary into an SNS alert. Two formatters would drift, and the alert would
+# stop matching the log it tells you to go read.
+def format_report(report: DQReport) -> str:
+    """A plain-text summary, sized for a CloudWatch log line rather than a terminal.
+
+    No colour and no box drawing: this output is what someone reads out of a Glue job log
+    or an SNS alert body, where ANSI escapes are noise.
+    """
+    lines = []
+    for suite in report.suites:
+        status = "PASS" if suite.success else "FAIL"
+        lines.append(
+            f"[{status}] {suite.suite}: {len(suite.results)} expectations, "
+            f"{suite.rows} rows from {suite.files} files"
+        )
+        for failure in suite.failures:
+            column = f" on '{failure.column}'" if failure.column else ""
+            detail = ""
+            if failure.unexpected_count is not None:
+                detail = f" — {failure.unexpected_count} unexpected"
+                if failure.unexpected_percent is not None:
+                    detail += f" ({failure.unexpected_percent:.2f}%)"
+            lines.append(f"    FAILED {failure.expectation}{column}{detail}")
+            if failure.partial_unexpected:
+                lines.append(f"      e.g. {failure.partial_unexpected}")
+
+    lines.append("")
+    lines.append("DQ RESULT: " + ("PASS" if report.success else "FAIL"))
+    return "\n".join(lines)
+
+
+#: Cap on how many individual failures `summarize_failures` names. An SNS email subject and
+#: body are read on a phone; past a handful of failures the useful information is "a lot
+#: broke", not the exhaustive list, which is what `format_report` in the job log is for.
+MAX_SUMMARIZED_FAILURES = 3
+
+
+def summarize_failures(report: DQReport) -> str:
+    """One line naming what broke — the text that reaches a human through SNS.
+
+    Deliberately not a count. "Silver DQ failed (4 expectations)" sends the owner to the
+    console to find out what happened; naming the suite, the expectation and the column
+    means the alert itself usually says whether this is a site change, a parser bug or a
+    genuinely odd draw.
+    """
+    failures = [(suite, result) for suite in report.suites for result in suite.failures]
+    if not failures:
+        # Reachable: DQReport.success is False for an EMPTY report too (validating nothing
+        # is not success), and an empty report has no failures to name. Saying "0 failed"
+        # there would be a lie in the more alarming direction.
+        return "No expectation failed, but the report covered no suites at all."
+
+    parts = []
+    for suite, result in failures[:MAX_SUMMARIZED_FAILURES]:
+        column = f".{result.column}" if result.column else ""
+        count = "" if result.unexpected_count is None else f" [{result.unexpected_count} rows]"
+        parts.append(f"{suite.suite}{column}: {result.expectation}{count}")
+
+    summary = "; ".join(parts)
+    remaining = len(failures) - MAX_SUMMARIZED_FAILURES
+    if remaining > 0:
+        summary += f"; and {remaining} more"
+    return f"{len(failures)} expectation(s) failed — {summary}"

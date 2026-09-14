@@ -39,6 +39,22 @@ locals {
   # iam -> orchestration dependency direction (orchestration consumes IAM, never both ways).
   sfn_log_group_arn = "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws/vendedlogs/states/lottery-etl-pipeline-${var.environment}"
 
+  # PR-033: the Silver DQ Glue job and the SNS alerts topic.
+  #
+  # Both are built from their names for the SAME reason as sfn_log_group_arn above — keeping
+  # the dependency direction one-way. The topic is the sharper case: module.observability
+  # OWNS the topic but also CONSUMES module.orchestration (the dashboard and alarms name the
+  # state machine, the gold-purge Lambda and the weekly rule). So orchestration cannot take
+  # observability's output without a module cycle, and neither can this module. Constructing
+  # the ARN is the standard way out.
+  #
+  # The cost is a name that now appears in two places. If the topic is ever renamed in
+  # modules/observability/main.tf, this line and modules/orchestration must move with it —
+  # a plan will NOT catch it, because both sides are valid strings. Stated here so the
+  # coupling is visible from the side most likely to be read first.
+  dq_job_arn       = "arn:aws:glue:${var.aws_region}:${local.account_id}:job/${var.dq_glue_job_name}"
+  alerts_topic_arn = "arn:aws:sns:${var.aws_region}:${local.account_id}:loteria-alerts-${var.environment}"
+
   # PR-022 gold layer ARNs.
   gold_purge_lambda_arn = "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:lottery-gold-purge-${var.environment}"
   athena_workgroup_arn  = "arn:aws:athena:${var.aws_region}:${local.account_id}:workgroup/${var.athena_workgroup_name}"
@@ -83,6 +99,26 @@ resource "aws_iam_role" "glue_job_role" {
 }
 
 # Role for AWS Glue Crawler
+# PR-033: a SEPARATE, READ-ONLY role for the Silver DQ job.
+#
+# It would have been one line to reuse glue_job_role. That role carries s3:PutObject and
+# s3:DeleteObject on BOTH data buckets, because the transformer writes Silver. A validator
+# holding those permissions is not a gate: a bug — or anything that ever runs inside that
+# job — could modify the very data it is asserting about, and the green verdict would still
+# be green. The whole value of this PR is that something independent says "Silver is fine",
+# so the thing saying it must not be able to change Silver.
+#
+# Reuses the same assume-role document: the principal is still glue.amazonaws.com.
+resource "aws_iam_role" "glue_dq_role" {
+  name               = "glue-silver-dq-role-${var.environment}"
+  assume_role_policy = data.aws_iam_policy_document.glue_assume_role_policy.json
+
+  tags = {
+    Project     = "Loteria-Santa-Lucia"
+    Environment = var.environment
+  }
+}
+
 resource "aws_iam_role" "glue_crawler_role" {
   name = "glue-crawler-role"
 
@@ -348,6 +384,74 @@ resource "aws_iam_policy" "glue_job_policy" {
   policy = data.aws_iam_policy_document.glue_job_policy.json
 }
 
+# PR-033: the DQ job's policy. Every statement is read-only by construction — there is no
+# s3:PutObject, no s3:DeleteObject and no secretsmanager grant anywhere below, and that is
+# the point rather than an oversight.
+data "aws_iam_policy_document" "glue_dq_policy" {
+  statement {
+    sid    = "AllowReadSilverLayer"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]
+    # ListBucket is a BUCKET-level action and GetObject an OBJECT-level one, so both ARNs
+    # are needed. The object grant is narrowed to the Silver prefix; the bucket grant cannot
+    # be narrowed the same way (the prefix restriction for ListBucket is a condition on
+    # s3:prefix, deliberately not used here — the runner lists with a prefix already, and a
+    # condition that silently returns an empty page would surface as SilverDatasetEmpty,
+    # i.e. as "the transformer never ran", which is the misdiagnosis that class of error is
+    # hardest to recover from).
+    resources = [
+      var.partitioned_bucket_arn,
+      "${var.partitioned_bucket_arn}/${var.silver_prefix}*",
+    ]
+  }
+
+  statement {
+    sid    = "AllowReadJobArtifacts"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]
+    # The entry-point script and the --extra-py-files zip.
+    resources = [
+      "arn:aws:s3:::${var.lambda_code_bucket_name}",
+      "arn:aws:s3:::${var.lambda_code_bucket_name}/*",
+    ]
+  }
+
+  statement {
+    sid    = "AllowCloudWatchLogs"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      # Spark continuous logging associates the stream with the group it was told to use.
+      "logs:AssociateKmsKey",
+    ]
+    # A Spark job writes under /aws-glue/jobs/* (the account-wide output/error groups) AND
+    # to the per-job continuous-log group this stack creates. Same reasoning as the transform
+    # role: the whole /aws-glue/ prefix, because Glue picks the group by job type.
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws-glue/*",
+      "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/aws-glue/*:log-stream:*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "glue_dq_policy" {
+  name   = "glue-silver-dq-policy-${var.environment}"
+  policy = data.aws_iam_policy_document.glue_dq_policy.json
+}
+
+resource "aws_iam_role_policy_attachment" "glue_dq_attach_policy" {
+  role       = aws_iam_role.glue_dq_role.name
+  policy_arn = aws_iam_policy.glue_dq_policy.arn
+}
+
 # Lambda: S3 + Secrets
 data "aws_iam_policy_document" "lambda_custom_doc" {
   statement {
@@ -542,7 +646,20 @@ resource "aws_iam_policy" "sfn_execution_policy" {
           "glue:GetJobRuns",
           "glue:BatchStopJobRun"
         ],
-        Resource : local.glue_job_arn # PR-009: narrowed from "*"
+        # PR-009 narrowed this from "*" to the one transform job; PR-033 adds the DQ job.
+        # Still a list of exactly the jobs this pipeline starts, not a wildcard.
+        Resource : [local.glue_job_arn, local.dq_job_arn]
+      },
+      # PR-033: the DQ gate's Catch handler publishes the failure detail before the execution
+      # fails. Worth the extra grant rather than leaning on PR-025's sfn_execution_failed
+      # alarm: that alarm fires on ANY failed execution and its message is "an execution
+      # failed", while this one carries the suite, the expectation and the column — which is
+      # usually enough to tell a site change from a parser bug without opening the console.
+      {
+        Sid : "AllowPublishDQFailureAlert",
+        Effect : "Allow",
+        Action : ["sns:Publish"],
+        Resource : local.alerts_topic_arn
       },
       {
         Sid : "AllowStartGlueCrawlers",

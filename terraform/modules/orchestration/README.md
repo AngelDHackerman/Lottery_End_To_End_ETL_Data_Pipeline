@@ -140,3 +140,66 @@ throttling retry on them.
 
 Extra inputs: `crawler_poll_interval_seconds` (default 30),
 `crawler_poll_max_attempts` (default 30). Runbook: `docs/runbooks/PR-026.1-crawler-race.md`.
+
+## PR-033: the Silver data-quality gate
+
+Three states between `RunSilverCrawlers` and `PrepGold`:
+
+```
+RunSilverCrawlers → RunSilverDQ ──pass──→ PrepGold → BuildGold
+                         │
+                    any error
+                         ↓
+                  NotifyDQFailure (SNS) → SilverDQFailed (Fail)
+```
+
+`RunSilverDQ` uses `glue:startJobRun.sync`. Unlike `startCrawler` — whose missing `.sync`
+integration is the entire reason `local.crawler_branches` exists — this really does wait for
+the job and fails when it fails, so no polling loop is needed.
+
+**Why the gate is here and not earlier.** The DQ job reads Parquet straight from S3 with
+boto3, so it does not technically need the catalog. Running it *after* the crawlers means a
+green verdict describes the exact state Gold is about to read, and it inherits PR-026.1's
+guarantee that the crawl finished — so "DQ passed but Gold missed the newest sorteo" cannot
+happen.
+
+**Why it matters more than the usual "don't publish bad numbers".** `aws_lambda_function
+.gold_purge` drops each gold table and empties its S3 prefix *before* the CTAS writes it. So
+admitting bad Silver would not merely produce wrong Gold — it would destroy the last
+known-good Gold on the way there. The gate protects the existing data as much as the new.
+
+**No `Retry` on `RunSilverDQ`, deliberately.** Every other Task here retries, so the absence
+is a decision: a failed expectation is deterministic — the same immutable Silver validated
+twice gives the same verdict — so a retry would spend a second Glue run reaching the
+identical conclusion and delay the alert by a full job duration.
+
+**`NotifyDQFailure` exists for detail, not for visibility.** PR-025's `sfn_execution_failed`
+alarm already fires on any failed execution; its message is "an execution failed". This one
+carries Glue's `ErrorMessage`, which `loteria.dq.glue_entrypoint` builds from
+`summarize_failures()` — the suite, the expectation and the column.
+
+⚠️ **`alerts_topic_arn` arrives as a constructed string, not as `module.observability`'s
+output.** Observability already consumes this module (dashboard and alarms name the state
+machine, the gold-purge Lambda and the weekly rule), so taking its output here is a module
+cycle. The ARN is built by name in `terraform/main.tf`. **A rename of the topic will not show
+up in a plan** — both sides stay valid strings and the failure is an `AccessDenied` at the
+first DQ failure.
+
+### The gate is itself gated
+
+`enable_silver_dq = false` renders the definition **byte-identically** to its pre-PR-033
+form: `local.dq_states` is an empty map and `local.after_crawlers` sends the crawlers
+straight to `PrepGold`. That makes the stack deployable before the DQ artifacts exist, and
+makes the rollback a variable flip rather than a revert.
+
+⚠️ The three states are gated as a **JSON string** that is then `jsondecode`d, not as
+`var.enable_silver_dq ? {...} : {}`. Terraform needs both branches of a conditional to unify
+to one type, and an ASL state map is heterogeneous by construction — a `Task` has
+`Resource`/`Parameters`/`Catch`, a `Fail` has `Error`/`Cause`, and they share no attributes.
+The direct form fails with *"the 'true' value includes object attribute "SilverDQFailed",
+which is absent in the 'false' value"*. Gating a string sidesteps the unification; `merge()`
+then folds the decoded map into the rest of the machine.
+
+Extra inputs: `enable_silver_dq`, `dq_glue_job_name`, `dq_log_group_name`,
+`alerts_topic_arn`. The flag must match `module.etl_glue`'s — a gate pointing at a job that
+was not created would fail at run time, which is why both come from one root variable.
