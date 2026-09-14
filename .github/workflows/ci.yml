@@ -1,7 +1,8 @@
 # CI for the Loteria Santa Lucia pipeline (PR-034).
 #
-# Runs on every push to master and every pull request. Six jobs, deliberately independent so
-# a Terraform-only change still gets a fast red/green on the Python side and vice versa.
+# Runs on every push to master and every pull request. Seven jobs, deliberately independent
+# so a Terraform-only change still gets a fast red/green on the Python side and vice versa —
+# and so a non-blocking scanner can never take down a blocking one (see tf-security-trivy).
 #
 # ⚠️ scraper-canary.yml is NOT created here. PR-034's prompt lists it, but PR-031 already
 # shipped it (with a Wednesday cron rather than the prompt's Sunday, for reasons recorded
@@ -120,11 +121,8 @@ jobs:
 
   # -------------------------------------------------------------------------------------
   tf-security:
-    name: terraform security (checkov + trivy)
+    name: terraform security (checkov)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write # to upload the trivy SARIF
     steps:
       - uses: actions/checkout@v4
 
@@ -153,18 +151,37 @@ jobs:
       - name: checkov
         run: checkov -d terraform/ --baseline terraform/.checkov.baseline --compact
 
-      # Trivy, NOT tfsec, despite the roadmap prompt naming tfsec. Aqua Security has folded
-      # tfsec into Trivy ("our engineering attention will be directed at Trivy going
-      # forward") — same Terraform scanning engine, still maintained. Wiring a brand-new CI
-      # to a tool its authors have stopped developing is not a defensible starting point.
-      #
-      # NON-BLOCKING on purpose: unlike checkov, Trivy's finding volume on this repo has not
-      # been measured (it could not be installed in the environment where this PR was
-      # written), and shipping a blocking gate whose output nobody has looked at is how you
-      # get a permanently red pipeline. Findings go to the Security tab, where they can be
-      # triaged; promote this to blocking with a baseline once the volume is known.
+
+  # -------------------------------------------------------------------------------------
+  # Trivy, NOT tfsec, despite the roadmap prompt naming tfsec. Aqua Security has folded
+  # tfsec into Trivy ("our engineering attention will be directed at Trivy going forward") —
+  # same Terraform scanning engine, still maintained. Wiring a brand-new CI to a tool its
+  # authors have stopped developing is not a defensible starting point.
+  #
+  # ⚠️ ITS OWN JOB, and the first CI run is why. Trivy started out as two steps inside
+  # tf-security, pinned to a version tag that does not exist (`0.28.0`; the action publishes
+  # `v`-prefixed tags and is now on v0.36.0). GitHub resolves every action in a job BEFORE
+  # running any step, so the bad reference killed the whole job in 2 seconds and **checkov
+  # never ran at all** — a non-blocking scanner silently disabled a blocking one, which is
+  # the opposite of what both were for. Separating them means Trivy can only ever fail
+  # itself. This is the same reasoning the header of this file already gives for keeping the
+  # jobs independent; it just had not been applied here.
+  #
+  # NON-BLOCKING on purpose: unlike checkov, Trivy's finding volume on this repo has still
+  # not been measured, and shipping a blocking gate whose output nobody has looked at is how
+  # you get a permanently red pipeline. Findings go to the Security tab, where they can be
+  # triaged; promote this to blocking with a baseline once the volume is known.
+  tf-security-trivy:
+    name: terraform security (trivy, non-blocking)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # to upload the SARIF
+    steps:
+      - uses: actions/checkout@v4
+
       - name: trivy config scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: terraform/

@@ -1350,6 +1350,27 @@ Also create .github/workflows/scraper-canary.yml: weekly cron Sundays 18:00 UTC 
 >   and warns that it found nothing to skip. Verified by deleting the two markers — B108 fires
 >   at `245:31` and `246:31` and the job goes red. Documented in `ci.yml` so nobody "cleans up"
 >   the warning into a broken build.
+> - **⚠️ The first real CI run (#45) went red, and BOTH failures were genuine** — which is
+>   the best possible argument for this PR. Neither was reproducible locally.
+>   - **`test`: great-expectations version drift.** `pyproject`'s `dq` and `dev` extras
+>     floated at `>=1.0,<2.0` while `requirements/dq.txt` — what the Glue job installs — was
+>     pinned to `1.20.0`. A clean runner resolved **1.23.0**, and since the committed suite
+>     JSON records the GX version that produced it, `test_dq_suites` failed with no code
+>     change. It would have kept failing at random on every future GX release, and worse,
+>     CI was validating a different GX than production runs. Both extras are now pinned to
+>     `1.20.0`. Bumping GX becomes a deliberate act: change all three pins and run
+>     `make dq-sync`. **A repo about data-quality reproducibility was testing against
+>     "whatever PyPI shipped this morning".**
+>   - **`tf-security`: the Trivy action tag does not exist.** Pinned to `0.28.0`; the action
+>     publishes **`v`-prefixed** tags and is now on `v0.36.0`. The original author recorded
+>     that Trivy "could not be installed in the environment where this PR was written" — so
+>     the version was never verified, and this is exactly the failure that implies.
+>     **The real damage was structural**, though: GitHub resolves every action in a job
+>     *before* running any step, so the bad reference killed the job in 2 seconds and
+>     **checkov never ran at all**. A deliberately non-blocking scanner silently disabled a
+>     blocking one. Trivy now lives in its own job, so it can only ever fail itself — which
+>     is what this file's own header already claimed about job independence, just never
+>     applied here.
 > - **Verified locally before pushing, all six jobs**: `ruff check .` + `ruff format --check .`
 >   on the pinned 0.6.9 (clean, 32 files), `terraform fmt -check -recursive` (clean),
 >   `pytest` (150 passed / 6 skipped), `terraform validate` on both root modules, `checkov`
