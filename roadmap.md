@@ -1316,6 +1316,92 @@ Create .github/workflows/ci.yml on push + PR:
 Also create .github/workflows/scraper-canary.yml: weekly cron Sundays 18:00 UTC running tests/integration/test_scraper_contract.py with RUN_LIVE_SCRAPER=1 and SCRAPE_DO_TOKEN from secrets. On failure, opens a GitHub issue with the failure log.
 ```
 
+> **Notes from executing it (originally 2026-08-15; rescued onto `master` 2026-09-14).**
+>
+> - **⚠️ This work existed for a month without being on `master`.** It was written as GH #39,
+>   stacked on PR-033's #38, and #39 was **merged into the PR-033 branch rather than into
+>   `master`** — so it shows as "merged" on GitHub while `master` never received a single
+>   line of it. When #38 was closed (see PR-033's notes: a broken base, not a rejection), the
+>   whole CI went with it. Recovered by cherry-picking `89b4d3e` onto a branch off `master`.
+>   **This is the strongest argument in the repo against stacking PRs**: a "merged" badge on
+>   #39 is what made it invisible for a month.
+> - **`scraper-canary.yml` is deliberately NOT created here**, despite the prompt listing it.
+>   PR-031 already shipped it, on a **Wednesday** cron rather than the prompt's Sunday (Sunday
+>   lands inside the post-draw Cloudflare waiting-room window that the Thursday pipeline move
+>   exists to dodge). Recreating it would clobber that decision.
+> - **Every gate was RUN before being wired in; three of six would have been red on arrival**,
+>   and each got a different answer rather than `continue-on-error`:
+>   - **ruff**: 39 errors + 8 files to reformat, **all** in `notebooks/` and `miscellaneous/`,
+>     none in `src/`, `tests/` or `scripts/`. Not a regression — pre-commit only ever passes
+>     ruff the *changed* files, so the repo had never been linted in full. Both directories
+>     are `extend-exclude`d rather than reformatted: neither ships, and nbstripout already
+>     owns notebook hygiene. `ruff check .` now means "the code that runs in AWS".
+>   - **checkov**: 71 failures against existing infrastructure, mostly deliberate (SSE-S3 over
+>     a KMS CMK, no access logging on a personal project). Baselined in
+>     `terraform/.checkov.baseline`, so CI fails only on **new** findings — a ratchet, exactly
+>     like `--cov-fail-under`.
+>   - **bandit**: 5 findings, all false positives for these runtimes, all resolved **inline**
+>     rather than baselined, so the job blocks with no exemption file.
+> - **Trivy, not tfsec**, which the prompt names: Aqua has folded tfsec into Trivy (same
+>   engine, still maintained). Wiring a new CI to a tool its authors stopped developing is not
+>   a defensible starting point. Non-blocking with a SARIF upload, because its finding volume
+>   here has never been measured — shipping a blocking gate whose output nobody has read is
+>   the mistake the checkov baseline exists to avoid.
+> - **The coverage threshold is NOT restated in CI.** `pyproject` carries a ratchet, not the
+>   prompt's 70; `pytest` reads `--cov-fail-under` from `addopts`. Duplicating it would
+>   guarantee the two drift.
+> - **No AWS credentials anywhere in the workflow.** `terraform init -backend=false` means
+>   nothing in CI can reach the account. `terraform/bootstrap` is a separate root module and
+>   gets its own validate.
+> - **Changes made during the rescue** (the branch was written against a repo state that no
+>   longer exists):
+>   - `build-artifacts` no longer uploads `dist/loteria_silver_dq.py` / `loteria_dq_lib.zip`.
+>     Those come from PR-033, which is not on `master` yet, and `if-no-files-found: error`
+>     would have failed the job. A comment says to add them back when PR-033 lands.
+>   - The `# nosec B108` on `extract_lottery_data` was reapplied by hand: PR-031.1 rewrote
+>     that module in August, so the original hunk no longer applied.
+>   - **Two entries were stripped from the checkov baseline** — `aws_glue_job.silver_dq` and
+>     its log group. The baseline was generated on a branch that already contained PR-033, so
+>     it was pre-accepting findings for resources that do not exist yet. A baseline's whole
+>     contract is "the findings accepted **today**"; pre-suppressing tomorrow's is how a
+>     ratchet quietly stops ratcheting.
+> - **Gotcha worth remembering: bandit scans comment TEXT for its suppression token**, so an
+>   explanatory comment that quotes `nosec` becomes a suppression and silently disables the
+>   check. The comments in `transformer.py` name the check id instead.
+> - **A second bandit gotcha, found during the rescue.** The job logs two
+>   `WARNING nosec encountered (B108), but no failed test` lines for `transformer.py:245-246`.
+>   They are **not** dead suppressions: bandit 1.9.4 attributes an f-string's B108 to a
+>   different column than the one it reconciles `nosec` against, so it both skips the finding
+>   and warns that it found nothing to skip. Verified by deleting the two markers — B108 fires
+>   at `245:31` and `246:31` and the job goes red. Documented in `ci.yml` so nobody "cleans up"
+>   the warning into a broken build.
+> - **⚠️ The first real CI run (#45) went red, and BOTH failures were genuine** — which is
+>   the best possible argument for this PR. Neither was reproducible locally.
+>   - **`test`: great-expectations version drift.** `pyproject`'s `dq` and `dev` extras
+>     floated at `>=1.0,<2.0` while `requirements/dq.txt` — what the Glue job installs — was
+>     pinned to `1.20.0`. A clean runner resolved **1.23.0**, and since the committed suite
+>     JSON records the GX version that produced it, `test_dq_suites` failed with no code
+>     change. It would have kept failing at random on every future GX release, and worse,
+>     CI was validating a different GX than production runs. Both extras are now pinned to
+>     `1.20.0`. Bumping GX becomes a deliberate act: change all three pins and run
+>     `make dq-sync`. **A repo about data-quality reproducibility was testing against
+>     "whatever PyPI shipped this morning".**
+>   - **`tf-security`: the Trivy action tag does not exist.** Pinned to `0.28.0`; the action
+>     publishes **`v`-prefixed** tags and is now on `v0.36.0`. The original author recorded
+>     that Trivy "could not be installed in the environment where this PR was written" — so
+>     the version was never verified, and this is exactly the failure that implies.
+>     **The real damage was structural**, though: GitHub resolves every action in a job
+>     *before* running any step, so the bad reference killed the job in 2 seconds and
+>     **checkov never ran at all**. A deliberately non-blocking scanner silently disabled a
+>     blocking one. Trivy now lives in its own job, so it can only ever fail itself — which
+>     is what this file's own header already claimed about job independence, just never
+>     applied here.
+> - **Verified locally before pushing, all six jobs**: `ruff check .` + `ruff format --check .`
+>   on the pinned 0.6.9 (clean, 32 files), `terraform fmt -check -recursive` (clean),
+>   `pytest` (150 passed / 6 skipped), `terraform validate` on both root modules, `checkov`
+>   against the baseline (exit 0), `bandit -r src/ -q` (exit 0), and `make build` (exit 0,
+>   producing exactly the three uploaded paths).
+
 ## PR-035 — Bump coverage gate
 **Prompt:**
 ```
@@ -1459,7 +1545,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | todo | — |
-| 034 | GitHub Actions CI | todo | — |
+| 034 | GitHub Actions CI | in-progress | rescued from the closed #39 |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |
 | 037 | Diagrams in draw.io | todo | — |

@@ -25,7 +25,20 @@ dependencies = [
 # pip-installs great-expectations" therefore cannot work as written — pip would resolve back
 # to the 0.18 line, whose API is incompatible with everything in src/loteria/dq. PR-033 has
 # to pick a runtime that is 3.10+.
-dq = ["great-expectations>=1.0,<2.0"]
+#
+# ⚠️ PINNED, not floated, and PR-034's first CI run is why. The committed suite JSON under
+# qa/great_expectations/ records the GX version that produced it, and
+# tests/unit/test_dq_suites.py asserts the committed file still matches the Python builders.
+# With `>=1.0,<2.0` here, CI installed whatever PyPI had that morning (1.23.0) while the
+# committed suites and every developer machine were on 1.20.0 — so the test failed on a
+# clean runner with no code change, and would have kept failing at random on every future
+# GX release. requirements/dq.txt (what the Glue job actually installs) was already pinned
+# to 1.20.0; these now match it, so CI validates the same GX that production runs.
+#
+# Bumping GX is therefore a deliberate, reviewable act: change all three pins together and
+# run `make dq-sync` to regenerate the committed suites. The test failing on an un-synced
+# bump is the test doing its job.
+dq = ["great-expectations==1.20.0"]
 dev = [
     "pytest",
     "pytest-cov",
@@ -33,7 +46,7 @@ dev = [
     "black",
     "mypy",
     "moto",
-    "great-expectations>=1.0,<2.0",  # also declared in the "dq" extra above
+    "great-expectations==1.20.0",  # keep in step with the "dq" extra and requirements/dq.txt
     "nbstripout",
     "pre-commit",
 ]
@@ -51,6 +64,22 @@ package = false
 target-version = "py312"
 line-length = 100
 src = ["src"]
+
+# PR-034. Until CI existed, ruff only ever ran through pre-commit — which passes it the
+# CHANGED files, so nothing here had been linted in full. `ruff check .` over the repo
+# reports 39 errors and `ruff format --check .` wants to reformat 8 files, every one of them
+# in the two directories below and none in src/, tests/ or scripts/.
+#
+# They are excluded rather than fixed, because neither ships:
+#   - notebooks/ is exploratory EDA. Reformatting a notebook rewrites its JSON wholesale for
+#     no benefit, and its hygiene is already nbstripout's job (see .pre-commit-config.yaml).
+#     E501 on a matplotlib call in a scratch cell is not a defect.
+#   - miscellaneous/ is one-off scripts kept for reference (a CSV downloader, an image
+#     converter, an XPath probe). Nothing imports them and nothing deploys them.
+#
+# The point is that `ruff check .` now means something: it covers exactly the code that runs
+# in AWS. A lint job that is red on arrival teaches everyone to ignore the lint job.
+extend-exclude = ["notebooks", "miscellaneous"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,270 @@
+# CI for the Loteria Santa Lucia pipeline (PR-034).
+#
+# Runs on every push to master and every pull request. Seven jobs, deliberately independent
+# so a Terraform-only change still gets a fast red/green on the Python side and vice versa —
+# and so a non-blocking scanner can never take down a blocking one (see tf-security-trivy).
+#
+# ⚠️ scraper-canary.yml is NOT created here. PR-034's prompt lists it, but PR-031 already
+# shipped it (with a Wednesday cron rather than the prompt's Sunday, for reasons recorded
+# there). Recreating it would either clobber those decisions or duplicate the workflow.
+
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Read-only by default; the one job that needs more asks for it locally.
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run irrelevant. Master is excluded from
+# cancellation because its runs produce the build artifacts.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.12" # matches .python-version and requires-python
+  # Pinned to the version in .pre-commit-config.yaml. If CI floated to latest, a new ruff
+  # release would fail PRs on rules the pre-commit hook never mentioned locally — the
+  # fastest way to teach people that CI is noise.
+  RUFF_VERSION: "0.6.9"
+  TERRAFORM_VERSION: "1.15.7"
+
+jobs:
+  # -------------------------------------------------------------------------------------
+  lint:
+    name: lint (ruff + terraform fmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ruff
+        run: pip install "ruff==${RUFF_VERSION}"
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive terraform/
+
+  # -------------------------------------------------------------------------------------
+  test:
+    name: test (pytest + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # The dev extra is the single source of truth for the test dependencies (it pulls in
+      # pytest, moto and great-expectations). `[tool.uv] package = false` only affects uv;
+      # pip installs the project fine, and tool.pytest's `pythonpath = ["src"]` is what the
+      # imports actually resolve through.
+      - name: Install
+        run: pip install -e '.[dev]'
+
+      # ⚠️ The coverage threshold is NOT specified here. PR-034's prompt says "fail under
+      # 70%, matches pyproject" — but pyproject deliberately carries a RATCHET, not a target
+      # (currently 56, see the long comment there). Hardcoding 70 in CI would fail every PR
+      # today, and duplicating whatever pyproject says would guarantee the two drift.
+      # `pytest` reads --cov-fail-under from pyproject's addopts; that is the gate.
+      # `-ra` is already in pyproject's addopts, so the run ends with a summary naming every
+      # skipped test and why. That matters here: the integration marker is opt-in (PR-031),
+      # and PR-031's own bug was a guard that skipped silently.
+      - name: pytest
+        run: pytest -v
+
+  # -------------------------------------------------------------------------------------
+  tf-validate:
+    name: terraform validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # bootstrap/ is a separate root module (it creates the state backend), so it needs
+        # its own init + validate. Validating only terraform/ would leave it unchecked.
+        directory: [terraform, terraform/bootstrap]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      # -backend=false: validation needs the providers and the module graph, not the S3
+      # state. This keeps CI free of AWS credentials entirely — nothing in this workflow
+      # can read or touch the real account.
+      - name: terraform init
+        run: terraform -chdir=${{ matrix.directory }} init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform -chdir=${{ matrix.directory }} validate
+
+  # -------------------------------------------------------------------------------------
+  tf-security:
+    name: terraform security (checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install checkov
+        run: pip install checkov
+
+      # ⚠️ BASELINED, and this is the whole design of the job.
+      #
+      # Run bare, checkov reports 71 failures against the existing infrastructure — mostly
+      # deliberate choices (SSE-S3 rather than a KMS CMK, no access logging on a personal
+      # project) that are not getting fixed in a CI PR. A job that is red on day one is a
+      # job everyone learns to ignore, which is the same failure this repo already wrote
+      # down twice: a coverage gate nobody can pass, and a canary that silently skips.
+      #
+      # So the baseline captures today's findings and this fails only on NEW ones. It is a
+      # ratchet, exactly like pyproject's --cov-fail-under. Hardening the baseline away is
+      # its own work; regressing further is what gets blocked.
+      #
+      # Regenerate after intentionally accepting a new finding:
+      #   checkov -d terraform/ --create-baseline
+      - name: checkov
+        run: checkov -d terraform/ --baseline terraform/.checkov.baseline --compact
+
+
+  # -------------------------------------------------------------------------------------
+  # Trivy, NOT tfsec, despite the roadmap prompt naming tfsec. Aqua Security has folded
+  # tfsec into Trivy ("our engineering attention will be directed at Trivy going forward") —
+  # same Terraform scanning engine, still maintained. Wiring a brand-new CI to a tool its
+  # authors have stopped developing is not a defensible starting point.
+  #
+  # ⚠️ ITS OWN JOB, and the first CI run is why. Trivy started out as two steps inside
+  # tf-security, pinned to a version tag that does not exist (`0.28.0`; the action publishes
+  # `v`-prefixed tags and is now on v0.36.0). GitHub resolves every action in a job BEFORE
+  # running any step, so the bad reference killed the whole job in 2 seconds and **checkov
+  # never ran at all** — a non-blocking scanner silently disabled a blocking one, which is
+  # the opposite of what both were for. Separating them means Trivy can only ever fail
+  # itself. This is the same reasoning the header of this file already gives for keeping the
+  # jobs independent; it just had not been applied here.
+  #
+  # NON-BLOCKING on purpose: unlike checkov, Trivy's finding volume on this repo has still
+  # not been measured, and shipping a blocking gate whose output nobody has looked at is how
+  # you get a permanently red pipeline. Findings go to the Security tab, where they can be
+  # triaged; promote this to blocking with a baseline once the volume is known.
+  tf-security-trivy:
+    name: terraform security (trivy, non-blocking)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # to upload the SARIF
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: trivy config scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: terraform/
+          format: sarif
+          output: trivy.sarif
+          exit-code: "0" # report, do not fail — see above
+
+      - name: Upload trivy results
+        if: always() && hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-config
+
+  # -------------------------------------------------------------------------------------
+  python-security:
+    name: python security (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit
+
+      # Blocking, unlike the Terraform scan, because the finding count here was small enough
+      # to actually resolve: 5, all false positives for this runtime, each suppressed inline
+      # with the reason next to it (a secret NAME mistaken for a password; /tmp paths, which
+      # in Lambda and Glue are per-execution and the only writable filesystem there is).
+      # No baseline file, so a NEW finding is a real red.
+      #
+      # ⚠️ Expect two harmless lines in this job's log:
+      #     WARNING  nosec encountered (B108), but no failed test on ... transformer.py:245
+      #     ... :246
+      # They are a bandit quirk, not dead suppressions. Bandit attributes an f-string's B108
+      # to a different column than the one it reconciles nosec against, so it both SKIPS the
+      # finding (the run reports "3 issues skipped due to specifically being disabled") and
+      # warns that it found nothing to skip. Verified on bandit 1.9.4 by deleting those two
+      # markers: B108 fires at 245:31 and 246:31 and this job goes red. So do not "clean up"
+      # those two comments to silence the warning — that is what the warning tempts you into.
+      - name: bandit
+        run: bandit -r src/ -q
+
+  # -------------------------------------------------------------------------------------
+  build-artifacts:
+    name: build artifacts
+    # Only on master. On a PR these would be thrown away, and the layer build costs a pip
+    # install of the extractor's dependencies.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [lint, test, tf-validate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # Builds the Lambda layer, the Lambda code zip and the Glue transformer zipapp.
+      # PR-033 adds the Silver DQ job script + library zip to `make build`; when it lands,
+      # add dist/loteria_silver_dq.py and dist/loteria_dq_lib.zip to the upload paths below.
+      - name: make build
+        run: make build
+
+      # These are the deploy inputs, not a release: Terraform manages the two Lambda zips
+      # from terraform/, while the Glue artifact has to be uploaded to the code bucket by
+      # hand (see the runbooks). Publishing them here means the exact bytes that passed CI
+      # are the ones that can be deployed, instead of whatever a laptop produced.
+      #
+      # `if-no-files-found: error` makes this list load-bearing: a path that stops being
+      # produced fails the job instead of silently shrinking the artifact.
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-artifacts-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            terraform/lambda_layer.zip
+            terraform/lambda_package.zip
+            dist/lottery_transformer.zip
