@@ -102,6 +102,32 @@ be able to change Silver. `glue_dq_role` has `s3:GetObject` + `s3:ListBucket` on
 prefix, read on the artifact bucket, and CloudWatch Logs. No write, no delete, no Secrets
 Manager.
 
+## Two checkov findings, accepted deliberately
+
+The two resources this PR creates each trip a check, and PR-034's baseline was edited to
+accept both:
+
+| Check | Resource |
+|---|---|
+| `CKV_AWS_158` — CloudWatch log group not encrypted with a KMS CMK | `aws_cloudwatch_log_group.silver_dq` |
+| `CKV_AWS_195` — Glue component has no security configuration | `aws_glue_job.silver_dq` |
+
+**Neither is a new concession.** The sibling resources in the same file — the shared Python
+Shell log groups and the transform job — already carry exactly these two check ids in the
+baseline. Accepting them here keeps one standing project decision (SSE-managed encryption
+rather than a customer-managed CMK) applied consistently, instead of making the DQ job the
+one resource in the stack with a CMK and a key policy to maintain.
+
+This mattered enough to do in the open: PR-034's baseline arrived with these two entries
+**already in it**, because it was generated on a branch that contained this PR. They were
+stripped there so these resources would be evaluated fresh when they actually landed — which
+is what happened, and this is the deliberate acceptance that follows. A baseline that
+pre-accepts findings for resources nobody has reviewed is not a ratchet.
+
+Revisit if the log ever carries something the rest of the lake does not. Today it carries
+expectation names, column names, row counts and sample values from failing rows — all of it
+derived from data the lottery publishes publicly.
+
 ## Deploy
 
 ### 1. Build and upload the artifacts
