@@ -32,8 +32,8 @@ from loteria.common.logging_setup import configure_logging  # noqa: E402
 from loteria.dq.runner import (  # noqa: E402
     DATASET_SUITES,
     SILVER_PREFIX_DEFAULT,
-    DQReport,
     SilverDatasetEmpty,
+    format_report,
     quiet_gx,
     run_dq,
 )
@@ -47,38 +47,6 @@ EXIT_OK = 0
 EXIT_DQ_FAILED = 1
 EXIT_NO_DATA = 2
 EXIT_USAGE = 3
-
-
-# --------------------------------------------------------------------------------------
-# Reporting
-# --------------------------------------------------------------------------------------
-def format_report(report: DQReport) -> str:
-    """A plain-text summary, sized for a CloudWatch log line rather than a terminal.
-
-    No colour and no box drawing: in PR-033 this output is what someone reads out of a Glue
-    job log or an SNS alert body, where ANSI escapes are noise.
-    """
-    lines = []
-    for suite in report.suites:
-        status = "PASS" if suite.success else "FAIL"
-        lines.append(
-            f"[{status}] {suite.suite}: {len(suite.results)} expectations, "
-            f"{suite.rows} rows from {suite.files} files"
-        )
-        for failure in suite.failures:
-            column = f" on '{failure.column}'" if failure.column else ""
-            detail = ""
-            if failure.unexpected_count is not None:
-                detail = f" — {failure.unexpected_count} unexpected"
-                if failure.unexpected_percent is not None:
-                    detail += f" ({failure.unexpected_percent:.2f}%)"
-            lines.append(f"    FAILED {failure.expectation}{column}{detail}")
-            if failure.partial_unexpected:
-                lines.append(f"      e.g. {failure.partial_unexpected}")
-
-    lines.append("")
-    lines.append("DQ RESULT: " + ("PASS" if report.success else "FAIL"))
-    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------------------

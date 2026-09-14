@@ -117,13 +117,17 @@ pythonpath = ["src"]
 # because moto exercises s3_utils to 73% and aws_secrets to 45% as a side effect of the
 # transformer running for real). PR-032 56 (actual 56.11 — src/loteria/dq lands at 100%,
 # and its end-to-end test drives the transformer again, which pushes logging_setup to 97%).
+# PR-033 67 (actual 67.13 — the gate tests cover glue_entrypoint.py to 98% and, by moving
+# format_report/summarize_failures out of scripts/run_dq.py and into the library, take
+# dq/runner.py from 58% to 100%: code in scripts/ is not measured, so the move converted
+# untracked lines into tracked and tested ones).
 # Next stop PR-035, which takes it to 85; what is left uncovered is the extractor,
 # metrics.py, purge_and_load.py and object_count.py.
 #
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=56"
+addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=67"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see

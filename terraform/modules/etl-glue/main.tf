@@ -98,3 +98,126 @@ resource "aws_glue_job" "lottery_transform" {
     Environment = var.environment
   }
 }
+
+
+# =======================================================================================
+# PR-033 — the Silver data-quality gate job
+# =======================================================================================
+#
+# WHY THIS IS A SPARK (`glueetl`) JOB AND THE TRANSFORM JOB ABOVE IS NOT.
+#
+# The roadmap asked for "a Python Shell job that pip-installs great-expectations". That
+# cannot work, and PR-032 proved it before this PR started: great-expectations 1.x declares
+# `requires-python >=3.10`, and Python Shell offers only 3.6 and 3.9 (PR-020's spike, and
+# the module note at the top of this file). On 3.9 pip silently resolves back to the GX 0.18
+# line, whose API is unrelated to the one `loteria.dq` is written against — it installs
+# cleanly and then fails at import, inside the job, on a Thursday.
+#
+# So this job exists only to get a newer interpreter. Glue 5.0 is Python 3.11. The script
+# never creates a SparkContext; it runs as a plain Python process on the driver. We are
+# paying for a Spark cluster to get an interpreter version, which is worth stating plainly
+# rather than discovering later: at one run a week on the smallest legal configuration it is
+# a few cents, and it is the cheapest of the three options (the others being to rewrite the
+# suites against GX 0.18, or to move the gate off Glue entirely onto Lambda/Fargate, which
+# buys a second runtime to maintain).
+#
+# Consequences of the job type that are NOT cosmetic:
+#   - `script_location` must be a .py file, not a zip. Spark jobs are spark-submit'ed; they
+#     do not run a zip as a zipapp the way pythonshell does, so the `__main__.py`-at-the-root
+#     trick from scripts/glue_zip_main.py does not apply here. Our own package arrives
+#     separately via `--extra-py-files`.
+#   - `max_capacity` is not allowed alongside worker_type/number_of_workers for glueetl —
+#     the capacity model is workers, and 2 x G.1X is the documented minimum.
+#   - Unlike pythonshell, a Spark job CAN have its own log group via continuous logging, so
+#     this one does (see below) instead of sharing the account-wide groups.
+
+# Per-job log group, which the transform job cannot have.
+#
+# `--continuous-log-logGroup` is a Spark-only argument (this is the exact limitation called
+# out in the PR-023 note above, seen from the other side). A dedicated group matters more
+# here than elsewhere: the whole output of this job is a verdict someone reads after an
+# alert, and hunting for it inside the account-wide /aws-glue/python-jobs/output — shared
+# with every run of the transformer — is the difference between a 10-second and a 10-minute
+# incident response.
+#
+# Note this does NOT capture everything: Glue still writes the driver's stdout/stderr to
+# /aws-glue/jobs/output and /aws-glue/jobs/error. Continuous logging carries the application
+# logs, which is where `format_report`'s verdict lands.
+resource "aws_cloudwatch_log_group" "silver_dq" {
+  name              = "/aws-glue/jobs/loteria-silver-dq-${var.environment}"
+  retention_in_days = var.log_retention_days
+
+  tags = {
+    Project     = "Loteria-Santa-Lucia"
+    Environment = var.environment
+  }
+}
+
+resource "aws_glue_job" "silver_dq" {
+  name     = "loteria-silver-dq-${var.environment}"
+  role_arn = var.dq_job_role_arn
+
+  # Real, not inert: for glueetl this selects the runtime (5.0 => Python 3.11, Spark 3.5).
+  glue_version = var.dq_glue_version
+
+  # The documented floor for a Spark job. The work is single-threaded pandas on the driver —
+  # the workers do nothing — so anything above the minimum is money for no throughput.
+  worker_type       = "G.1X"
+  number_of_workers = 2
+
+  # A DQ run that hangs must not bill for hours. The whole Silver layer is ~117k rows across
+  # ~222 files; the observed local run is seconds, and the S3 reads dominate.
+  timeout = var.dq_timeout_minutes
+
+  command {
+    name            = "glueetl"
+    script_location = "s3://${var.code_bucket}/${var.dq_script_key}"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    # Our own code. Unlike the transformer's zipapp, this zip is a library on sys.path — the
+    # entry point is the script above, which imports from it.
+    "--extra-py-files" = "s3://${var.code_bucket}/${var.dq_lib_key}"
+
+    # great-expectations is pip-installed at job start rather than vendored into the zip,
+    # because it has compiled transitive dependencies that must be resolved for the job's
+    # interpreter, not for whatever machine ran the build script. pandas and pyarrow are
+    # deliberately NOT listed: Glue 5.0 already ships them, and pinning them here would
+    # fight the runtime's own versions — the same reasoning as requirements/dq.txt, which
+    # is where the pin below comes from and must stay in sync with.
+    "--additional-python-modules" = "great-expectations==${var.great_expectations_version}"
+
+    "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
+    "--SILVER_PREFIX"      = var.silver_prefix
+
+    # Per-job logging (Spark-only; see the log group above).
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--continuous-log-logGroup"          = aws_cloudwatch_log_group.silver_dq.name
+
+    # Off on purpose. The Spark UI writes event logs to S3, which would mean granting this
+    # job's otherwise read-only role a PutObject it has no other use for — and there is no
+    # Spark job to inspect, because nothing here runs on Spark.
+    "--enable-spark-ui" = "false"
+
+    # Metrics and bookmarks are off for the same reason: this job reads the whole dataset
+    # every run by design (uniqueness is a property of the dataset, not of a batch — see
+    # loteria/dq/runner.py), so a bookmark that skipped "already processed" files would
+    # silently turn the strongest expectation in the suite into a no-op.
+    "--enable-metrics"      = "false"
+    "--job-bookmark-option" = "job-bookmark-disable"
+
+    "--job-language" = "python"
+  }
+
+  # One at a time. Two concurrent validations of the same immutable layer would return the
+  # same verdict and bill twice.
+  execution_property {
+    max_concurrent_runs = 1
+  }
+
+  tags = {
+    Project     = "Loteria-Santa-Lucia"
+    Environment = var.environment
+  }
+}

@@ -1302,6 +1302,74 @@ After the silver crawlers succeed and before the Gold CTAS map state, add:
 If DQ fails, transition to a Fail state that publishes to the SNS alerts topic with the failure details. Gold is NOT built when DQ fails.
 ```
 
+> **Notes from executing it (2026-09-14):** the gate is wired, 28 new tests, coverage
+> ratchet 56 → **67**. Runbook: `docs/runbooks/PR-033-dq-gate.md`.
+>
+> - **🚨 The prompt's job type is wrong and PR-032 had already proved it.** "A Python Shell
+>   job that pip-installs great-expectations" cannot work: GX 1.x needs Python >= 3.10 and
+>   Python Shell offers only 3.6/3.9 (PR-020). The job is `glueetl` on **Glue 5.0**
+>   (Python 3.11). It never creates a `SparkContext` — we are buying an interpreter version
+>   and paying for a Spark cluster to get it, which at `2 × G.1X` once a week is a few cents
+>   and still beats the alternatives (rewrite 20 expectations against GX 0.18, or run the
+>   gate on Lambda/Fargate and maintain a second runtime).
+> - **PR-032 left a half-finished entry point in `dist/`, and it would not have run.**
+>   `dist/loteria_silver_dq.py` (2026-08-15, gitignored, referenced by nothing) imported
+>   `format_report` and `summarize_failures` from `loteria.dq.runner`. `format_report` lives
+>   in `scripts/run_dq.py`; `summarize_failures` did not exist at all. It would have raised
+>   `ImportError` on the first job run. Recovered as `src/loteria/dq/glue_entrypoint.py`, and
+>   both functions now live in the library — which is the right home anyway, because the CLI
+>   and the job must render the same verdict or the SNS alert stops matching the log it tells
+>   you to open. Side effect worth noting: moving them out of `scripts/` (not measured) into
+>   `src/` (measured) is most of the coverage jump, taking `dq/runner.py` 58% → 100%.
+> - **`awsglue.utils.getResolvedOptions` was dropped, not merely avoided.** It raises for any
+>   name in its list that was not supplied, so the optional arguments needed hand-rolled
+>   parsing regardless — and two parsers that disagree is worse than one. Parsing everything
+>   ourselves also keeps the module importable without `awsglue`, which only exists inside
+>   Glue, and is the only reason `tests/unit/test_glue_entrypoint.py` can exist at all.
+> - **A separate READ-ONLY IAM role, not `glue_job_role`.** Reusing the transform role was one
+>   line, but that role carries `s3:PutObject`/`s3:DeleteObject` on both data buckets. A
+>   validator that can modify what it validates is not a gate: the whole value of this PR is
+>   an independent assertion that Silver is fine, so the asserting thing must not be able to
+>   change Silver.
+> - **⚠️ MODULE CYCLE, and the workaround has a maintenance cost.** The Fail path publishes to
+>   the SNS alerts topic, which `module.observability` owns — but observability already
+>   consumes `module.orchestration` (the dashboard and alarms name the state machine, the
+>   gold-purge Lambda and the weekly rule). Passing the output back is a cycle Terraform
+>   rejects. The ARN is therefore **constructed from the name** in `terraform/main.tf`, which
+>   is already this stack's pattern (`modules/iam` builds the state-machine, gold-purge and
+>   log-group ARNs the same way). **A plan will NOT catch a rename**: both sides stay valid
+>   strings and the failure is an `AccessDenied` at the first DQ failure — i.e. exactly when
+>   nobody wants to debug it. Lifting the topic into its own module is the real fix and is a
+>   state move for one string; deferred.
+> - **No `Retry` on `RunSilverDQ`, and that is a decision.** Every other Task in the machine
+>   retries, so the absence needs stating: a failed expectation is deterministic — the same
+>   immutable Silver validated twice gives the same verdict — so a retry would burn a second
+>   Glue run to reach the identical conclusion and delay the alert by a full job duration.
+> - **The alert names the suite, the expectation and the column**, because PR-025's
+>   `sfn_execution_failed` alarm already covers "an execution failed". This state exists to
+>   make the failure *actionable*, not visible, and there is a test whose only job is to fail
+>   if that message ever degrades to "DQ failed".
+> - **Why the gate sits AFTER the crawlers** even though the DQ job reads Parquet directly
+>   from S3 with boto3 and does not need the catalog: running it after means a green verdict
+>   describes the exact state Gold is about to read, and it inherits PR-026.1's guarantee
+>   that the crawl finished — so "DQ passed but Gold missed the newest sorteo" cannot happen.
+> - **The gate protects the OLD data, not just the new.** `purge_and_load` drops each gold
+>   table and empties its S3 prefix before the CTAS runs, so admitting bad Silver would not
+>   merely write wrong Gold — it would destroy the last known-good Gold on the way. This is
+>   audit fault B (PR-042) seen from the other side, and it is why the gate is worth more
+>   here than the usual "don't publish bad numbers" argument.
+> - **Not done, deliberately:** referential integrity (every `premios.numero_sorteo` exists in
+>   `sorteos`), which PR-032 flagged for this PR. It needs a value set computed at run time
+>   from a second dataset — a change to the runner's validation model, not to this PR's
+>   plumbing. Carried to PR-035.
+> - **Verified without running the pipeline** (no scrape.do credits spent): 178 tests green,
+>   `terraform validate` clean, the state graph checked statically (every `Next` target names
+>   a real state), and the built artifacts executed standalone with only
+>   `loteria_dq_lib.zip` on `sys.path` — reaching the real S3 call before failing on
+>   deliberately fake credentials, which proves the `--extra-py-files` layout resolves.
+>   The ASL itself still needs `aws stepfunctions validate-state-machine-definition` against
+>   a real plan (step 2 of the runbook) — that needs AWS and is the owner's step.
+
 ## PR-034 — GitHub Actions CI
 **Prompt:**
 ```
@@ -1489,6 +1557,253 @@ Add a "Tested deploy" badge / note: "Fresh-account deploy verified on YYYY-MM-DD
 
 ---
 
+# Phase 8 — Structural repairs (from the 2026-09-14 pipeline audit)
+
+A read-only audit of the whole pipeline on 2026-09-14 (no pipeline run, no scraper credits
+spent) found five design defects that are **not** blocking anything today and will each get
+harder to fix the longer the lake grows. They are written down here so they stop being
+folklore. None of them is urgent; all of them are cheaper now than later.
+
+The audit's headline finding — the Great Expectations suites from PR-032 exist, are tested,
+and are **called by nothing in the pipeline** — is PR-033 and is not repeated here.
+
+---
+
+## PR-041 — Retire the `simple` bucket and the legacy `processed/` prefix
+**Fault A · owner decision on 2026-09-14: delete it.**
+
+**The defect.** `transform_lottery_data()` writes every draw's Parquet **twice**: once to
+`silver/{dataset}/year=/sorteo=/` in the partitioned bucket, and once to a flat
+`{simple_prefix}{dataset}_{N}.parquet` key in `lottery-data-simple-prod`
+(`src/loteria/transformer/transformer.py:244-258`). On top of that, the Glue job still
+receives `--PROCESSED_PREFIX = "processed/"` (`terraform/modules/etl-glue/main.tf:82`),
+a prefix the transformer's own comments already call legacy — the idempotency check was
+moved off it in PR-016 ("✅ Idempotency check must be against SILVER (not legacy/processed)").
+
+**Why it existed.** The flat bucket was the only way to eyeball the data before Hive-style
+partitioning was in place — download one file, open it, done. That need is gone: Athena now
+reads all three layers, and the Glue catalog registers Silver and Gold.
+
+**Why it is a defect now.** Two copies of the same data with only one declared owner. It
+costs storage forever, it invites drift (nothing verifies the two copies agree), and it
+leaves a newcomer asking which one is the source of truth. Every write also pays a second
+`put_object` for a file no reader consumes.
+
+**Prompt:**
+```
+Fault A from the 2026-09-14 audit. Retire the duplicate write path.
+
+1. src/loteria/transformer/transformer.py:
+   - Drop the `simple_prefix` parameter and both simple-bucket uploads (sorteos + premios).
+   - Silver becomes the only write target.
+2. terraform/modules/etl-glue/main.tf: remove the `--PROCESSED_PREFIX` job argument and the
+   SIMPLE_BUCKET wiring that only fed it. Check the IAM policy in modules/iam for a write
+   grant on lottery-data-simple-prod and remove that too.
+3. tests/unit/test_transformer.py: drop the simple-bucket assertions; add one asserting the
+   transformer writes to exactly one bucket.
+4. Do NOT delete any S3 data in this PR. Code and Terraform only.
+
+Out of scope: emptying or deleting the bucket (see the runbook below — it is a separate,
+deliberate, owner-run step).
+```
+
+**⚠️ Deleting the bucket is NOT a one-liner, and this is exactly where PR-002's safety net
+bites us on purpose.** Write `docs/runbooks/PR-041-retire-simple-bucket.md` covering, in
+order:
+1. Inventory it one last time (`scripts/00_inventory_and_protect.sh` already produces the
+   snapshot format) and commit the snapshot, so "what was in there" is answerable forever.
+2. **The Deny policy from PR-002 blocks `s3:DeleteObject*` for every principal except the
+   account root** — see the gold-purge experience. The policy has to come off (or be
+   narrowed) before anything can be removed, and it should go back on if the bucket is kept.
+3. **Versioning is on, so deleting objects only writes delete markers.** A real purge needs
+   `list-object-versions` + `delete-objects` over *versions and* delete markers, or a
+   lifecycle rule that expires noncurrent versions. `aws s3 rm --recursive` alone leaves the
+   bytes (and the bill).
+4. `prevent_destroy = true` is set on the bucket in `modules/storage` — Terraform will
+   refuse to destroy it until that lifecycle block is deliberately removed.
+5. Cheapest safe option to consider first: keep the empty bucket, drop the lifecycle to
+   expire everything, and leave a `README` object explaining why it is empty. Storage cost
+   goes to ~zero without ever running a destructive command against prod.
+
+**Acceptance:** transformer writes once; `terraform plan` is clean; no `PROCESSED_PREFIX`
+anywhere; the runbook exists and the owner has run (or deliberately deferred) the purge.
+
+---
+
+## PR-042 — Make the Gold publication atomic
+**Fault B.**
+
+**The defect.** `src/loteria/gold/purge_and_load.py` runs `DROP TABLE IF EXISTS` **and**
+empties the table's S3 prefix, then returns the `CREATE TABLE ... AS SELECT` for the
+Step Function's `RunCTAS` state to execute. Between the purge and a successful CTAS, the
+table **does not exist** — not "holds stale data", *does not exist*.
+
+**Why it matters.**
+- **There is no rollback.** Athena CTAS is not transactional and the DROP already happened.
+  If the CTAS fails — an Athena timeout, a workgroup limit, a bad Silver row that breaks a
+  cast — that gold table is gone *and so is last week's copy of it*, until the next Thursday
+  run. That is a **7-day** outage for one failed query.
+- **It fails partially.** `BuildGold` is a `Map` with `MaxConcurrency = 3` over 7 tables, so
+  a failure leaves some tables rebuilt, some purged-and-empty, and some untouched. Gold is
+  then internally inconsistent with no single state to reason about.
+- **The window is not instantaneous.** A reader querying during the rebuild gets
+  `TABLE_NOT_FOUND`, not stale data. There is no consumer today (deliberately — the grifo is
+  deferred), which is exactly why this is cheap to fix *now*, before one exists.
+- The S3 bytes are recoverable (versioning is on, so the purge writes delete markers) but
+  only by hand, which is not a recovery procedure.
+
+**Possible solutions, in the order they should be considered:**
+1. **Blue/green location swap (recommended).** CTAS into
+   `gold/<name>/run=<execution-id>/`, and only once it succeeds, point the catalog table at
+   the new location (drop + re-register, or `ALTER TABLE SET LOCATION`). The old location
+   keeps serving until the instant of the swap, and a failed CTAS changes nothing. A
+   lifecycle rule expires old `run=` prefixes. This keeps the current one-file-per-table SQL
+   and is the smallest change that actually removes the window.
+2. **`INSERT INTO` an already-created table.** Create each gold table once (DDL, committed),
+   then append instead of recreating. No DROP, so no window — but it needs idempotency: a
+   re-run must not double-count, so it requires either delete-by-partition first or a
+   dedupe key. Natural companion to PR-043 and the better end state if that PR lands.
+3. **Iceberg tables (deferred, see L5).** Real atomic commits and time travel, at the cost of
+   moving Gold onto a table format the rest of the stack does not use yet.
+4. **Minimum viable mitigation** if neither lands soon: have the purge Lambda copy the
+   current prefix to `gold/_previous/<name>/` before emptying it, and add a Step Function
+   `Catch` on `RunCTAS` that restores it. Ugly, but it turns a 7-day outage into a minute.
+
+**Do not** "fix" this by removing the purge — the purge exists because Athena CTAS refuses a
+non-empty `external_location` (`HIVE_PATH_ALREADY_EXISTS`). The location has to be empty *or*
+new; option 1 makes it new.
+
+---
+
+## PR-043 — Incremental Gold instead of a full weekly rebuild
+**Fault C.**
+
+**The defect.** Every Thursday all 7 gold tables are rebuilt from the entire history to
+incorporate **one** new sorteo. `01_gold_draw_summary.sql` scans all of
+`silver_sorteos_sorteos ⋈ silver_premios_premios` to produce a table whose grain is
+`numero_sorteo` — 111 of whose ~112 rows are byte-identical to last week's.
+
+**Why it matters even though it is cheap today.**
+- The work scales with **history**, not with **arrivals**. Cost and runtime grow every week
+  while the input never does. At ~117k rows it is a rounding error, and that is the trap:
+  nothing will signal the moment it stops being one.
+- **It compounds fault B.** The longer the rebuild, the longer each table sits empty.
+- Athena bills scanned bytes; a full re-scan of Silver ×7 every week is the single largest
+  recurring query cost in the project, and it buys one sorteo's worth of new information.
+- It is the thing a reviewer will ask about. "Why do you recompute 2024 every week?" has no
+  good answer, and the honest one ("it was cheap") reads as not having thought about it.
+
+**Recommendations — the 7 tables are not one problem, they are three:**
+
+| Group | Tables | What to do |
+|-------|--------|------------|
+| **Already partitioned by `year`** | `gold_geo_winnings`, `gold_vendor_leaderboard`, `gold_time_series` | The cheapest real win. Rebuild **only the current year's partition**: `INSERT INTO` after deleting that one partition, with the `SELECT` filtered by `WHERE year = <current>`. Prior years are immutable — a sorteo never changes after it is drawn — so re-deriving them is pure waste. |
+| **Append-only grain** | `gold_draw_summary` (one row per `numero_sorteo`) | The grain matches the arrival unit exactly. `INSERT INTO ... WHERE numero_sorteo NOT IN (SELECT numero_sorteo FROM gold_draw_summary)` appends just the new draws and is naturally idempotent. |
+| **Global aggregates** | `gold_winning_number_frequency`, `gold_terminations`, `gold_letters_distribution` | Every row genuinely depends on the whole history (they are frequency counts). Full rebuild is *correct* here. Keep it — but write the decision down in the SQL file's header so it reads as a choice, not an oversight. These three are also small enough that PR-042's swap makes them safe. |
+
+**Sequencing note:** this PR is much easier **after** PR-042. Option 2 there (`INSERT INTO`
+a persistent table) is the same mechanism this PR needs, so doing B first means C is mostly
+SQL. Doing C first means writing the incremental logic twice.
+
+**Prompt sketch (do not run until PR-042 lands):**
+```
+For the four incremental tables, change sql/gold/*.sql from `DROP + CTAS` to:
+  - a one-time committed CREATE TABLE (DDL only, no SELECT) under sql/gold/ddl/
+  - a per-run INSERT INTO with the year/sorteo filter
+Then teach src/loteria/gold/purge_and_load.py the two modes (full vs incremental) and mark
+which mode each file uses in a header comment the Lambda parses — same pattern it already
+uses to parse external_location and the table name, so the SQL file stays the one source
+of truth.
+```
+
+---
+
+## PR-044 — `quarantine/` for rows the parser rejects
+**Fault E.**
+
+**The defect.** When the parser meets something it does not understand, it logs a warning and
+moves on — `logger.warning("Skipping file with unexpected structure", ...)` in the
+transformer, and the equivalent per-row skips in `src/loteria/parser/parser.py`. The row is
+gone. Nothing records what it was, why it was dropped, or which sorteo it came from, and
+nothing counts how many were dropped in a run.
+
+**Why it matters.**
+- **Silent data loss is the worst failure mode a pipeline has**, because every downstream
+  number still looks plausible. A gold `total_premios` that is short by four rows is not
+  distinguishable from a draw that had four fewer prizes.
+- **PR-033 makes this sharper, not softer.** Once the DQ gate is wired, the suites will say
+  *that* Silver is wrong. Without a quarantine there is nowhere to look to find out *what*
+  was wrong — the offending input was discarded before it reached the layer being validated.
+- The scraper outage of 2026-08 (PR-031.1) was exactly this class of problem one stage
+  earlier: the site changed, a selector silently matched nothing, and the failure surfaced as
+  absence rather than as an error. The lesson generalizes — absence must be recorded.
+
+**What to build:**
+```
+1. A quarantine writer in src/loteria/common/ (or loteria/parser/): given the raw line/block,
+   a machine-readable reason code, the sorteo number and the correlation_id, write to
+   s3://<partitioned>/quarantine/dataset=<sorteos|premios>/year=<YYYY>/sorteo=<NNNN>/
+   as Parquet (not .txt — it has to be queryable).
+2. Replace the silent skips in parser.py and transformer.py with calls to it. The row is
+   still skipped; it is now also kept.
+3. Emit a CloudWatch metric `QuarantinedRows` (the PR-026 custom-metric pattern) and add a
+   PR-025-style alarm: > 0 quarantined rows in a run is worth an email, because today the
+   expected value is exactly zero.
+4. Register the prefix as a table (crawler or CTAS) so `SELECT reason, count(*)` works in
+   Athena. A quarantine nobody can query is a folder.
+5. Add the reason-code vocabulary to the runbook — free-text reasons make step 4 useless.
+```
+
+**Design note:** quarantine is **not** a dead-letter queue to be replayed automatically. The
+whole point is that a human reads it and decides whether the parser or the source changed.
+Resist adding a reprocessing path in this PR.
+
+---
+
+## PR-045 — Lineage columns in Silver
+**Fault F.**
+
+**The defect.** Silver Parquet carries only business columns. There is no `ingested_at`, no
+`run_id`, no source-file reference. PR-018 already threads a `correlation_id` through the
+**logs** of every stage (extractor → transformer → gold), and `glue_zip_main.py` bridges it
+into the Glue job's environment — but it never reaches the **data**.
+
+**Why it matters.**
+- When a gold table looks wrong, the first question is "which run produced these rows?" Today
+  that is answered by correlating S3 object timestamps against CloudWatch by hand.
+- **Reprocessing is unsafe without it.** If a sorteo ever has to be re-scraped and rewritten
+  (the 2026-08 outage nearly forced this), there is no way to tell the old rows from the new
+  ones after the fact.
+- It is the cheapest possible moment to add this. Backfilling a column across 222 existing
+  Parquet files later means rewriting all of them; adding it now means new files have it and
+  a single optional backfill job handles the rest.
+- It makes the PR-033 gate stronger for free: `expect_column_values_to_not_be_null` on
+  `run_id` catches "something wrote Silver outside the pipeline", which nothing currently can.
+
+**What to add:**
+```
+Columns on both silver datasets (sorteos + premios):
+  - ingested_at   timestamp, UTC, the moment the transformer wrote the file
+  - run_id        string, the PR-018 correlation_id (= the Step Function execution name)
+  - source_key    string, the raw/ S3 key the row was derived from
+
+1. Set them in src/loteria/transformer/transformer.py right before the Parquet write.
+2. Add the three columns to the PR-032 suites (not-null on all three) and re-sync the
+   committed JSON with `make dq-sync`.
+3. The silver crawlers pick the new columns up on the next run — but confirm, because a
+   schema change on an existing table is exactly the case where a crawler can create a
+   second table instead of evolving the first.
+4. Optional follow-up, separate PR: a one-shot backfill for the 222 existing files, writing
+   a sentinel run_id like "backfill-PR-045" so pre-lineage rows are identifiable as such.
+```
+
+**Watch out:** the gold CTAS files `SELECT` explicit columns, so new Silver columns will not
+leak into Gold by accident — verify that when writing this, and decide deliberately whether
+`gold_draw_summary` should carry the `run_id` that built it (recommended: yes, it is the only
+way to trace a gold row back to a pipeline run).
+
+---
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -1544,11 +1859,16 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
-| 033 | DQ gate in Step Function | todo | — |
-| 034 | GitHub Actions CI | in-progress | rescued from the closed #39 |
+| 033 | DQ gate in Step Function | in-progress | — |
+| 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |
 | 037 | Diagrams in draw.io | todo | — |
 | 038 | ADRs | todo | — |
 | 039 | Fill in Makefile | todo | — |
 | 040 | `.envrc.example` + final polish | todo | — |
+| 041 | Retire the `simple` bucket + legacy `processed/` prefix (audit fault A) | todo | — |
+| 042 | Make the Gold publication atomic (audit fault B) | todo | — |
+| 043 | Incremental Gold instead of a full weekly rebuild (audit fault C) | todo | — |
+| 044 | `quarantine/` for rows the parser rejects (audit fault E) | todo | — |
+| 045 | Lineage columns in Silver (audit fault F) | todo | — |
