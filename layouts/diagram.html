@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquitectura Lotería Santa Lucía</title>
+<link rel="stylesheet" href="css/diagram.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
+      <span>lago al día hasta el sorteo 3134</span><span>·</span><span>14 sep 2026</span></p>
+    <h1>Arquitectura Lotería Santa Lucía</h1>
+    <p>Lo que está desplegado hoy. Hacé clic en cualquier pieza para ver sus nombres reales y su
+      estado, o reproducí la corrida semanal para seguir el dato de punta a punta.</p>
+  </header>
+
+  <div class="bar">
+    <button id="play" class="primary">▶ Reproducir la corrida semanal</button>
+    <div class="sep"></div>
+    <button id="tgl-pend" aria-pressed="true">Mostrar PR-033 (sin desplegar)</button>
+    <button id="tgl-bad" aria-pressed="false">Resaltar defectos</button>
+    <div class="keys">
+      <span class="key"><span class="sw ok"></span>Desplegado</span>
+      <span class="key"><span class="sw pend"></span>Escrito, sin desplegar</span>
+      <span class="key"><span class="sw bad"></span>Defecto anotado</span>
+      <span class="key"><span class="sw off"></span>Apagado / sin consumidor</span>
+    </div>
+  </div>
+
+  <div class="runbar" id="runbar">
+    <span class="step" id="runstep">EN REPOSO</span>
+    <span id="runtext">El pipeline corre una vez por semana. Pulsá «Reproducir» para verlo.</span>
+  </div>
+
+  <div class="stage">
+    <div class="canvas">
+      <svg id="map" viewBox="0 0 1400 880" role="img"
+           aria-label="Diagrama de arquitectura: el plano de control en GitHub Actions no toca la cuenta de AWS; ambos golpean el sitio de la lotería en días distintos. En AWS, EventBridge dispara Step Functions, que encadena el Lambda extractor, el job de Glue transformador, dos crawlers, un gate de calidad sin desplegar, y la construcción de siete tablas gold en Athena. Debajo, los buckets de S3, el catálogo de Glue, Athena, Lake Formation, la observabilidad y una VPC sin consumidores."></svg>
+    </div>
+
+    <aside class="panel" id="panel">
+      <span class="chip" id="p-chip">seleccioná una pieza</span>
+      <h2 id="p-title">Cómo leer esto</h2>
+      <p id="p-desc">Cada caja es algo que existe (o no) en la cuenta. El color dice su estado.
+        Hacé clic en una para ver sus nombres reales, y pasá el mouse para resaltar sus conexiones.</p>
+      <dl id="p-dl"></dl>
+      <div id="p-warn"></div>
+      <p class="hint" id="p-hint">Atajo: <b>Esc</b> limpia la selección.</p>
+    </aside>
+  </div>
+
+  <details>
+    <summary>Los cinco defectos anotados (auditoría 2026-09-14 · roadmap fase 8)</summary>
+    <div class="dbody">
+      <table>
+        <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
+        <tr><td class="pr">041</td><td>Tubería doble al bucket simple</td>
+          <td>Cada Parquet se escribe dos veces. La segunda copia no la lee nadie: paga
+            almacenamiento e invita a deriva, porque nada verifica que coincidan.</td></tr>
+        <tr><td class="pr">042</td><td>Gold no es atómica</td>
+          <td>Borra la tabla y vacía su prefijo <b>antes</b> del CTAS. Si el CTAS falla, se pierde
+            también la copia buena — durante 7 días, hasta la siguiente corrida.</td></tr>
+        <tr><td class="pr">043</td><td>Reconstrucción total semanal</td>
+          <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo escala
+            con el pasado, no con lo que llega.</td></tr>
+        <tr><td class="pr">044</td><td>Sin cuarentena</td>
+          <td>Las filas que el parser descarta se pierden sin registro. Pérdida silenciosa: los
+            números de abajo siguen pareciendo plausibles.</td></tr>
+        <tr><td class="pr">045</td><td>Silver sin trazabilidad</td>
+          <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se puede decir qué corrida
+            produjo una fila sin cruzar timestamps de S3 con logs a mano.</td></tr>
+      </table>
+    </div>
+  </details>
+</div>
+
+<script src="js/diagram.data.js"></script>
+<script src="js/diagram.js"></script>
+</body>
+</html>

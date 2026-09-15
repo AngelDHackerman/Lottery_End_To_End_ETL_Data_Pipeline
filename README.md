@@ -2,8 +2,9 @@
 
 ## 📷 Architectural Diagrams
 
-> **Start here: [`docs/diagram.html`](./docs/diagram.html)** — an interactive diagram of what is
-> *actually deployed today*. Open it in any browser; it is self-contained and needs no server.
+> **Start here: [`layouts/diagram.html`](./layouts/diagram.html)** — an interactive diagram of what is
+> *actually deployed today*. Open it in any browser; it needs no server, no CDN and no build step
+> — just the `layouts/` folder (HTML + `css/diagram.css` + `js/`).
 > Click any component for its real AWS resource names, or replay the weekly run step by step.
 >
 > ⚠️ **The two NAT diagrams below no longer describe the deployment.** They show the VPC as
