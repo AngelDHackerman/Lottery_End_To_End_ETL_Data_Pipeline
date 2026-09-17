@@ -73,3 +73,53 @@ the groups are left untouched. Both already exist in prod and are `terraform imp
 
 Extra inputs: `log_retention_days` (default 30), `manage_shared_glue_log_groups`.
 Extra output: `log_group_names`.
+
+## PR-033: a SECOND Glue job — the Silver data-quality gate
+
+This module now holds two jobs that share almost nothing but their service.
+
+| | `lottery_transform` | `silver_dq` |
+|---|---|---|
+| Type | `pythonshell` | `glueetl` (Spark) |
+| Runtime | Python 3.9 | Glue 5.0 / Python 3.11 |
+| Artifact | one zip, run as a zipapp | a `.py` script + a lib zip via `--extra-py-files` |
+| Role | `glue_job_role` (read/write) | `glue_dq_role` (**read-only**) |
+| Log group | account-wide, shared | **its own** |
+| Writes data? | yes, Silver | never |
+
+**The second job is Spark only to get a newer interpreter.** `great-expectations` 1.x needs
+Python >= 3.10; Python Shell caps at 3.9 (the note above). The script never creates a
+`SparkContext` — it runs as a plain Python process on the driver. At `2 × G.1X` once a week
+that is a few cents, and it is cheaper than rewriting PR-032's suites against the GX 0.18
+API or maintaining a second runtime outside Glue.
+
+Three consequences of the job type, none cosmetic:
+
+- **`script_location` must be a plain `.py`.** Spark jobs are `spark-submit`'ed and do not
+  execute a zip as a zipapp, so the `__main__.py`-at-the-zip-root trick used by the
+  transformer (`scripts/glue_zip_main.py`) does not apply. Hence two artifacts.
+- **`max_capacity` is rejected** alongside `worker_type`/`number_of_workers` for `glueetl`.
+  `2 × G.1X` is the documented floor, and the work is single-threaded pandas on the driver,
+  so anything above the floor is money for no throughput.
+- **A Spark job CAN have a per-job log group** — `--continuous-log-logGroup` is the Spark-only
+  argument the PR-023 note above complains about, seen from the other side. It gets one,
+  because the job's entire output is a verdict someone reads straight after an alert.
+
+Job bookmarks and metrics are off on purpose. The job reads the **whole** dataset every run
+by design: uniqueness of `numero_sorteo` is a property of the dataset, not of a batch (see
+`src/loteria/dq/runner.py`), so a bookmark skipping "already processed" files would quietly
+turn the strongest expectation in the suite into a no-op.
+
+Build the artifacts with `bash scripts/build_dq_package.sh` and upload **both** — Terraform
+does not manage these objects, and a stale lib zip fails at import inside the job rather
+than at deploy time. Full procedure: `docs/runbooks/PR-033-dq-gate.md`.
+
+`enable_silver_dq = false` gives both the job and its log group `count = 0`, leaving the
+rest of the module untouched — so the stack can be applied before the artifacts exist. The
+three `dq_*` outputs return `null` in that state, the same shape `module.observability` uses
+for its optional object-count emitter.
+
+Extra inputs: `enable_silver_dq`, `dq_job_role_arn`, `dq_script_key`, `dq_lib_key`, `dq_glue_version`,
+`great_expectations_version` (**must match `requirements/dq.txt`**), `silver_prefix`,
+`dq_timeout_minutes`.
+Extra outputs: `dq_job_name`, `dq_job_arn`, `dq_log_group_name`.

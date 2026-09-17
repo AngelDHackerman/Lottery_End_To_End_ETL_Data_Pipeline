@@ -10,10 +10,11 @@ bootstrap: ## Create the remote Terraform state backend (PR-003/PR-039)
 secrets: ## Seed Secrets Manager from prompts (PR-039)
 	@echo "TODO(PR-039): bash scripts/seed_secrets.sh"
 
-build: ## Build the lambda layer + code zip + the glue transformer zip (PR-019)
+build: ## Build the lambda layer + code zip + the glue transformer + DQ artifacts (PR-019/PR-033)
 	bash scripts/build_lambda_layer.sh
 	bash scripts/build_lambda_function.sh
 	bash scripts/build_glue_package.sh
+	bash scripts/build_dq_package.sh
 
 deploy: ## terraform apply the main stack (PR-039)
 	@echo "TODO(PR-039): cd terraform && terraform init && terraform apply"
@@ -21,9 +22,11 @@ deploy: ## terraform apply the main stack (PR-039)
 test: ## Run the test suite with coverage (PR-029/PR-039)
 	pytest -v
 
-# PR-032. Reads Silver from S3 and exits non-zero if an expectation fails — the same
-# command PR-033 runs inside the Step Function, so a red `make dq` locally means a red gate
-# in production. Needs AWS credentials and PARTITIONED_BUCKET:
+# PR-032. Reads Silver from S3 and exits non-zero if an expectation fails. PR-033 runs the
+# same `loteria.dq` code inside the Step Function (via the Glue job built by
+# scripts/build_dq_package.sh), so a red `make dq` locally means a red gate in production —
+# this is the cheap way to check before an apply. Needs AWS credentials and
+# PARTITIONED_BUCKET:
 #   make dq PARTITIONED_BUCKET=lottery-partitioned-storage-prod
 dq: ## Validate the Silver layer against its Great Expectations suites (PR-032)
 	python scripts/run_dq.py

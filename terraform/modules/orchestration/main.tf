@@ -296,6 +296,133 @@ resource "aws_lambda_function" "gold_purge" {
   }
 }
 
+# =======================================================================================
+# PR-033 — the Silver data-quality gate, rendered conditionally
+# =======================================================================================
+locals {
+  # The gate is itself gated. With enable_silver_dq = false the crawlers flow straight to
+  # PrepGold as before and none of the three states below are rendered, so the stack stays
+  # deployable before scripts/build_dq_package.sh has produced and uploaded the artifacts.
+  after_crawlers = var.enable_silver_dq ? "RunSilverDQ" : "PrepGold"
+
+  pipeline_comment = var.enable_silver_dq ? (
+    "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → silver DQ gate → gold CTAS"
+    ) : (
+    "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → gold CTAS"
+  )
+
+  # ⚠️ Gated as a JSON *string*, then decoded — NOT as `var.enable_silver_dq ? {...} : {}`.
+  #
+  # Terraform requires both branches of a conditional to unify to one type, and an ASL state
+  # map is heterogeneous by construction: a Task state has Resource/Parameters/Catch, a Fail
+  # state has Error/Cause, and they share no attributes. The direct form fails with "the
+  # 'true' value includes object attribute \"SilverDQFailed\", which is absent in the 'false'
+  # value" — the object types genuinely differ, so this is not a workaround for a Terraform
+  # quirk but for a real type mismatch. Gating a string sidesteps unification entirely, and
+  # jsondecode hands back a map that merge() accepts.
+  #
+  # The payoff is exactness: with the flag off, the rendered definition is byte-identical to
+  # the pre-PR-033 one, so turning the gate off is a genuine no-op rather than "almost the
+  # same machine".
+  dq_states = jsondecode(var.enable_silver_dq ? local.dq_states_json : "{}")
+
+  dq_states_json = jsonencode({
+    # PR-033 — THE DATA-QUALITY GATE. This is the state that sits between a Silver layer
+    # that has just been (re)catalogued and the seven CTAS that aggregate it.
+    #
+    # WHY IT IS HERE AND NOT ANYWHERE ELSE.
+    #   - AFTER the crawlers, not before: the DQ job reads Parquet straight from S3 with
+    #     boto3, so strictly it does not need the catalog. But running it after means a
+    #     green verdict describes the exact state Gold is about to read, which is the only
+    #     claim worth making. It also inherits PR-026.1's guarantee that the crawl actually
+    #     finished, so "DQ passed but Gold missed the newest sorteo" cannot happen.
+    #   - BEFORE BuildGold, unconditionally: this is the whole point. `loteria.gold.
+    #     purge_and_load` DROPs each gold table and empties its S3 prefix before the CTAS
+    #     writes it, so letting a bad Silver through does not merely produce wrong Gold —
+    #     it destroys the last known-good Gold on the way. The gate protects the old data
+    #     as much as the new.
+    #
+    # `.sync` (not the fire-and-forget form): unlike startCrawler, glue:startJobRun HAS a
+    # .sync integration, so this task really does wait for the job to finish and fails
+    # when the job fails. No polling loop is needed here — contrast local.crawler_branches,
+    # which exists precisely because startCrawler lacks this.
+    #
+    # ResultPath = null throws the Glue run summary away: BuildGold's input must stay
+    # exactly what PrepGold expects, and the verdict belongs in the job log, not in the
+    # execution payload (a full report would also push toward the 256 KB state limit).
+    RunSilverDQ = {
+      Type     = "Task",
+      Resource = "arn:aws:states:::glue:startJobRun.sync",
+      Parameters = {
+        JobName = var.dq_glue_job_name,
+        Arguments = {
+          "--PARTITIONED_BUCKET" = var.partitioned_bucket_name,
+          # PR-018: same correlation id as every other stage, so the DQ verdict can be
+          # stitched to the extractor and transformer logs it is judging.
+          "--CORRELATION_ID.$" = "$$.Execution.Name"
+        }
+      },
+      ResultPath = null,
+
+      # Deliberately NO Retry. Every other Task in this machine retries, so the absence is
+      # a decision, not an omission: a failed expectation is deterministic — the same
+      # immutable Silver layer validated twice gives the same verdict — so a retry would
+      # burn a second Glue run to reach the identical conclusion, and would delay the
+      # alert by however long the job takes. Infrastructure flakes (a Glue capacity error)
+      # are the one case a retry would help, and they arrive as a failed execution the
+      # owner can restart by hand, which is rare enough not to design around.
+      Catch = [
+        {
+          ErrorEquals = ["States.ALL"],
+          # Keep the error object — NotifyDQFailure reads $.dqError.Cause for the message.
+          ResultPath = "$.dqError",
+          Next       = "NotifyDQFailure"
+        }
+      ],
+      Next = "PrepGold"
+    },
+
+    # Publish the detail, THEN fail.
+    #
+    # PR-025's sfn_execution_failed alarm already fires on any failed execution, so this
+    # state is not what makes the failure visible — it is what makes it actionable. That
+    # alarm's message is "an execution failed"; this one carries Glue's ErrorMessage, which
+    # for a Python exception is the exception's string, which `loteria.dq.glue_entrypoint`
+    # deliberately builds out of `summarize_failures()`: the suite, the expectation and the
+    # column. The difference is reading an email versus opening three console tabs.
+    #
+    # It also distinguishes the two failure modes the entry point separates: a genuine
+    # expectation failure, and "there is no Silver data here", which means a wrong bucket
+    # or a transformer that never ran, and needs a completely different response.
+    NotifyDQFailure = {
+      Type     = "Task",
+      Resource = "arn:aws:states:::sns:publish",
+      Parameters = {
+        TopicArn    = var.alerts_topic_arn,
+        Subject     = "[Loteria ${var.environment}] Silver DQ FAILED - Gold was not built",
+        "Message.$" = "States.Format('The Silver data-quality gate failed. The Gold layer was NOT rebuilt, and the previous Gold tables are intact.\n\nExecution: {}\nDetail: {}\n\nFull verdict: log group ${var.dq_log_group_name}', $$.Execution.Name, $.dqError.Cause)"
+      },
+      # If SNS itself is the thing that is broken, still fail the execution — the alarm is
+      # the backstop. Swallowing this would turn a DQ failure into a silent success.
+      ResultPath = null,
+      Catch = [
+        {
+          ErrorEquals = ["States.ALL"],
+          ResultPath  = null,
+          Next        = "SilverDQFailed"
+        }
+      ],
+      Next = "SilverDQFailed"
+    },
+
+    SilverDQFailed = {
+      Type  = "Fail",
+      Error = "SilverDataQualityFailed",
+      Cause = "The Silver layer failed its Great Expectations suites, so the Gold CTAS map state was skipped. This is a SUCCESSFUL gate, not a broken pipeline: Gold still holds last week's data, which is correct data, and the purge that would have destroyed it never ran. Read the verdict in ${var.dq_log_group_name} — it names every failed expectation and its column. Fix Silver (re-scrape the affected sorteo, or fix the parser), then re-run the state machine."
+    }
+  })
+}
+
 resource "aws_sfn_state_machine" "pipeline_state_machine" {
   name     = local.state_machine_name
   role_arn = var.sfn_execution_role_arn
@@ -314,9 +441,12 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
   }
 
   definition = jsonencode({
-    Comment = "Run ETL pipeline: extractor Lambda → transformer Glue → silver crawlers → gold CTAS",
+    Comment = local.pipeline_comment,
     StartAt = "RunExtractorLambda",
-    States = {
+    # PR-033: the gate's three states are merged in rather than written inline, so that
+    # enable_silver_dq = false renders exactly the pre-PR-033 definition — local.dq_states is
+    # an empty map and local.after_crawlers points the crawlers back at PrepGold.
+    States = merge(local.dq_states, {
       RunExtractorLambda = {
         Type     = "Task",
         Resource = "arn:aws:states:::lambda:invoke",
@@ -414,7 +544,7 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Parameters = {},
         ResultPath = null,
         Branches   = local.crawler_branches,
-        Next       = "PrepGold"
+        Next       = local.after_crawlers
       },
 
       # Inject the (plan-time) list of gold SQL keys into the state so the Map can
@@ -470,7 +600,7 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         },
         End = true
       }
-    }
+    })
   })
 }
 

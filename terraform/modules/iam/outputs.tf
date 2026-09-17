@@ -42,3 +42,10 @@ output "object_count_lambda_role_arn" {
   description = "Execution role ARN for the per-layer S3 object-count Lambda."
   value       = aws_iam_role.object_count_lambda.arn
 }
+
+# PR-033: the read-only role for the Silver DQ job. Deliberately distinct from
+# glue_job_role_arn — see the role's comment in main.tf.
+output "glue_dq_role_arn" {
+  description = "ARN of the READ-ONLY Glue role for the Silver data-quality job."
+  value       = aws_iam_role.glue_dq_role.arn
+}

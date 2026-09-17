@@ -68,7 +68,19 @@
                     ]
                 },
                 {
+                    "resource": "module.etl_glue.aws_cloudwatch_log_group.silver_dq",
+                    "check_ids": [
+                        "CKV_AWS_158"
+                    ]
+                },
+                {
                     "resource": "module.etl_glue.aws_glue_job.lottery_transform",
+                    "check_ids": [
+                        "CKV_AWS_195"
+                    ]
+                },
+                {
+                    "resource": "module.etl_glue.aws_glue_job.silver_dq",
                     "check_ids": [
                         "CKV_AWS_195"
                     ]

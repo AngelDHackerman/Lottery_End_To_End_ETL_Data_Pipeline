@@ -7,6 +7,28 @@
 # in roughly dependency order: storage -> network -> iam -> etl-* -> catalog ->
 # orchestration -> lake-formation -> observability -> sagemaker.
 
+# PR-033: needed to build the SNS alerts topic ARN by name (see the local below).
+data "aws_caller_identity" "current" {}
+
+locals {
+  # The alerts topic is OWNED by module.observability, but module.observability already
+  # CONSUMES module.orchestration (the dashboard and alarms name the state machine, the
+  # gold-purge Lambda and the weekly rule). Passing observability's output into
+  # orchestration for the DQ failure notification would therefore be a module cycle, which
+  # Terraform rejects outright.
+  #
+  # Constructing the ARN from the name is the standard way out and is already the pattern
+  # this stack uses (modules/iam builds the state machine, gold-purge and log-group ARNs
+  # the same way, for the same one-way-dependency reason).
+  #
+  # The name MUST stay in step with aws_sns_topic.alerts in modules/observability/main.tf.
+  # A rename there without a matching change here produces a valid-looking plan and an
+  # AccessDenied at the first DQ failure — i.e. exactly when nobody wants to debug it.
+  # The alternative, lifting the topic into its own module, is a state move for one string
+  # and is deliberately deferred.
+  alerts_topic_arn = "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:loteria-alerts-${var.environment}"
+}
+
 # --- PR-007: storage (imported data buckets + athena results + lambda code) ---
 module "storage" {
   source      = "./modules/storage"
@@ -102,6 +124,11 @@ module "etl_glue" {
   # group for pythonshell — see the module note).
   log_retention_days            = var.log_retention_days
   manage_shared_glue_log_groups = var.manage_shared_glue_log_groups
+
+  # PR-033: the Silver DQ gate job. Its own READ-ONLY role, not glue_job_role_arn — a
+  # validator that can write to the layer it validates is not a gate.
+  enable_silver_dq = var.enable_silver_dq
+  dq_job_role_arn  = module.iam.glue_dq_role_arn
 }
 
 # --- PR-012: catalog (Glue DB + silver crawlers + Athena workgroup) ---
@@ -137,6 +164,13 @@ module "orchestration" {
   database_name              = module.catalog.db_name
   athena_workgroup_name      = module.catalog.athena_workgroup_name
   gold_purge_lambda_role_arn = module.iam.gold_purge_lambda_role_arn
+
+  # PR-033: the DQ gate between the silver crawlers and the gold CTAS map. The same flag
+  # feeds both modules — the job and the state that starts it have to appear together.
+  enable_silver_dq  = var.enable_silver_dq
+  dq_glue_job_name  = module.etl_glue.dq_job_name
+  dq_log_group_name = module.etl_glue.dq_log_group_name
+  alerts_topic_arn  = local.alerts_topic_arn
 
   # PR-023: gold-purge log group + NEW Step Functions execution logging.
   log_retention_days         = var.log_retention_days

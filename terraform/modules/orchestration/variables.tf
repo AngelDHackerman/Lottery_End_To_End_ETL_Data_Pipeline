@@ -107,3 +107,27 @@ variable "crawler_poll_max_attempts" {
     error_message = "crawler_poll_max_attempts must be between 1 and 200."
   }
 }
+
+# --- PR-033: the Silver data-quality gate ---
+variable "enable_silver_dq" {
+  description = "Insert the DQ gate into the state machine. False renders the definition exactly as it was before PR-033 (byte-identical), so the stack can be applied before the DQ job artifacts have been built and uploaded. Must match module.etl_glue's flag — with it true here and false there, the machine would start a Glue job that does not exist."
+  type        = bool
+  default     = true
+}
+
+variable "dq_glue_job_name" {
+  description = "Name of the Silver data-quality Glue job (from module.etl_glue). Started with the .sync integration between the silver crawlers and the gold CTAS map. Null when the gate is disabled — the states that reference it are not rendered."
+  type        = string
+  default     = null
+}
+
+variable "dq_log_group_name" {
+  description = "Per-job log group holding the DQ verdict. Quoted in the SNS alert body and the Fail state's cause so the reader is told exactly where to look, instead of being told that something failed. Null when the gate is disabled."
+  type        = string
+  default     = null
+}
+
+variable "alerts_topic_arn" {
+  description = "ARN of the SNS alerts topic the DQ failure is published to. Passed in as a STRING built by the root module, not as module.observability's output: observability already consumes this module (dashboard + alarms name the state machine, the gold-purge Lambda and the weekly rule), so taking its output here would be a module cycle."
+  type        = string
+}

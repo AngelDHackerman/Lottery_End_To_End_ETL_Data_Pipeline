@@ -245,16 +245,19 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      # Builds the Lambda layer, the Lambda code zip and the Glue transformer zipapp.
-      # PR-033 adds the Silver DQ job script + library zip to `make build`; when it lands,
-      # add dist/loteria_silver_dq.py and dist/loteria_dq_lib.zip to the upload paths below.
+      # Builds all four artifacts: the Lambda layer, the Lambda code zip, the Glue
+      # transformer zipapp, and (PR-033) the Silver DQ job script + library zip.
       - name: make build
         run: make build
 
       # These are the deploy inputs, not a release: Terraform manages the two Lambda zips
-      # from terraform/, while the Glue artifact has to be uploaded to the code bucket by
-      # hand (see the runbooks). Publishing them here means the exact bytes that passed CI
-      # are the ones that can be deployed, instead of whatever a laptop produced.
+      # from terraform/, while the Glue and DQ artifacts have to be uploaded to the code
+      # bucket by hand (see the runbooks). Publishing them here means the exact bytes that
+      # passed CI are the ones that can be deployed, instead of whatever a laptop produced.
+      #
+      # The two DQ paths in particular must travel together: the job script imports
+      # loteria.dq from the library zip, so a mismatched pair fails at import inside Glue
+      # rather than at deploy time.
       #
       # `if-no-files-found: error` makes this list load-bearing: a path that stops being
       # produced fails the job instead of silently shrinking the artifact.
@@ -268,3 +271,5 @@ jobs:
             terraform/lambda_layer.zip
             terraform/lambda_package.zip
             dist/lottery_transformer.zip
+            dist/loteria_silver_dq.py
+            dist/loteria_dq_lib.zip
