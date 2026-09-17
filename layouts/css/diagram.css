@@ -1,0 +1,140 @@
+/* Arquitectura Lotería Santa Lucía — estilos del diagrama */
+
+:root{
+  --ground:#EBF1F2; --surface:#FAFCFC; --surface2:#E2EBEC; --sunken:#DCE7E9;
+  --ink:#0D1A1E; --soft:#40595F; --muted:#6C868B; --rule:#C6D6D8;
+  --flow:#0E7573; --flow-soft:#B8DBD8;
+  --pending:#A2720C; --pending-soft:#EEDFBC;
+  --breach:#B8412A; --breach-soft:#EDC9C0;
+  --off:#8AA0A4;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:"Archivo","Helvetica Neue",Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#091316; --surface:#0F1C20; --surface2:#17282D; --sunken:#0B181C;
+    --ink:#DCE9EA; --soft:#A3BCC0; --muted:#7E9BA0; --rule:#274046;
+    --flow:#3FB5AE; --flow-soft:#12403E;
+    --pending:#D9A43C; --pending-soft:#453312;
+    --breach:#EC7B60; --breach-soft:#4A2118;
+    --off:#5C7378;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#091316; --surface:#0F1C20; --surface2:#17282D; --sunken:#0B181C;
+  --ink:#DCE9EA; --soft:#A3BCC0; --muted:#7E9BA0; --rule:#274046;
+  --flow:#3FB5AE; --flow-soft:#12403E;
+  --pending:#D9A43C; --pending-soft:#453312;
+  --breach:#EC7B60; --breach-soft:#4A2118;
+  --off:#5C7378;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+     font-size:15px;line-height:1.5;padding:20px 16px 60px}
+.wrap{max-width:1460px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+
+header h1{font-size:clamp(1.4rem,3.4vw,2rem);margin:0;font-weight:800;letter-spacing:-.02em}
+header p{margin:5px 0 0;color:var(--soft);max-width:78ch;font-size:14.5px}
+.meta{font-family:var(--mono);font-size:11px;letter-spacing:.11em;text-transform:uppercase;
+      color:var(--muted);display:flex;gap:9px;flex-wrap:wrap;margin:0 0 8px}
+
+/* ---------- barra de control ---------- */
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+     background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:10px 12px}
+button{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink);
+       background:var(--surface2);border:1px solid var(--rule);border-radius:3px;
+       padding:7px 13px;cursor:pointer}
+button:hover{border-color:var(--flow)}
+button:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
+button.primary{background:var(--flow);border-color:var(--flow);color:var(--surface)}
+button[aria-pressed="true"]{background:var(--flow-soft);border-color:var(--flow);color:var(--ink)}
+.bar .sep{width:1px;height:22px;background:var(--rule)}
+.keys{display:flex;gap:14px;flex-wrap:wrap;margin-left:auto;font-size:12.5px;color:var(--muted)}
+.key{display:flex;align-items:center;gap:6px}
+.sw{width:11px;height:11px;border-radius:2px;flex:none}
+.sw.ok{background:var(--flow)} .sw.pend{background:var(--pending)}
+.sw.bad{background:var(--breach)} .sw.off{background:var(--off)}
+
+/* ---------- lienzo ---------- */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}
+@media (max-width:1080px){ .stage{grid-template-columns:minmax(0,1fr)} }
+
+.canvas{background:var(--surface);border:1px solid var(--rule);border-radius:4px;
+        padding:10px;overflow-x:auto}
+svg#map{display:block;width:100%;min-width:1080px;height:auto;color:var(--ink)}
+
+.node rect.body{fill:var(--surface);stroke:var(--rule);stroke-width:1.5}
+.node.ok    rect.body{stroke:var(--flow)}
+.node.pend  rect.body{stroke:var(--pending);stroke-dasharray:6 4;stroke-width:2.5}
+.node.bad   rect.body{stroke:var(--breach);stroke-dasharray:6 4}
+.node.off   rect.body{stroke:var(--off);stroke-dasharray:5 5;fill:none}
+.node .t{font-family:var(--sans);font-weight:700;font-size:12.5px;fill:var(--ink)}
+.node .s{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
+.node.off .t{fill:var(--off)} .node.off .s{fill:var(--off)}
+.node.pend .t{fill:var(--pending)}
+.node.bad  .t{fill:var(--breach)}
+.node{cursor:pointer}
+.node rect.hit{fill:transparent;stroke:none}
+.node:hover rect.body{filter:brightness(1.06)}
+.node.sel rect.body{stroke-width:3.5}
+.node.lit rect.body{fill:var(--flow-soft);stroke:var(--flow);stroke-width:3.5}
+.node.dim{opacity:.26}
+
+.edge{fill:none;stroke:var(--flow);stroke-width:2.6}
+.edge.pend{stroke:var(--pending);stroke-dasharray:7 5}
+.edge.manual{stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}
+.edge.dim{opacity:.2}
+.edge.lit{stroke-width:5}
+.elabel{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
+
+.zone{fill:none;stroke-width:1.5}
+.zone.gh{stroke:var(--soft);stroke-dasharray:7 5}
+.zone.aws{stroke:var(--ink);stroke-width:2}
+.zone.vpc{stroke:var(--off);stroke-dasharray:7 5}
+.ztext{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.11em}
+
+/* ---------- panel ---------- */
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:4px;
+       padding:16px;position:sticky;top:16px;display:flex;flex-direction:column;gap:11px}
+.panel .chip{align-self:flex-start;font-family:var(--mono);font-size:10px;font-weight:700;
+             letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:2px;
+             background:var(--surface2);color:var(--soft)}
+.panel .chip.ok{background:var(--flow);color:var(--surface)}
+.panel .chip.pend{background:var(--pending);color:var(--surface)}
+.panel .chip.bad{background:var(--breach);color:var(--surface)}
+.panel .chip.off{background:var(--off);color:var(--surface)}
+.panel h2{margin:0;font-size:1.06rem;font-weight:700;letter-spacing:-.01em}
+.panel p{margin:0;font-size:13.5px;color:var(--soft);line-height:1.5}
+.panel dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:12px}
+.panel dt{font-family:var(--mono);color:var(--muted);font-size:10.5px;
+          text-transform:uppercase;letter-spacing:.06em;padding-top:1px}
+.panel dd{margin:0;font-family:var(--mono);font-size:11.5px;color:var(--ink);word-break:break-word}
+.panel .warn{border-left:3px solid var(--breach);padding:8px 11px;background:var(--sunken);
+             font-size:12.5px;color:var(--soft)}
+.panel .warn.p{border-left-color:var(--pending)}
+.hint{font-size:12.5px;color:var(--muted)}
+
+.runbar{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--flow);
+        border-radius:4px;padding:10px 14px;font-size:13.5px;color:var(--soft);min-height:42px;
+        display:flex;align-items:center;gap:10px}
+.runbar b{color:var(--ink);font-weight:700}
+.runbar .step{font-family:var(--mono);font-size:11px;color:var(--flow);font-weight:700;
+              white-space:nowrap}
+
+/* ---------- tabla de defectos ---------- */
+details{background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:0}
+summary{cursor:pointer;padding:12px 15px;font-weight:700;font-size:14px;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸ ";color:var(--flow)}
+details[open] summary::before{content:"▾ "}
+.dbody{padding:0 15px 15px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+   color:var(--muted);font-weight:500}
+tr:last-child td{border-bottom:none}
+td.pr{font-family:var(--mono);color:var(--breach);font-weight:700;white-space:nowrap}
+code{font-family:var(--mono);font-size:.87em;background:var(--surface2);
+     padding:.08em .32em;border-radius:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

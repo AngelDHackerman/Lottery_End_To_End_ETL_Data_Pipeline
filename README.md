@@ -2,6 +2,19 @@
 
 ## 📷 Architectural Diagrams
 
+> **Start here: [`layouts/diagram.html`](./layouts/diagram.html)** — an interactive diagram of what is
+> *actually deployed today*. Open it in any browser; it needs no server, no CDN and no build step
+> — just the `layouts/` folder (HTML + `css/diagram.css` + `js/`).
+> Click any component for its real AWS resource names, or replay the weekly run step by step.
+>
+> ⚠️ **The two NAT diagrams below no longer describe the deployment.** They show the VPC as
+> central to the ETL, and it is not: the extractor Lambda has no `vpc_config`, the Glue jobs
+> have no connection, and the only module that consumes the network is `sagemaker`, which sits
+> behind `enable_sagemaker = false`. **The whole pipeline runs outside the VPC.** The network
+> is still deployed (with NAT off, so it costs almost nothing), but these images predate that
+> and are kept as history until PR-037 redraws them.
+
+
 Below you'll find two diagrams representing both possible states of the VPC architecture:
 
 ### 1. NAT Gateway OFF
