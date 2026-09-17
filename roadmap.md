@@ -1,7 +1,7 @@
 # Roadmap — Loteria Santa Lucia, "Hiring Manager Ready"
 **Owner:** Angel Hernandez
 **Companion doc:** [`DoD.md`](./DoD.md) (vision + locked decisions)
-**Last updated:** 2026-06-28
+**Last updated:** 2026-09-16
 
 > This is the **execution plan**. Each PR below is atomic, independently reviewable, and prompt-ready for Claude Code / Codex. Work them top-to-bottom unless a dependency is noted.
 >
@@ -1595,6 +1595,28 @@ folklore. None of them is urgent; all of them are cheaper now than later.
 The audit's headline finding — the Great Expectations suites from PR-032 exist, are tested,
 and are **called by nothing in the pipeline** — is PR-033 and is not repeated here.
 
+## How to work this phase — 8A → 8E, not 041 → 045
+
+> ⚠️ **Numeric order is not execution order.** The numbers come from the audit's fault
+> letters and from `layouts/diagram.html`, which is published and already links to them.
+> The dependency order is different, and it is the sub-phase letters that say what to work
+> next. Do **not** read this phase top-to-bottom the way the rest of this file is read.
+
+Each defect is split into sub-PRs. The splits are not ceremony: in 8A the split is what
+separates a reversible change from an irreversible one, and in 8B and 8E it is what keeps a
+mechanism change reviewable apart from the data change it enables.
+
+| Order | PR | Sub-PRs | Why it sits here |
+|---|---|---|---|
+| **8A** | 041 | `.1` stop the writes · `.2` strip the config · `.3` tear the bucket down | **First — it deletes a write path, so every PR after it touches one less place.** Do it before 045 adds columns, or 045 has to decide whether the flat copies carry lineage too. |
+| **8B** | 042 | `.1` build beside and swap · `.2` retire old generations | **Before anything changes how Gold is built.** 8E makes the build cleverer; doing that while a failed build still destroys the last good copy multiplies the blast radius. The section below already says C is easier after B — this is that, made binding. |
+| **8C** | 045 | `.1` write the columns · `.2` make lineage queryable | `run_id` is the join key both 8D and 8E want. Additive, cheap, and it is the only sub-phase that gets *more* expensive every week (222 files today, and each Thursday adds two). |
+| **8D** | 044 | `.1` make the loss visible · `.2` persist the rejects | Quarantine records reference 8C's `run_id`; without it a quarantined row cannot be tied to the run that rejected it. |
+| **8E** | 043 | `.1` measure · `.2` the four incremental tables · `.3` decide the three aggregates | **Last.** The largest change in the phase, and it is only safe once publication is atomic (8B) and rows are traceable (8C). |
+
+**Phase 8 is done when** `layouts/diagram.html` has no red boxes left and its five-defect
+`<details>` table is rewritten as history, each row naming the PR that closed it.
+
 ---
 
 ## PR-041 — Retire the `simple` bucket and the legacy `processed/` prefix
@@ -1658,6 +1680,38 @@ anywhere; the runbook exists and the owner has run (or deliberately deferred) th
 
 ---
 
+### Sub-PRs
+
+**PR-041.1 — Stop the writes, keep every byte.** Gate both uploads behind a root variable
+`enable_simple_bucket_writes`, threaded to the transformer *and* to `scraping.py:258-259`
+— the extractor writes the raw `.txt` to the simple bucket too, which the prompt above does
+not cover. Ship the flag defaulting to `true`, flip it to `false` in a second commit in the
+same PR, so the rollback is one revert of one line.
+*Before the flag, commit the no-reader evidence* under `docs/inventory/`: CloudTrail data
+events for `GetObject` if they are enabled (if they are **not**, say so — absent logging is
+not evidence of absent readers), `BytesDownloaded` over the longest window available, and a
+repo-wide grep outside `scripts/policies/` and `docs/`.
+**Acceptance:** a full run completes and the simple bucket's object count is *unchanged*
+from the snapshot. **Out of scope:** any deletion.
+
+**PR-041.2 — Strip the configuration surface.** Everything from the prompt above that is
+now dead: `--PROCESSED_PREFIX`, the `SIMPLE_BUCKET` wiring, the write grants in
+`modules/iam`, and the `"simple"` key in `get_secrets()`
+(`src/loteria/common/aws_secrets.py:46`). Leave the key in the Secrets Manager payload —
+that is an owner edit, not Terraform's; record it in the runbook as a manual follow-up.
+`README.md:111-112,141` still sells the dual-bucket strategy as a feature; that is the
+README-vs-code contradiction the audit flagged, and it becomes true again here.
+**Acceptance:** the plan shows IAM/Glue-job updates only. **If it shows a destroy on any
+`aws_s3_bucket`, stop.**
+
+**PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
+stated grace period of **at least 30 days** from 041.1's apply, with the date written down.
+Abort condition: if the final object count differs from 041.1's snapshot, something still
+writes to it — find it before deleting anything. The version purge should lift
+`purge_and_load._empty_prefix`'s pattern rather than reinvent it; it already handles
+versions *and* delete markers correctly.
+
+
 ## PR-042 — Make the Gold publication atomic
 **Fault B.**
 
@@ -1703,6 +1757,30 @@ new; option 1 makes it new.
 
 ---
 
+### Sub-PRs
+
+**PR-042.1 — Build beside, then swap.** Option 1 above (blue/green), split out so the swap
+mechanism is reviewed without the cleanup riding along. Two things to get right that the
+options list does not spell out:
+- `external_location` is a hardcoded literal in all seven SQL files and `purge_and_load`
+  parses it back out with `_EXTERNAL_LOCATION_RE`. Whatever replaces it must keep the SQL
+  file as the single source of truth for table name and location — that property is *why*
+  the Lambda parses the file instead of duplicating config in Terraform.
+- The three partitioned tables register partitions at CTAS time. **Verify the partitions
+  resolve against the new location after the swap** — a location change on a partitioned
+  table does not necessarily move its partition locations, and a table that reads empty
+  after a "successful" swap is the failure mode to look for.
+**Acceptance — this is the whole PR:** force a CTAS failure on one table and show the
+published table still returning its previous row count.
+
+**PR-042.2 — Retire old generations.** Keep the live generation plus one, so the rollback
+is "re-point the catalog at the previous generation" — write that command in the runbook.
+The deletion is its **own** Step Functions state, running **after** the swap, allowed to
+fail without failing the run: a leaked generation costs cents, while a delete that runs
+before the swap is precisely the defect 8B exists to remove. Alarm on repeated failure
+instead of blocking.
+
+
 ## PR-043 — Incremental Gold instead of a full weekly rebuild
 **Fault C.**
 
@@ -1746,6 +1824,36 @@ of truth.
 
 ---
 
+### Sub-PRs
+
+**PR-043.1 — Measure first, in the style of PR-020.** No behaviour change. Pull bytes
+scanned, runtime and cost per CTAS from the `lottery-wg` query history, and project them at
+2× and 10× the current Silver. Verify the three-group classification above against each
+file's `GROUP BY` rather than against its name. Deliverable:
+`docs/runbooks/PR-043-gold-incremental-spike.md`. **"Keep the full rebuild" is a valid
+verdict per table** — if the machinery costs more complexity than it saves, say so with the
+numbers and do not build it.
+
+**PR-043.2 — The four incremental tables.** Only what 043.1 recommends. Two requirements
+the prompt sketch above leaves implicit:
+- **Idempotency comes from querying the target**, not from assuming the run is the first:
+  `MAX(numero_sorteo)`, or the set of years present. Mirror the transformer's own
+  `list_processed_sorteos_in_partitioned_bucket` check.
+- **This collides with 042's generations, and the collision must be resolved in writing.**
+  `INSERT INTO` a published generation writes into live data. Either the generation becomes
+  copy-then-append, or these four tables opt out of the generation mechanism with a stated
+  reason. Hand-waving it reintroduces the exact defect 8B just fixed.
+Keep a `make` target that forces a full rebuild of any table — incremental pipelines drift,
+and it is also the recovery path when 042.2 deletes a generation you turn out to need.
+
+**PR-043.3 — Decide the three global aggregates.** Mostly writing: put the decision and its
+numbers in each SQL file's header so the full rebuild reads as a choice. If the spike
+instead recommends sourcing them from `gold_draw_summary` rather than from
+`silver_premios`, that is the implementation. If anyone proposes a running-count merge, a
+monthly from-scratch reconciliation **and** a test comparing incremental against full are
+mandatory, not optional.
+
+
 ## PR-044 — `quarantine/` for rows the parser rejects
 **Fault E.**
 
@@ -1787,6 +1895,29 @@ whole point is that a human reads it and decides whether the parser or the sourc
 Resist adding a reprocessing path in this PR.
 
 ---
+
+### Sub-PRs
+
+**PR-044.1 — Make the loss visible (no new storage).** Ship this before the quarantine
+store; it is small and it produces the number the alarm needs.
+`process_body` (`src/loteria/parser/parser.py:121-123`) drops unmatched lines into an
+`else` that logs at **DEBUG** — Glue does not run at DEBUG, so the line vanishes, and
+`premios_count` is then reported with no denominator. Return `(rows, rejects)` instead of a
+bare list, log each drop at **INFO** with the truncated line and a reason code, and emit
+`lines_total` / `lines_parsed` / `lines_rejected` per run.
+**Alarm on the rate, not the count.** The section above assumes the expected value is
+exactly zero; run the parser over the whole archived `raw/` corpus first and find out. A
+draw with a couple of odd footer lines is normal, and an alarm that fires every Thursday is
+the canary-that-always-skips failure from PR-031 wearing a third hat. **Acceptance:** the
+measured baseline across all archived draws is in the PR description, and the threshold is
+derived from it — not guessed.
+
+**PR-044.2 — Persist the rejects.** The quarantine writer, the reason-code vocabulary, the
+catalog registration, and the `> baseline` alarm. One constraint worth stating out loud:
+**a rejected line must never fail the run by itself** — the rate alarm is what escalates.
+A hard failure here turns one odd footer line into a missed week of ingestion. The DQ gate
+reading the quarantine count is a follow-up, deliberately not wired here.
+
 
 ## PR-045 — Lineage columns in Silver
 **Fault F.**
@@ -1831,6 +1962,32 @@ leak into Gold by accident — verify that when writing this, and decide deliber
 way to trace a gold row back to a pipeline run).
 
 ---
+
+### Sub-PRs
+
+**PR-045.1 — Write the columns.** The three columns above, plus `parser_version` (a
+constant bumped by hand when the parse changes shape — it is what makes a reprocessing
+decision answerable later). Two corrections to the prompt above, both found while auditing
+it:
+- **Do not make the suite expectations unconditional not-null.** The suites validate the
+  whole dataset, which includes the 222 pre-lineage files, so `not_null` on `run_id` goes
+  **red on day one against real data** — the fails-on-day-one trap PR-032 spent a paragraph
+  avoiding. Scope the expectation to rows where the column is present, or gate it on a
+  `parser_version` floor.
+- **Do not backfill as part of this PR.** A backfilled `ingested_at` is a lie and a
+  fabricated `run_id` is worse than a null one; NULL correctly means "written before
+  lineage existed". Keep the sentinel-backfill idea as the separate PR the section already
+  proposes, and decide it on its own merits.
+The "watch out" above is already true and worth pinning: **no file in `sql/gold/` uses
+`SELECT *`**, so new Silver columns cannot leak into Gold. Add the test that asserts it —
+that is what keeps the *next* Silver column safe.
+
+**PR-045.2 — Make lineage queryable.** A view (cheaper than an eighth gold table for what
+is metadata, not analytics): one row per `(run_id, dataset)` with rows written, min/max
+`ingested_at`, and the source keys. Then answer, in the runbook with real output pasted in,
+the question this sub-phase exists for: *"sorteo 3134 looks wrong — which run wrote it,
+from which raw file, and what else did that run write?"* as a single Athena query.
+
 
 # Open later (deferred decisions)
 
@@ -1895,8 +2052,9 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 038 | ADRs | todo | — |
 | 039 | Fill in Makefile | todo | — |
 | 040 | `.envrc.example` + final polish | todo | — |
-| 041 | Retire the `simple` bucket + legacy `processed/` prefix (audit fault A) | todo | — |
-| 042 | Make the Gold publication atomic (audit fault B) | todo | — |
-| 043 | Incremental Gold instead of a full weekly rebuild (audit fault C) | todo | — |
-| 044 | `quarantine/` for rows the parser rejects (audit fault E) | todo | — |
-| 045 | Lineage columns in Silver (audit fault F) | todo | — |
+| *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | todo | — |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | todo | — |
+| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
+| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
+| 043 | **8E** · Incremental Gold (fault C) — `.1` measure · `.2` incremental tables · `.3` decide the aggregates | todo | — |
