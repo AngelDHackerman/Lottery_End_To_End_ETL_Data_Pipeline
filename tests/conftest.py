@@ -1,9 +1,10 @@
 """Shared pytest fixtures and collection rules.
 
-Two jobs:
+Three jobs:
 
-1. Expose the anonymized sorteo fixtures (see ``tests/fixtures/sorteos/README.md``).
-2. Keep the ``integration`` marker opt-in, so ``pytest`` with no arguments never reaches out
+1. Pin a fake AWS environment, so the suite behaves the same on a laptop and in CI.
+2. Expose the anonymized sorteo fixtures (see ``tests/fixtures/sorteos/README.md``).
+3. Keep the ``integration`` marker opt-in, so ``pytest`` with no arguments never reaches out
    to the network.
 """
 
@@ -18,6 +19,32 @@ import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SORTEOS = FIXTURES / "sorteos"
+
+
+# --------------------------------------------------------------------------------------
+# A fake AWS environment (PR-035)
+# --------------------------------------------------------------------------------------
+# Several modules build their boto3 clients at MODULE scope — `purge_and_load.py:49` is the
+# clearest — and boto3 needs a region before it will build one. On a developer box the
+# region arrives from ~/.aws/config or an exported AWS_PROFILE, so the tests pass; a runner
+# with no AWS configuration at all raises `NoRegionError` at import, before a single
+# assertion. That is exactly how PR-035 first went red in CI while green on the machine that
+# wrote it.
+#
+# Set rather than `setdefault` on purpose. Deferring to whatever the developer happens to
+# have exported is what let the difference hide in the first place, and forcing the values
+# has a second benefit: no test can reach real AWS by accident, even if a `mock_aws` is ever
+# forgotten. Every AWS-touching test here runs under moto, which ignores the values and only
+# requires that they exist.
+#
+# The opt-in live test (RUN_LIVE_SCRAPER=1) is unaffected: it talks to loteria.org.gt
+# through scrape.do and reads SCRAPE_DO_TOKEN from the environment, not from AWS.
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"  # nosec B105 - a moto placeholder
+os.environ["AWS_SESSION_TOKEN"] = "testing"  # nosec B105 - a moto placeholder
+os.environ["AWS_SECURITY_TOKEN"] = "testing"  # nosec B105 - a moto placeholder
+os.environ.pop("AWS_PROFILE", None)
 
 
 # --------------------------------------------------------------------------------------
