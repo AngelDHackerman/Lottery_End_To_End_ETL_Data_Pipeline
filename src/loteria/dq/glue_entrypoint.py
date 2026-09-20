@@ -32,6 +32,7 @@ alert, so it names the suite, the expectation and the column rather than saying 
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -39,8 +40,11 @@ import sys
 REQUIRED_ARGS = ("PARTITIONED_BUCKET",)
 
 #: Arguments with a sensible default. ``SILVER_PREFIX`` lets the job be pointed at a copy of
-#: the layer without a redeploy; ``CORRELATION_ID`` is PR-018's per-execution id.
-OPTIONAL_ARGS = ("SILVER_PREFIX", "CORRELATION_ID")
+#: the layer without a redeploy; ``CORRELATION_ID`` is PR-018's per-execution id;
+#: ``DQ_LOG_GROUP`` is PR-033.1's per-job log group, passed by Terraform so the group's name
+#: has exactly one source of truth; ``JOB_RUN_ID`` is what the Glue console shows, recorded
+#: on the opening log line so a CloudWatch stream can be tied back to a run in the console.
+OPTIONAL_ARGS = ("SILVER_PREFIX", "CORRELATION_ID", "DQ_LOG_GROUP", "JOB_RUN_ID")
 
 
 class SilverDataQualityFailed(Exception):
@@ -93,7 +97,8 @@ def main(argv: list[str] | None = None) -> None:
     # on Glue arrive via --additional-python-modules and take seconds to resolve; doing it
     # after argument validation means a misconfigured job fails in a second with a legible
     # message instead of after the dependency install.
-    from loteria.common.logging_setup import configure_logging
+    from loteria.common.cloudwatch_logging import attach_cloudwatch_handler
+    from loteria.common.logging_setup import configure_logging, resolve_correlation_id
     from loteria.dq.runner import (
         SILVER_PREFIX_DEFAULT,
         SilverDatasetEmpty,
@@ -102,7 +107,18 @@ def main(argv: list[str] | None = None) -> None:
         summarize_failures,
     )
 
-    configure_logging("silver-dq")
+    logger = configure_logging("silver-dq")
+
+    # PR-033.1. Continuous logging leaves this job's own log group empty — it ships Spark's
+    # log4j output and this job runs no Spark — so the group is written to directly. After
+    # configure_logging, which replaces the root handler list. A no-op when the argument is
+    # absent, which is every run outside Glue.
+    cw_handler = attach_cloudwatch_handler(args.get("DQ_LOG_GROUP"), resolve_correlation_id())
+
+    logger.info(
+        "Silver DQ starting",
+        extra={"job_run_id": args.get("JOB_RUN_ID") or "-"},
+    )
 
     bucket = args["PARTITIONED_BUCKET"]
     silver_prefix = args.get("SILVER_PREFIX") or SILVER_PREFIX_DEFAULT
@@ -121,7 +137,19 @@ def main(argv: list[str] | None = None) -> None:
 
     # Printed, not logged: this is the full human-readable verdict and it belongs in the Glue
     # driver log in one piece, not split across JSON envelopes one line at a time.
-    print(format_report(report))
+    verdict = format_report(report)
+    print(verdict)
+
+    # PR-033.1: and once more into the per-job group, which is the place the runbook now
+    # sends a woken-up human. Through a non-propagating logger carrying only the CloudWatch
+    # handler, so the verdict does not also arrive on stdout a second time — JSON-escaped,
+    # which is what logging it normally would produce.
+    if cw_handler is not None:
+        verdict_logger = logging.getLogger("silver-dq.verdict")
+        verdict_logger.propagate = False
+        verdict_logger.handlers = [cw_handler]
+        verdict_logger.setLevel(logging.INFO)
+        verdict_logger.info(verdict)
 
     if not report.success:
         raise SilverDataQualityFailed(

@@ -19,6 +19,8 @@ module docstring) and is what makes this file possible at all.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from loteria.dq.glue_entrypoint import (
@@ -371,3 +373,83 @@ class TestFormatReport:
         """This is read out of a CloudWatch log and an SNS body, where colour is noise."""
         report = DQReport(suites=[outcome("silver_premios", failing())])
         assert "\x1b[" not in format_report(report)
+
+
+class TestTheVerdictReachesThePerJobLogGroup:
+    """PR-033.1.
+
+    PR-033 pointed the runbook at `/aws-glue/jobs/loteria-silver-dq-prod` for the verdict.
+    The first real run (2026-09-16) left that group with ZERO streams — continuous logging
+    ships Spark's log4j output and this job never starts Spark — so the verdict was only
+    ever in the account-wide group. The entry point now writes to the group itself, and
+    these tests pin the two halves of that: it is wired when Glue supplies the group, and it
+    stays out of the way when nothing does.
+    """
+
+    class CollectingHandler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.messages: list[str] = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    def _patch(self, monkeypatch, report):
+        monkeypatch.setattr("loteria.dq.runner.run_dq", lambda bucket, silver_prefix: report)
+        seen = {}
+        handler = self.CollectingHandler()
+
+        def fake_attach(log_group, log_stream, **kwargs):
+            seen["group"] = log_group
+            seen["stream"] = log_stream
+            return handler if log_group else None
+
+        monkeypatch.setattr(
+            "loteria.common.cloudwatch_logging.attach_cloudwatch_handler", fake_attach
+        )
+        return seen, handler
+
+    def test_the_group_terraform_passes_is_the_group_used(self, monkeypatch):
+        seen, _ = self._patch(monkeypatch, DQReport(suites=[outcome("s", passing())]))
+        monkeypatch.setenv("CORRELATION_ID", "exec-42")
+
+        main(["script.py", "--PARTITIONED_BUCKET", BUCKET, "--DQ_LOG_GROUP", "/aws-glue/x"])
+
+        assert seen["group"] == "/aws-glue/x"
+        # The stream is the correlation id, so a stream ties back to the pipeline run that
+        # produced it — the whole point of PR-018's id.
+        assert seen["stream"] == "exec-42"
+
+    def test_the_verdict_lands_in_the_group_exactly_once(self, monkeypatch, capsys):
+        _, handler = self._patch(monkeypatch, DQReport(suites=[outcome("s", passing())]))
+
+        main(["script.py", "--PARTITIONED_BUCKET", BUCKET, "--DQ_LOG_GROUP", "/aws-glue/x"])
+
+        assert len(handler.messages) == 1
+        assert "DQ RESULT: PASS" in handler.messages[0]
+        # And exactly once on stdout too: the verdict is printed for the driver log and
+        # routed to the group, never logged through the root logger, which would put a
+        # JSON-escaped second copy on stdout.
+        assert capsys.readouterr().out.count("DQ RESULT: PASS") == 1
+
+    def test_a_failing_verdict_still_reaches_the_group_before_raising(self, monkeypatch):
+        report = DQReport(suites=[outcome("silver_premios", passing(), failing())])
+        _, handler = self._patch(monkeypatch, report)
+
+        with pytest.raises(SilverDataQualityFailed):
+            main(["script.py", "--PARTITIONED_BUCKET", BUCKET, "--DQ_LOG_GROUP", "/aws-glue/x"])
+
+        # The failing run is the one somebody is woken up for. If the verdict only shipped
+        # on the success path, the group would be empty exactly when it is needed.
+        assert handler.messages and "FAIL" in handler.messages[0].upper()
+
+    def test_without_the_argument_nothing_is_attached_and_the_gate_still_works(
+        self, monkeypatch, capsys
+    ):
+        seen, handler = self._patch(monkeypatch, DQReport(suites=[outcome("s", passing())]))
+
+        main(["script.py", "--PARTITIONED_BUCKET", BUCKET])
+
+        assert seen["group"] is None
+        assert handler.messages == []
+        assert "DQ RESULT: PASS" in capsys.readouterr().out

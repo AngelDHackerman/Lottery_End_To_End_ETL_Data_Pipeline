@@ -133,16 +133,21 @@ resource "aws_glue_job" "lottery_transform" {
 
 # Per-job log group, which the transform job cannot have.
 #
-# `--continuous-log-logGroup` is a Spark-only argument (this is the exact limitation called
-# out in the PR-023 note above, seen from the other side). A dedicated group matters more
-# here than elsewhere: the whole output of this job is a verdict someone reads after an
-# alert, and hunting for it inside the account-wide /aws-glue/python-jobs/output — shared
-# with every run of the transformer — is the difference between a 10-second and a 10-minute
+# A dedicated group matters more here than elsewhere: the whole output of this job is a
+# verdict someone reads after an alert, and hunting for it inside the account-wide
+# /aws-glue/jobs/output — shared with every run of the transformer, and in this account with
+# another project's workload — is the difference between a 10-second and a 10-minute
 # incident response.
 #
-# Note this does NOT capture everything: Glue still writes the driver's stdout/stderr to
-# /aws-glue/jobs/output and /aws-glue/jobs/error. Continuous logging carries the application
-# logs, which is where `format_report`'s verdict lands.
+# ⚠️ PR-033.1: `--continuous-log-logGroup` alone does NOT fill this group. The first real
+# run (2026-09-16) left it with zero streams while every line landed in the account-wide
+# /aws-glue/jobs/output. Continuous logging ships SPARK's log4j output, and this job
+# deliberately never creates a SparkContext — so there is nothing for it to carry, and
+# JobRun.LogGroupName reports the base /aws-glue/jobs rather than the group named below.
+# The group is therefore written to directly by the job, via --DQ_LOG_GROUP below and
+# loteria.common.cloudwatch_logging. The continuous-logging arguments are kept because they
+# cost nothing and would start working the day this job ever touches Spark, but they are
+# not what makes the group non-empty.
 resource "aws_cloudwatch_log_group" "silver_dq" {
   count = var.enable_silver_dq ? 1 : 0
 
@@ -173,8 +178,8 @@ resource "aws_glue_job" "silver_dq" {
   worker_type       = "G.1X"
   number_of_workers = 2
 
-  # A DQ run that hangs must not bill for hours. The whole Silver layer is ~117k rows across
-  # ~222 files; the observed local run is seconds, and the S3 reads dominate.
+  # A DQ run that hangs must not bill for hours. The validation itself is seconds — but see
+  # var.dq_timeout_minutes: almost all of this budget is spent before the script runs at all.
   timeout = var.dq_timeout_minutes
 
   command {
@@ -199,9 +204,13 @@ resource "aws_glue_job" "silver_dq" {
     "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
     "--SILVER_PREFIX"      = var.silver_prefix
 
-    # Per-job logging (Spark-only; see the log group above).
+    # Per-job logging. See the log group above for why BOTH of these exist: the two
+    # continuous-logging arguments are Spark's mechanism and produce nothing for this job,
+    # while --DQ_LOG_GROUP is what the entry point reads to write to the group itself.
+    # Terraform stays the single source of the group's name either way.
     "--enable-continuous-cloudwatch-log" = "true"
     "--continuous-log-logGroup"          = aws_cloudwatch_log_group.silver_dq[0].name
+    "--DQ_LOG_GROUP"                     = aws_cloudwatch_log_group.silver_dq[0].name
 
     # Off on purpose. The Spark UI writes event logs to S3, which would mean granting this
     # job's otherwise read-only role a PutObject it has no other use for — and there is no
