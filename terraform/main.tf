@@ -102,6 +102,10 @@ module "etl_lambda" {
   simple_bucket_name      = module.storage.simple_bucket_name
   secret_name             = var.lottery_secret_name
 
+  # PR-041.1: the extractor writes the raw .txt to the simple bucket too. One variable
+  # drives both writers so they can never disagree about whether the copy exists.
+  enable_simple_bucket_writes = var.enable_simple_bucket_writes
+
   # PR-023: own the function's log group so it has a retention policy.
   log_retention_days = var.log_retention_days
 }
@@ -119,6 +123,9 @@ module "etl_glue" {
   partitioned_bucket_name = module.storage.partitioned_bucket_name
   simple_bucket_name      = module.storage.simple_bucket_name
   secret_name             = var.lottery_secret_name
+
+  # PR-041.1: the transformer's two flat Parquet copies. Same variable as the extractor.
+  enable_simple_bucket_writes = var.enable_simple_bucket_writes
 
   # PR-023: retention on the ACCOUNT-WIDE Python Shell log groups (Glue has no per-job
   # group for pythonshell — see the module note).

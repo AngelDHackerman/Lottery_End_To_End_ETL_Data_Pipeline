@@ -161,3 +161,10 @@ variable "enable_silver_dq" {
   type        = bool
   default     = true
 }
+
+# --- PR-041.1: retiring the `simple` bucket (fault A) ---
+variable "enable_simple_bucket_writes" {
+  description = "Keep writing the duplicate flat copies to lottery-data-simple-prod. Fault A from the 2026-09-14 audit: every draw is written twice and nothing reads the second copy — no Glue catalog table, no Gold SQL, no code outside the two writers (evidence: docs/inventory/2026-09-20-simple-bucket-readers.md). Threaded to BOTH writers: the transformer's two Parquet copies and the extractor's raw .txt, which the roadmap's own PR-041 prompt omits. Flipping this to false stops the writes and deletes nothing; emptying and destroying the bucket is PR-041.3, deliberately separate and irreversible. Set it back to true to roll the change back with one line."
+  type        = bool
+  default     = true
+}
