@@ -24,8 +24,10 @@ import pytest
 from moto import mock_aws
 
 from loteria.common.cloudwatch_logging import (
+    SELF_AMPLIFYING_LOGGERS,
     CloudWatchLogHandler,
     attach_cloudwatch_handler,
+    quiet_sdk_loggers,
 )
 
 GROUP = "/aws-glue/jobs/loteria-silver-dq-prod"
@@ -66,6 +68,14 @@ class FakeLogsClient:
 
     def put_log_events(self, **kwargs):
         self.calls.append(("put_log_events", kwargs))
+        # PR-033.2: recorded first, then rejected, so a test can see the empty call that the
+        # real API only reports as a ParamValidationError. This is the bug that left the prod
+        # group with a stream and zero events; before this line the fake happily accepted it.
+        if not kwargs.get("logEvents"):
+            raise ParamValidation(
+                "Parameter validation failed: Invalid length for parameter logEvents, "
+                "value: 0, valid min length: 1"
+            )
         self._maybe_fail("put_log_events")
 
     def ops(self) -> list[str]:
@@ -81,6 +91,41 @@ class AlreadyExists(Exception):
 
 
 AlreadyExists.__name__ = "ResourceAlreadyExistsException"
+
+
+class ParamValidation(Exception):
+    """Stands in for botocore's ParamValidationError, raised before anything is sent."""
+
+
+class ChattyLogsClient(FakeLogsClient):
+    """A client that logs while it works — which is what boto3 does, not a contrivance.
+
+    The real run of 2026-09-20 recorded ~180 ``botocore.credentials`` records in 96 seconds.
+    With the handler on the root logger, every one of them is a new record to ship, arriving
+    while a send is already in flight. A fake that stays silent cannot see that at all, which
+    is precisely why the PR-033.1 suite was green against a broken handler.
+    """
+
+    def __init__(self, chatter: int = 3, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._chatter = chatter
+
+    def _talk(self) -> None:
+        for _ in range(self._chatter):
+            logging.getLogger("botocore.credentials").info("Found credentials from IAM Role")
+
+    def create_log_stream(self, **kwargs):
+        self._talk()
+        super().create_log_stream(**kwargs)
+
+    def put_log_events(self, **kwargs):
+        try:
+            super().put_log_events(**kwargs)
+        finally:
+            self._talk()
+
+    def batches(self) -> list[list[dict]]:
+        return [kwargs["logEvents"] for name, kwargs in self.calls if name == "put_log_events"]
 
 
 class TestHappyPath:
@@ -251,3 +296,116 @@ class TestAgainstMoto:
 
             events = logs.get_log_events(logGroupName=GROUP, logStreamName=STREAM)["events"]
             assert [e["message"] for e in events] == ["DQ RESULT: PASS"]
+
+
+@pytest.fixture
+def root_logging_restored():
+    """Hand back the root logger and the SDK loggers exactly as they were.
+
+    These tests put a handler on the root logger on purpose — that is where the bug lives —
+    and `quiet_sdk_loggers` mutates global logger levels, so nothing here may leak into the
+    next test.
+    """
+    root = logging.getLogger()
+    handlers, root_level = list(root.handlers), root.level
+    sdk_levels = {name: logging.getLogger(name).level for name in SELF_AMPLIFYING_LOGGERS}
+    root.setLevel(logging.INFO)  # so an INFO record from the SDK actually reaches a handler
+    try:
+        yield root
+    finally:
+        root.handlers, root.level = handlers, root_level
+        for name, level in sdk_levels.items():
+            logging.getLogger(name).setLevel(level)
+
+
+class TestItDoesNotFeedItself:
+    """PR-033.2. The handler calls AWS; AWS logs; the handler is on the root logger.
+
+    The prod symptom was a log group holding one stream and zero events, with eight
+    `[cloudwatch-logging] disabled ... Invalid length for parameter logEvents, value: 0`
+    lines on stderr. Every test here fails against the PR-033.1 handler.
+    """
+
+    def test_sdk_chatter_during_a_send_does_not_empty_the_batch(self, root_logging_restored):
+        client = ChattyLogsClient()
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logging_restored.addHandler(handler)
+
+        logging.getLogger("silver-dq").info("DQ RESULT: PASS")
+
+        assert client.batches(), "nothing was sent at all"
+        assert all(batch for batch in client.batches()), "PutLogEvents called with []"
+        assert not handler._disabled
+
+    def test_the_verdict_still_reaches_the_group(self, root_logging_restored):
+        client = ChattyLogsClient()
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logging_restored.addHandler(handler)
+
+        logging.getLogger("silver-dq").info("DQ RESULT: PASS")
+
+        sent = [event["message"] for batch in client.batches() for event in batch]
+        assert "DQ RESULT: PASS" in sent
+
+    def test_records_arriving_mid_send_are_kept_not_dropped(self, root_logging_restored):
+        client = ChattyLogsClient(chatter=2)
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logging_restored.addHandler(handler)
+
+        logging.getLogger("silver-dq").info("first")
+        # The chatter from the first send sits at the back of the buffer; this one carries it
+        # out. Losing it would be a quieter bug than the crash, and just as wrong.
+        logging.getLogger("silver-dq").info("second")
+
+        sent = [event["message"] for batch in client.batches() for event in batch]
+        assert sent.count("Found credentials from IAM Role") >= 2
+        assert "first" in sent and "second" in sent
+
+    def test_it_says_disabled_once_not_once_per_nested_frame(self, root_logging_restored, capsys):
+        client = ChattyLogsClient(fail_on="put_log_events")
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root_logging_restored.addHandler(handler)
+
+        logging.getLogger("silver-dq").info("DQ RESULT: PASS")
+
+        assert capsys.readouterr().err.count("[cloudwatch-logging] disabled") == 1
+
+    def test_a_hand_flush_with_an_empty_buffer_sends_nothing(self):
+        client = FakeLogsClient()
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
+
+        handler.flush()
+
+        assert client.ops() == []
+        assert not handler._disabled
+
+
+class TestQuietSdkLoggers:
+    def test_attaching_quiets_the_sdk_loggers(self, root_logging_restored):
+        logging.getLogger("botocore").setLevel(logging.NOTSET)
+
+        attach_cloudwatch_handler(GROUP, STREAM, client=FakeLogsClient())
+
+        # INFO under a root at INFO is what produced ~180 credential records in one run.
+        assert not logging.getLogger("botocore.credentials").isEnabledFor(logging.INFO)
+        assert logging.getLogger("botocore.credentials").isEnabledFor(logging.WARNING)
+
+    def test_a_logger_already_quieter_is_left_alone(self, root_logging_restored):
+        logging.getLogger("botocore").setLevel(logging.ERROR)
+
+        quiet_sdk_loggers()
+
+        # Silencing is a floor, not an assignment: a caller who wanted less keeps less.
+        assert logging.getLogger("botocore").level == logging.ERROR
+
+    def test_no_group_means_no_global_side_effect(self, root_logging_restored):
+        logging.getLogger("botocore").setLevel(logging.NOTSET)
+
+        assert attach_cloudwatch_handler(None, STREAM) is None
+
+        # `make dq` and this test suite go through here. Neither asked for quieter logs.
+        assert logging.getLogger("botocore").level == logging.NOTSET
