@@ -1970,9 +1970,27 @@ repo-wide grep outside `scripts/policies/` and `docs/`.
 **Acceptance:** a full run completes and the simple bucket's object count is *unchanged*
 from the snapshot. **Out of scope:** any deletion.
 
+> ⚠️ **Found at 041.1's apply, and not in the prompt below: the bucket has a granted
+> READER.** `lottery-sagemaker-execution-role-prod` carries
+> `lottery-sagemaker-s3-read-policy-prod`, whose entire content is `s3:GetObject` +
+> `s3:ListBucket` on `lottery-data-simple-prod` and **nothing else**. So the one consumer this
+> architecture ever contemplated was SageMaker, pointed at exactly the bucket being retired —
+> which is also the honest answer to "why did the flat copies exist": they were the notebook
+> layer. Nothing is running (two domains `InService`, zero apps, zero notebook instances) and
+> the owner confirms they do not use it, but the *grant* is real and 041.2 must deal with it:
+> stripping only the write grants would leave a SageMaker role whose sole data permission
+> points at a bucket that is about to stop existing. Repoint it at `silver/` and `gold/` in
+> the partitioned bucket, which is where the data a notebook would want actually lives.
+>
+> ✅ **Also verified at 041.1: nothing in the bucket is unique.** All 115 raw `.txt` and 116
+> Parquet draws have a counterpart under the partitioned bucket's `raw/` and `silver/`
+> (`set(simple) - set(partitioned)` is empty for both). Deleting it therefore cannot lose
+> data — only a convenience copy. That is the fact 041.3's grace period was sized without,
+> and it is why shortening the window is defensible.
+
 **PR-041.2 — Strip the configuration surface.** Everything from the prompt above that is
 now dead: `--PROCESSED_PREFIX`, the `SIMPLE_BUCKET` wiring, the write grants in
-`modules/iam`, and the `"simple"` key in `get_secrets()`
+`modules/iam`, **the SageMaker read grant above**, and the `"simple"` key in `get_secrets()`
 (`src/loteria/common/aws_secrets.py:46`). Leave the key in the Secrets Manager payload —
 that is an owner edit, not Terraform's; record it in the runbook as a manual follow-up.
 `README.md:111-112,141` still sells the dual-bucket strategy as a feature; that is the
@@ -1995,9 +2013,29 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 > keeps an unrecognised value ON, because a count that fails to stop moving is visible and a
 > silent stop is not.
 >
-> Plan: `0 to add, 3 to change, 0 to destroy` — the job argument, the environment variable,
-> and the known `gold_purge` phantom. **The 30-day clock for `.3` starts at the owner's apply
-> of the flip, not at the merge.**
+> **Applied 2026-09-20 22:31 UTC** (PR #53). Plan was `0 to add, 4 to change, 0 to destroy`:
+> the job argument, the Lambda's environment variable *and* its code (`scraping.py` changed,
+> and Terraform manages that zip), plus the known `gold_purge` phantom. The transformer's zip
+> is NOT Terraform-managed and was uploaded by hand the same minute —
+> `c20025f978cb2524736df6900dc84ea6`, verified byte-identical to `dist/`. Without that upload
+> the flip would have been half-applied: the extractor stops, the transformer keeps writing,
+> because code that has never heard of the argument ignores it.
+>
+> Verified live after the apply: job argument `false`, Lambda env var `false`, bucket at
+> **347 objects**.
+>
+> ### The clock for PR-041.3
+>
+> **Starts 2026-09-20. Earliest teardown: 2026-10-20.** Four weekly runs fall inside it —
+> 09-24, 10-01, 10-08, 10-15 — which is the point: the window is not a formality, it is four
+> chances for a reader nobody knew about to notice its data has gone stale and say so. The
+> evidence in `docs/inventory/` is blind to exactly that reader (CloudTrail data events are
+> off for this bucket, request metrics are not configured), so the grace period buys with
+> time what the evidence cannot prove. The cost is one bucket holding 9 MB it already held.
+>
+> **Abort condition, checked on 2026-10-20 before anything is deleted:**
+> `aws s3 ls s3://lottery-data-simple-prod/ --recursive | wc -l` must still be **347**. If it
+> moved, a writer nobody knew about is still running — find it before deleting a byte.
 
 **PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
 stated grace period of **at least 30 days** from 041.1's apply, with the date written down.

@@ -111,6 +111,19 @@ certainty — ≥30 days after the flip, with the abort condition that the objec
 match this snapshot exactly. If it moved, a writer nobody knew about is still running, and
 that has to be found before a single byte goes.
 
+## Status
+
+**The writes stopped 2026-09-20 22:31 UTC** (PR #53 applied). The count below is therefore
+frozen, and that is the thing to check: every number here is a baseline for PR-041.3's abort
+condition, not a historical note.
+
+| | |
+|---|---|
+| Flip applied | 2026-09-20 22:31 UTC |
+| Earliest teardown | **2026-10-20** (≥30 days) |
+| Weekly runs inside the window | 09-24, 10-01, 10-08, 10-15 |
+| Object count that must not move | **347** |
+
 ## Re-running this
 
 Every command here is read-only and safe to repeat; that is the point of writing them down
