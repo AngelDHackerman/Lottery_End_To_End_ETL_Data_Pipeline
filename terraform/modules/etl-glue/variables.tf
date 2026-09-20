@@ -124,3 +124,9 @@ variable "dq_timeout_minutes" {
     error_message = "dq_timeout_minutes must be >= 30: the slowest observed startup alone is ~22 minutes."
   }
 }
+
+variable "enable_simple_bucket_writes" {
+  description = "PR-041.1. Passed to the transform job as --ENABLE_SIMPLE_BUCKET_WRITES; false stops the two flat Parquet copies to the simple bucket. The job treats the argument as OPTIONAL (the zip is uploaded separately from this apply, and getResolvedOptions raises on a name it cannot find), so a job running older code simply keeps writing them."
+  type        = bool
+  default     = true
+}

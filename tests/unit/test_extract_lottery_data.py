@@ -217,13 +217,72 @@ class TestExtractLotteryData:
         assert "sorteo=999" not in key
 
     def test_the_simple_key_is_flat(self, s3, scraping, pages, tmp_path):
-        """Fault A (PR-041) in one line: every capture is written twice, and this is the
-        copy nothing reads. The assertion is here so the retirement PR has something that
-        fails when the second write goes away."""
+        """Fault A in one line: every capture is written twice, and this is the copy nothing
+        reads. Still true by default — PR-041.1 gates this write, it does not remove it."""
         pages()
         scraping.extract_lottery_data(output_folder=str(tmp_path))
 
         assert s3.list_objects_v2(Bucket=SIMPLE)["Contents"][0]["Key"] == "raw/sorteo_3046.txt"
+
+
+class TestSimpleBucketWritesFlag:
+    """PR-041.1 — the write the roadmap's own PR-041 prompt forgets.
+
+    That prompt lists the transformer's two Parquet copies and stops there. The extractor
+    writes the raw .txt to the simple bucket as well, and a flag that stopped only two of
+    the three writes would leave the bucket growing every Thursday while the PR claimed it
+    had stopped — which is worse than not having touched it, because the next person would
+    trust the claim.
+
+    Delivered as an environment variable here, not a job argument: this one runs in Lambda.
+    ``loteria.common.config`` is what keeps the two spellings meaning the same thing.
+    """
+
+    def test_the_raw_copy_stops(self, s3, scraping, pages, tmp_path, monkeypatch):
+        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "false")
+        pages()
+
+        scraping.extract_lottery_data(output_folder=str(tmp_path))
+
+        assert s3.list_objects_v2(Bucket=SIMPLE).get("Contents", []) == []
+
+    def test_the_partitioned_copy_is_untouched(self, s3, scraping, pages, tmp_path, monkeypatch):
+        """The Hive-style key is the transformer's only input. If disabling the duplicate
+        touched it, the flag would break the pipeline rather than trim it."""
+        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "false")
+        pages()
+
+        scraping.extract_lottery_data(output_folder=str(tmp_path))
+
+        key = s3.list_objects_v2(Bucket=PARTITIONED)["Contents"][0]["Key"]
+        assert key.startswith("raw/year=2024/sorteo=3046/")
+
+    def test_writing_is_the_default(self, s3, scraping, pages, tmp_path, monkeypatch):
+        monkeypatch.delenv("ENABLE_SIMPLE_BUCKET_WRITES", raising=False)
+        pages()
+
+        scraping.extract_lottery_data(output_folder=str(tmp_path))
+
+        assert len(s3.list_objects_v2(Bucket=SIMPLE).get("Contents", [])) == 1
+
+    def test_the_flag_is_read_per_invocation_not_at_import(
+        self, s3, scraping, pages, tmp_path, monkeypatch
+    ):
+        """scraping.py already does real work at import (`get_secrets()`), and PR-017 had to
+        unpick one value being read there. Reading this one at call time means flipping it
+        in Terraform takes effect on the next invocation — no rebuild of the zip, no
+        redeploy — which is the only reason it is worth having as a flag at all."""
+        pages()
+        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "true")
+        scraping.extract_lottery_data(output_folder=str(tmp_path))
+
+        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "false")
+        s3.delete_object(Bucket=PARTITIONED, Key="processed/year=2024/sorteo=3046/sorteos.parquet")
+        pages()
+        scraping.extract_lottery_data(lottery_number=998, output_folder=str(tmp_path))
+
+        # One object: the first call's, from before the flip. The second call wrote none.
+        assert len(s3.list_objects_v2(Bucket=SIMPLE)["Contents"]) == 1
 
     def test_the_body_carries_the_prize_lines(self, s3, scraping, pages, tmp_path):
         """The failure PR-031.1 was built to make impossible: a raw file with a header, a

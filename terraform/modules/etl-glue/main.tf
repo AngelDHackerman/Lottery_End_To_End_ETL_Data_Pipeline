@@ -87,6 +87,11 @@ resource "aws_glue_job" "lottery_transform" {
     # LOTERIA_SECRET_NAME before importing the transformer, which is where
     # loteria.common.aws_secrets.get_secrets() reads it.
     "--LOTERIA_SECRET_NAME" = var.secret_name
+
+    # PR-041.1: fault A. false stops the two flat Parquet copies to the simple bucket and
+    # deletes nothing. The job reads this argument as OPTIONAL — see the module's variable
+    # description — so the order of "upload the zip" and "apply this" does not matter.
+    "--ENABLE_SIMPLE_BUCKET_WRITES" = tostring(var.enable_simple_bucket_writes)
   }
 
   execution_property {

@@ -24,6 +24,7 @@ import pandas as pd
 from awsglue.utils import getResolvedOptions
 
 from loteria.common.aws_secrets import get_secrets
+from loteria.common.config import FLAG_SIMPLE_BUCKET_WRITES, parse_flag
 from loteria.common.logging_setup import configure_logging
 from loteria.common.s3_utils import (
     download_file_from_s3,
@@ -82,6 +83,7 @@ def transform(
     raw_prefix: str,
     simple_prefix: str,
     silver_prefix: str = SILVER_PREFIX_DEFAULT,
+    write_simple_copies: bool = True,
 ) -> None:
     """
     Transforms raw lottery .txt files stored in S3 and uploads clean Silver Parquet
@@ -249,13 +251,22 @@ def transform(
         premios_df.to_parquet(premios_local_path, index=False)
 
         # -----------------------
-        # Upload to simple bucket (flat files) - optional but useful for notebooks
+        # Upload to simple bucket (flat files) — fault A, being retired (PR-041.1)
         # -----------------------
-        sorteos_key_simple = f"{simple_prefix}sorteos_{numero_sorteo}.parquet"
-        premios_key_simple = f"{simple_prefix}premios_{numero_sorteo}.parquet"
+        # These two put_objects are the second half of a dual write whose reader does not
+        # exist: Athena reads all three layers of the partitioned bucket, and nothing in the
+        # repo, the Glue catalog or the Gold SQL points at this bucket. See
+        # docs/inventory/2026-09-20-simple-bucket-readers.md for the evidence.
+        #
+        # Gated rather than deleted, and the flag ships ON, so this PR is a no-op until the
+        # value is flipped in Terraform — which makes the rollback one line and keeps the
+        # deletion of the bytes a separate, deliberate step (PR-041.3).
+        if write_simple_copies:
+            sorteos_key_simple = f"{simple_prefix}sorteos_{numero_sorteo}.parquet"
+            premios_key_simple = f"{simple_prefix}premios_{numero_sorteo}.parquet"
 
-        upload_file_to_s3(sorteos_local_path, simple_bucket, sorteos_key_simple)
-        upload_file_to_s3(premios_local_path, simple_bucket, premios_key_simple)
+            upload_file_to_s3(sorteos_local_path, simple_bucket, sorteos_key_simple)
+            upload_file_to_s3(premios_local_path, simple_bucket, premios_key_simple)
 
         # -----------------------
         # Upload to partitioned bucket (Silver - canonical)
@@ -292,6 +303,13 @@ def main() -> None:
     # already bridged from the --CORRELATION_ID job argument.
     configure_logging("transformer")
 
+    # PR-041.1: asked for only when Glue is actually passing it. getResolvedOptions raises
+    # on a name it cannot find, and this job's code ships to S3 separately from the
+    # `terraform apply` that adds the argument — so listing it unconditionally would turn
+    # any partial deploy into a job that dies at startup, before a line of transform logic.
+    # Absent means "write the flat copies", which is what the job did before this PR.
+    optional = [name for name in (FLAG_SIMPLE_BUCKET_WRITES,) if f"--{name}" in sys.argv]
+
     args = getResolvedOptions(
         sys.argv,
         [
@@ -299,6 +317,7 @@ def main() -> None:
             "PARTITIONED_BUCKET",
             "RAW_PREFIX",
             "PROCESSED_PREFIX",
+            *optional,
         ],
     )
 
@@ -313,6 +332,9 @@ def main() -> None:
 
     raw_prefix = args["RAW_PREFIX"]
     simple_prefix = args["PROCESSED_PREFIX"]  # treat as simple prefix
+    write_simple_copies = parse_flag(
+        args.get(FLAG_SIMPLE_BUCKET_WRITES), name=FLAG_SIMPLE_BUCKET_WRITES
+    )
 
     logger.info(
         "Starting Glue Job",
@@ -321,6 +343,9 @@ def main() -> None:
             "raw_prefix": raw_prefix,
             "simple_prefix": simple_prefix,
             "silver_prefix": SILVER_PREFIX_DEFAULT,
+            # Logged because the flat copies stopping is the ONE observable difference this
+            # PR can make, and a run is the only place to see which way the flag was read.
+            "write_simple_copies": write_simple_copies,
         },
     )
 
@@ -329,6 +354,7 @@ def main() -> None:
         raw_prefix=raw_prefix,
         simple_prefix=simple_prefix,
         silver_prefix=SILVER_PREFIX_DEFAULT,
+        write_simple_copies=write_simple_copies,
     )
 
     logger.info("Glue Job finished")

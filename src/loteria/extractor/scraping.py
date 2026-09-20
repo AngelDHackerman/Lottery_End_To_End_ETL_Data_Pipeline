@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from loteria.common.aws_secrets import get_secrets
+from loteria.common.config import FLAG_SIMPLE_BUCKET_WRITES, env_flag
 from loteria.common.metrics import record_scraper_no_response, record_scraper_status
 from loteria.common.s3_utils import check_if_sorteo_exists, upload_to_s3
 
@@ -249,14 +250,27 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):  # nosec B1
 
     logger.info(f"💾 Data extracted and saved to: {output_path}")
 
-    # 7. Dual upload to S3
-    # Hive-style path
+    # 7. Upload to S3
+    # Hive-style path — the canonical one, and the only input the transformer reads.
     s3_key_hive = f"raw/year={year}/sorteo={numero_sorteo_real}/{file_name}"
     upload_to_s3(output_path, partitioned_bucket, s3_key_hive)
 
-    # Simple path
-    s3_key_simple = f"raw/sorteo_{numero_sorteo_real}.txt"
-    upload_to_s3(output_path, simple_bucket, s3_key_simple)
+    # Simple path — fault A, being retired (PR-041.1). The roadmap's own prompt for PR-041
+    # lists only the transformer's two Parquet copies; this third write is the one that is
+    # easy to miss, because the extractor is not where anyone looks for a duplicated
+    # *Parquet* path. Read at call time from the Lambda's environment, so flipping it is a
+    # Terraform value rather than a rebuild of the zip.
+    write_simple_copy = env_flag(FLAG_SIMPLE_BUCKET_WRITES)
+    if write_simple_copy:
+        s3_key_simple = f"raw/sorteo_{numero_sorteo_real}.txt"
+        upload_to_s3(output_path, simple_bucket, s3_key_simple)
 
-    logger.info(f"✅ Sorteo {numero_sorteo_real} subido a ambos buckets.")
+    logger.info(
+        "Sorteo uploaded",
+        extra={
+            "sorteo": numero_sorteo_real,
+            "partitioned_key": s3_key_hive,
+            "wrote_simple_copy": write_simple_copy,
+        },
+    )
     return output_path

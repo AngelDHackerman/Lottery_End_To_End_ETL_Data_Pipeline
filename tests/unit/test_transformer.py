@@ -191,12 +191,13 @@ def keys_under(s3, bucket: str, prefix: str) -> list[str]:
     return sorted(o["Key"] for o in resp.get("Contents", []))
 
 
-def run(transformer):
+def run(transformer, write_simple_copies: bool = True):
     transformer.transform(
         bucket_name=PARTITIONED,
         raw_prefix=RAW_PREFIX,
         simple_prefix=SIMPLE_PREFIX,
         silver_prefix=SILVER_PREFIX,
+        write_simple_copies=write_simple_copies,
     )
 
 
@@ -214,6 +215,8 @@ class TestSilverOutput:
         ]
 
     def test_also_writes_flat_copies_to_the_simple_bucket(self, s3, transformer):
+        """Fault A, still on by default. This is what PR-041.1 gates and PR-041.3 deletes;
+        until the flag flips, the dual write is the behaviour and this pins it."""
         put_raw(s3, sorteo=3046, year=2024)
         run(transformer)
 
@@ -221,6 +224,58 @@ class TestSilverOutput:
             "processed/premios_3046.parquet",
             "processed/sorteos_3046.parquet",
         ]
+
+
+class TestSimpleBucketWritesFlag:
+    """PR-041.1 — fault A, gated rather than deleted.
+
+    The flag exists so that stopping the writes and deleting the bytes are two separate,
+    separately reversible decisions. Flipping it is a Terraform value; the rollback is the
+    same line. Nothing here deletes anything, and neither does the PR.
+    """
+
+    def test_the_flat_copies_stop(self, s3, transformer):
+        put_raw(s3, sorteo=3046, year=2024)
+        run(transformer, write_simple_copies=False)
+
+        assert keys_under(s3, SIMPLE, SIMPLE_PREFIX) == []
+
+    def test_silver_is_written_exactly_as_before(self, s3, transformer):
+        """The point of the flag is that it changes ONE thing. Silver is the canonical
+        layer and the only input Gold has; if disabling the duplicate touched it at all,
+        this PR would be a data change wearing a cleanup's clothes."""
+        put_raw(s3, sorteo=3046, year=2024)
+        run(transformer, write_simple_copies=False)
+
+        assert keys_under(s3, PARTITIONED, SILVER_PREFIX) == [
+            "silver/premios/year=2024/sorteo=3046/premios.parquet",
+            "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
+        ]
+
+    def test_existing_flat_copies_are_left_untouched(self, s3, transformer):
+        """ "Stop the writes, keep every byte." A draw captured before the flip keeps its
+        copy: this PR removes a write path, not data. PR-041.3 is where bytes go, after a
+        stated grace period and its own runbook."""
+        s3.put_object(Bucket=SIMPLE, Key="processed/sorteos_3045.parquet", Body=b"older run")
+        put_raw(s3, sorteo=3046, year=2024)
+
+        run(transformer, write_simple_copies=False)
+
+        assert keys_under(s3, SIMPLE, SIMPLE_PREFIX) == ["processed/sorteos_3045.parquet"]
+
+    def test_writing_is_the_default(self, s3, transformer):
+        """The flag ships ON, so merging this PR changes nothing in production until the
+        value is flipped — which is what makes the flip a one-line, reviewable event
+        instead of a side effect of a deploy."""
+        put_raw(s3, sorteo=3046, year=2024)
+        transformer.transform(
+            bucket_name=PARTITIONED,
+            raw_prefix=RAW_PREFIX,
+            simple_prefix=SIMPLE_PREFIX,
+            silver_prefix=SILVER_PREFIX,
+        )
+
+        assert len(keys_under(s3, SIMPLE, SIMPLE_PREFIX)) == 2
 
     def test_row_counts_match_the_source_file(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024)
@@ -628,24 +683,68 @@ class TestGlueEntryPoint:
         """These names are the contract with terraform/modules/etl-glue's
         `default_arguments`. Adding one here without adding it there fails the job at
         startup."""
-        requested = {}
+        requested = self._requested_names(transformer, monkeypatch, argv=["transformer.py"])
 
-        def fake_resolve(argv, names):
-            requested["names"] = names
-            return self.ARGS
-
-        monkeypatch.setattr(transformer, "getResolvedOptions", fake_resolve)
-        monkeypatch.setattr(sys, "argv", ["transformer.py"])
-        monkeypatch.setattr(transformer, "transform", lambda **kwargs: None)
-
-        transformer.main()
-
-        assert set(requested["names"]) == {
+        assert set(requested) == {
             "SIMPLE_BUCKET",
             "PARTITIONED_BUCKET",
             "RAW_PREFIX",
             "PROCESSED_PREFIX",
         }
+
+    def _requested_names(self, transformer, monkeypatch, argv):
+        requested = {}
+
+        def fake_resolve(_argv, names):
+            requested["names"] = names
+            return self.ARGS
+
+        monkeypatch.setattr(transformer, "getResolvedOptions", fake_resolve)
+        monkeypatch.setattr(sys, "argv", argv)
+        monkeypatch.setattr(transformer, "transform", lambda **kwargs: None)
+
+        transformer.main()
+        return requested["names"]
+
+    # ---- PR-041.1: the optional flag -------------------------------------------------
+    def test_the_simple_writes_flag_is_asked_for_only_when_glue_passes_it(
+        self, transformer, monkeypatch
+    ):
+        """getResolvedOptions RAISES on a name it cannot find, and this job's zip is
+        uploaded to S3 separately from the `terraform apply` that adds the argument. Asking
+        unconditionally would turn any partial deploy into a job that dies at startup,
+        before a line of transform logic — a self-inflicted weekly outage, to avoid writing
+        two files nobody reads."""
+        argv = ["transformer.py", "--ENABLE_SIMPLE_BUCKET_WRITES", "false"]
+
+        assert "ENABLE_SIMPLE_BUCKET_WRITES" in self._requested_names(
+            transformer, monkeypatch, argv
+        )
+
+    def test_an_absent_flag_keeps_writing(self, glue_main):
+        """Old code, new Terraform, or the other way round: the behaviour with no flag at
+        all is exactly what the job did before this PR."""
+        assert glue_main(self.ARGS)["write_simple_copies"] is True
+
+    @pytest.mark.parametrize("value", ["false", "False", "FALSE", "0", "no", "off"])
+    def test_the_flag_is_read_from_the_job_argument(self, glue_main, value):
+        captured = glue_main(
+            {**self.ARGS, "ENABLE_SIMPLE_BUCKET_WRITES": value},
+            argv=["transformer.py", "--ENABLE_SIMPLE_BUCKET_WRITES", value],
+        )
+
+        assert captured["write_simple_copies"] is False
+
+    def test_a_typo_keeps_writing_rather_than_silently_stopping(self, glue_main):
+        """Direction matters. "Stop the writes, keep every byte" is checkable on the next
+        run — the object count stops moving — whereas a typo that quietly disabled the
+        writes would be an unannounced data change. So an unrecognised value stays ON."""
+        captured = glue_main(
+            {**self.ARGS, "ENABLE_SIMPLE_BUCKET_WRITES": "flase"},
+            argv=["transformer.py", "--ENABLE_SIMPLE_BUCKET_WRITES", "flase"],
+        )
+
+        assert captured["write_simple_copies"] is True
 
 
 def transformer_module_silver_prefix() -> str:

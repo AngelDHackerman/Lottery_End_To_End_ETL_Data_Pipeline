@@ -114,6 +114,11 @@ resource "aws_lambda_function" "extractor_lambda" {
       REGION              = var.region
       LOTERIA_SECRET_NAME = var.secret_name
 
+      # PR-041.1: fault A. The extractor writes the raw .txt to BOTH buckets; false stops
+      # the second write and deletes nothing. SIMPLE_BUCKET above stays until PR-041.2, so
+      # a rollback is this value alone.
+      ENABLE_SIMPLE_BUCKET_WRITES = tostring(var.enable_simple_bucket_writes)
+
       # PR-031.1: the scrape.do profile, surfaced as env vars so the next Cloudflare change
       # can be answered with a console edit instead of a rebuild-and-redeploy of the zip.
       # The code defaults to exactly these values, so they are documentation as much as
