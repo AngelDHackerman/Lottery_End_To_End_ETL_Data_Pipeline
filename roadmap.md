@@ -2036,6 +2036,20 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 > **Abort condition, checked on 2026-10-20 before anything is deleted:**
 > `aws s3 ls s3://lottery-data-simple-prod/ --recursive | wc -l` must still be **347**. If it
 > moved, a writer nobody knew about is still running — find it before deleting a byte.
+>
+> **Owner decision, 2026-09-20: keep the full month, even though the two findings below make
+> a shorter window defensible.** The reasoning is the owner's and worth preserving: the data
+> has sat there for years, one more month costs 9 MB, and nothing downstream is waiting on
+> the space. A cheap wait beats a clever one.
+>
+> **The decision that follows from it, so nobody has to re-derive it in October:** if the
+> 2026-09-24 run leaves the count at 347 and nothing looks off across the four runs in the
+> window, **PR-041.3 is authorised to proceed — which means deleting the bucket**, per the
+> owner's decision of 2026-09-14 (`delete it`) reaffirmed here. The two checks that still
+> gate it are mechanical, not judgement calls: the count must be 347, and 041.2 must have
+> landed first so no configuration still points at it. The teardown's own hazards —
+> PR-002's Deny policy, versioning's delete markers, `prevent_destroy` — are the runbook's
+> job, and the runbook is written as part of 041.3.
 
 **PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
 stated grace period of **at least 30 days** from 041.1's apply, with the date written down.
