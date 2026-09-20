@@ -604,11 +604,26 @@ resource "aws_iam_policy" "gold_purge_lambda_policy" {
         Resource = "${var.partitioned_bucket_arn}/gold/*"
       },
       {
-        Sid    = "DropGoldTable",
+        # PR-042.1: the Lambda no longer drops the PUBLISHED table — it builds a staging
+        # table beside it and swaps the catalog onto it with UpdateTable. That needs the
+        # write side of the catalog for tables and their partitions.
+        #
+        # DeleteTable stays, and is now used only against the staging entry (and against a
+        # leftover staging entry from a failed attempt of the same execution). It is kept
+        # rather than narrowed because Glue resource ARNs cannot express "tables whose name
+        # ends in __stg_*" — the wildcard is per-table-name, not a suffix match.
+        Sid    = "SwapGoldTable",
         Effect = "Allow",
         Action = [
           "glue:GetTable",
-          "glue:DeleteTable"
+          "glue:CreateTable",
+          "glue:UpdateTable",
+          "glue:DeleteTable",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:BatchCreatePartition",
+          "glue:BatchUpdatePartition",
+          "glue:BatchDeletePartition"
         ],
         Resource = [
           local.glue_catalog_arn,

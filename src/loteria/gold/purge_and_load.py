@@ -1,25 +1,46 @@
-"""Gold CTAS pre-flight: make a gold table's location safe to (re)create, then hand
-the CREATE statement back to Step Functions.
+"""Build each Gold table beside the live one, then swap the catalog onto it (PR-042.1).
 
-PR-022 wires the Gold layer into the ETL Step Function. Each iteration of the
-``BuildGold`` Map state invokes this Lambda once, with an event like::
+**What this used to do, and why it was fault B.** The Lambda ran ``DROP TABLE`` *and*
+hard-emptied the table's S3 prefix, then handed the ``CREATE TABLE ... AS SELECT`` back to
+Step Functions. Between those two moments the table **did not exist** — not "held stale
+data", did not exist. Athena CTAS is not transactional and the DROP had already happened, so
+an Athena timeout, a workgroup limit or one bad Silver row took that gold table *and last
+week's copy of it* until the next Thursday. Seven days of absence for one failed query, and
+because ``BuildGold`` is a Map with concurrency 3, a partial failure left Gold internally
+inconsistent with no single state to reason about.
 
-    {"bucket": "lottery-partitioned-storage-prod", "sqlKey": "sql/gold/01_gold_draw_summary.sql"}
+**What it does now.** Two actions, one per Step Functions state:
 
-Two facts force this helper to exist between "start the crawlers" and "run the CTAS":
+``prepare``
+    Rewrite the file's CREATE statement to build a **staging table** at a **staging
+    location** — ``gold/<name>/run=<execution>/`` — and return it. Nothing is dropped and no
+    published byte is touched. A failed CTAS now changes precisely nothing.
 
-1. **Athena runs ONE statement per StartQueryExecution.** The files in ``sql/gold/``
-   each hold ``DROP TABLE ...; CREATE TABLE ... AS SELECT ...``. Passing both to Athena
-   fails, so this Lambda performs the DROP itself (``glue:DeleteTable``, idempotent) and
-   returns only the ``CREATE TABLE`` statement for the Athena task to run.
+``promote``
+    Called only after the CTAS succeeded. Point the published table at what was just built,
+    through ``UpdateTable`` — one API call, atomic — and move its partitions across. The
+    previous generation stays in S3, serving reads until the instant of the swap and
+    available as a rollback afterwards. Retiring old generations is PR-042.2, deliberately
+    separate: a delete that runs before the swap is the defect this PR exists to remove.
 
-2. **Athena CTAS refuses a non-empty ``external_location``** (``HIVE_PATH_ALREADY_EXISTS``).
-   The manual PR-021 runs already left Parquet under ``gold/<name>/``, so this Lambda
-   empties that prefix before the CTAS. The bucket has versioning on (PR-002/005), so the
-   deletes drop delete-markers — data history is retained, the location just reads empty.
+**The purge did not disappear, it moved.** ``_empty_prefix`` still runs in ``prepare``, but
+against the staging location only — a prefix this execution owns and that has never been
+published. It is there because Athena CTAS refuses a non-empty ``external_location``
+(``HIVE_PATH_ALREADY_EXISTS``), and a retried execution would otherwise trip over its own
+failed attempt.
 
-The table name, target location, and the CREATE statement are all parsed from the SQL
-file itself, so the file stays the single source of truth (no duplicated config in TF).
+**⚠️ The one transient, and it only happens once.** Before this PR the published tables point
+at ``gold/<name>/`` — the *parent* of the new staging locations. Athena reads a location
+recursively, so between the first CTAS finishing and its promote, a query against the old
+table would see the old files *and* the new ``run=`` files, and double-count. The window is
+seconds, it closes at promote, it never recurs (afterwards the table points at a specific
+generation), and Gold has no consumer today — which the roadmap names as exactly why fault B
+is cheap to fix now. The alternative, staging outside the table's own prefix, buys that one
+transient at the cost of a layout where a table's data does not live under the table's
+prefix. Recorded here rather than silently chosen.
+
+The table name, target location and CREATE statement are still parsed from the SQL file, so
+the file stays the single source of truth (no duplicated config in Terraform).
 """
 
 from __future__ import annotations
@@ -105,7 +126,9 @@ def _empty_prefix(bucket: str, prefix: str) -> int:
 def _drop_table(database: str, table: str) -> bool:
     """Drop the Glue catalog entry if it exists. Returns True if a table was removed.
 
-    Mirrors ``DROP TABLE IF EXISTS`` — a missing table is not an error.
+    Mirrors ``DROP TABLE IF EXISTS`` — a missing table is not an error. Only ``promote``
+    calls this now, and only against the staging entry: the published table is never
+    dropped, it is updated in place.
     """
     try:
         glue.delete_table(DatabaseName=database, Name=table)
@@ -114,47 +137,306 @@ def _drop_table(database: str, table: str) -> bool:
         return False
 
 
-def handler(event, context):  # noqa: ANN001 - Lambda signature
-    correlation_id = event.get("correlation_id") or os.environ.get("CORRELATION_ID", "-")
-    bucket = event["bucket"]
-    sql_key = event["sqlKey"]
+# ==========================================================================================
+# Staging identity
+# ==========================================================================================
+#: Separates the published table name from the run that built it. Double underscore so the
+#: staging entries sort next to their table in the console and are greppable as a class.
+STAGING_SUFFIX = "__stg_"
 
-    logger.info("[%s] purge+load start bucket=%s key=%s", correlation_id, bucket, sql_key)
+#: Execution names are two UUIDs joined by an underscore (~73 chars). Glue allows 255, so
+#: this cap is for legibility in the console and in S3, not for the limit — and it keeps the
+#: leading UUID, which is what ties a prefix back to an execution.
+MAX_RUN_ID = 60
 
-    sql = s3.get_object(Bucket=bucket, Key=sql_key)["Body"].read().decode("utf-8")
+
+def _run_slug(run_id: str) -> str:
+    """A run identifier safe for a Glue table name and an S3 prefix.
+
+    Glue table names allow lowercase alphanumerics and underscores; Step Functions execution
+    names also carry hyphens, and a manual run may carry anything a human typed.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", run_id.lower()).strip("_")
+    return (slug[:MAX_RUN_ID] or "manual").rstrip("_")
+
+
+def _staging_identity(table: str, prefix: str, run_id: str) -> tuple[str, str]:
+    """Return ``(staging_table, staging_prefix)`` for this run.
+
+    The prefix is a CHILD of the published one on purpose — see the module docstring's note
+    on the one-time transient. It keeps every generation of a table under that table's own
+    prefix, which is what makes the lifecycle rule in PR-042.2 a one-liner.
+    """
+    slug = _run_slug(run_id)
+    return f"{table}{STAGING_SUFFIX}{slug}", f"{prefix.rstrip('/')}/run={slug}/"
+
+
+def _rewrite_for_staging(create_stmt: str, database: str, staging_table: str, location: str) -> str:
+    """Point a CREATE TABLE AS SELECT at the staging table and the staging location.
+
+    Both substitutions are positional — the regex match is replaced where it was found —
+    rather than a string replace of the table name. The SELECT body mentions silver tables
+    and the header carries comments; a blind replace would be free to corrupt either.
+    """
+    match = _CREATE_TABLE_RE.search(create_stmt)
+    if not match:
+        raise ValueError("No 'CREATE TABLE <db>.<table>' found in the CREATE statement.")
+    stmt = (
+        create_stmt[: match.start()]
+        + f"CREATE TABLE {database}.{staging_table}"
+        + create_stmt[match.end() :]
+    )
+
+    loc = _EXTERNAL_LOCATION_RE.search(stmt)
+    if not loc:
+        raise ValueError("No external_location found in the CREATE statement.")
+    return stmt[: loc.start()] + f"external_location = '{location}'" + stmt[loc.end() :]
+
+
+# ==========================================================================================
+# The swap
+# ==========================================================================================
+#: Glue's own batch caps. Exceeding either is an InvalidInputException, not a partial write.
+_BATCH_UPDATE = 100
+_BATCH_CREATE = 100
+_BATCH_DELETE = 25
+
+#: Keys GetTable returns that TableInput does not accept. Passing any of them back is an
+#: InvalidInputException, which is why the input is built by subtraction rather than by hand:
+#: a field added to a future Glue API version keeps flowing through instead of being dropped.
+_READ_ONLY_TABLE_KEYS = frozenset(
+    {
+        "DatabaseName",
+        "CreateTime",
+        "UpdateTime",
+        "CreatedBy",
+        "IsRegisteredWithLakeFormation",
+        "CatalogId",
+        "VersionId",
+        "FederatedTable",
+        "IsMultiDialectView",
+        "Status",
+    }
+)
+
+_READ_ONLY_PARTITION_KEYS = frozenset(
+    {"DatabaseName", "TableName", "CreationTime", "LastAccessTime", "LastAnalyzedTime", "CatalogId"}
+)
+
+
+def _table_input(table: dict, name: str) -> dict:
+    """Turn a GetTable response into a TableInput published under ``name``."""
+    payload = {k: v for k, v in table.items() if k not in _READ_ONLY_TABLE_KEYS}
+    payload["Name"] = name
+    return payload
+
+
+def _partition_input(partition: dict) -> dict:
+    return {k: v for k, v in partition.items() if k not in _READ_ONLY_PARTITION_KEYS}
+
+
+def _all_partitions(database: str, table: str) -> list[dict]:
+    """Every partition of a table, or [] if the table does not exist."""
+    partitions: list[dict] = []
+    paginator = glue.get_paginator("get_partitions")
+    try:
+        for page in paginator.paginate(DatabaseName=database, TableName=table):
+            partitions.extend(page.get("Partitions", []))
+    except glue.exceptions.EntityNotFoundException:
+        return []
+    return partitions
+
+
+def _chunks(items: list, size: int):
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+def _raise_on_batch_errors(operation: str, errors: list) -> None:
+    """Glue's batch APIs report per-item failures in the RESPONSE, not as an exception.
+
+    Ignoring them is how a swap reports success while leaving the table pointing half at one
+    generation and half at another — the exact inconsistency fault B is about.
+    """
+    if not errors:
+        return
+    first = errors[0]
+    detail = first.get("ErrorDetail", {})
+    raise RuntimeError(
+        f"{operation} failed for {len(errors)} partition(s): "
+        f"{detail.get('ErrorCode')} {detail.get('ErrorMessage')} "
+        f"(values={first.get('PartitionValues')})"
+    )
+
+
+def _move_partitions(database: str, published: str, staged: list[dict]) -> dict:
+    """Point the published table's partitions at the freshly built generation.
+
+    Existing values are **updated** rather than deleted and recreated. A delete-then-create
+    leaves a window where the table has no partitions at all — a "successful" swap whose
+    table reads empty, which is precisely the failure mode the roadmap flags for this PR.
+    An update is one call per batch and never passes through an empty state.
+
+    Partitions the new generation does not have are removed last, so the table is never
+    missing a value it is about to keep.
+    """
+    if not staged:
+        return {"updated": 0, "created": 0, "deleted": 0}
+
+    existing = {tuple(p["Values"]): p for p in _all_partitions(database, published)}
+    staged_by_values = {tuple(p["Values"]): p for p in staged}
+
+    to_update = [p for values, p in staged_by_values.items() if values in existing]
+    to_create = [p for values, p in staged_by_values.items() if values not in existing]
+    to_delete = [values for values in existing if values not in staged_by_values]
+
+    for batch in _chunks(to_update, _BATCH_UPDATE):
+        resp = glue.batch_update_partition(
+            DatabaseName=database,
+            TableName=published,
+            Entries=[
+                {"PartitionValueList": p["Values"], "PartitionInput": _partition_input(p)}
+                for p in batch
+            ],
+        )
+        _raise_on_batch_errors("batch_update_partition", resp.get("Errors", []))
+
+    for batch in _chunks(to_create, _BATCH_CREATE):
+        resp = glue.batch_create_partition(
+            DatabaseName=database,
+            TableName=published,
+            PartitionInputList=[_partition_input(p) for p in batch],
+        )
+        _raise_on_batch_errors("batch_create_partition", resp.get("Errors", []))
+
+    for batch in _chunks(to_delete, _BATCH_DELETE):
+        resp = glue.batch_delete_partition(
+            DatabaseName=database,
+            TableName=published,
+            PartitionsToDelete=[{"Values": list(values)} for values in batch],
+        )
+        _raise_on_batch_errors("batch_delete_partition", resp.get("Errors", []))
+
+    return {"updated": len(to_update), "created": len(to_create), "deleted": len(to_delete)}
+
+
+# ==========================================================================================
+# The two actions
+# ==========================================================================================
+def _read_sql(bucket: str, key: str) -> tuple[str, str, str, str, str]:
+    """Return ``(sql, database, table, target_bucket, target_prefix)`` from the SQL file."""
+    sql = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
 
     loc = _EXTERNAL_LOCATION_RE.search(sql)
     if not loc:
-        raise ValueError(f"No external_location found in s3://{bucket}/{sql_key}")
-    target_bucket = loc.group("bucket")
-    target_prefix = loc.group("prefix")
+        raise ValueError(f"No external_location found in s3://{bucket}/{key}")
 
     tbl = _CREATE_TABLE_RE.search(sql)
     if not tbl:
-        raise ValueError(f"No 'CREATE TABLE <db>.<table>' found in s3://{bucket}/{sql_key}")
-    database = tbl.group("db")
-    table = tbl.group("table")
+        raise ValueError(f"No 'CREATE TABLE <db>.<table>' found in s3://{bucket}/{key}")
 
-    dropped = _drop_table(database, table)
-    deleted = _empty_prefix(target_bucket, target_prefix)
-    query_string = _extract_create_statement(sql)
+    return sql, tbl.group("db"), tbl.group("table"), loc.group("bucket"), loc.group("prefix")
+
+
+def prepare(event: dict, correlation_id: str) -> dict:
+    """Return the CTAS to run, aimed at a staging table nobody is reading yet."""
+    bucket = event["bucket"]
+    sql_key = event["sqlKey"]
+    run_id = event.get("runId") or correlation_id
+
+    sql, database, table, target_bucket, target_prefix = _read_sql(bucket, sql_key)
+    staging_table, staging_prefix = _staging_identity(table, target_prefix, run_id)
+    staging_location = f"s3://{target_bucket}/{staging_prefix}"
+
+    # This execution's own prefix, never published. Non-empty only if a previous attempt of
+    # THIS execution failed after writing — in which case Athena would refuse to write again.
+    deleted = _empty_prefix(target_bucket, staging_prefix)
+
+    # Left over from a previous attempt of this same execution, for the same reason.
+    dropped = _drop_table(database, staging_table)
+
+    query_string = _rewrite_for_staging(
+        _extract_create_statement(sql), database, staging_table, staging_location
+    )
 
     logger.info(
-        "[%s] ready table=%s.%s dropped=%s objects_deleted=%d location=s3://%s/%s",
+        "[%s] prepared table=%s.%s staging=%s location=%s stale_objects_deleted=%d "
+        "stale_staging_table_dropped=%s",
         correlation_id,
         database,
         table,
-        dropped,
+        staging_table,
+        staging_location,
         deleted,
-        target_bucket,
-        target_prefix,
+        dropped,
     )
 
-    # Consumed by the Athena StartQueryExecution.sync task via ResultSelector.
     return {
         "queryString": query_string,
         "database": database,
         "table": table,
-        "location": f"s3://{target_bucket}/{target_prefix}",
+        "stagingTable": staging_table,
+        "location": staging_location,
+        "publishedLocation": f"s3://{target_bucket}/{target_prefix}",
         "objectsDeleted": deleted,
     }
+
+
+def promote(event: dict, correlation_id: str) -> dict:
+    """Point the published table at the generation the CTAS just built.
+
+    Only reached when the CTAS succeeded, which is the whole point: everything destructive
+    happens after there is something to replace the old copy with.
+    """
+    database = event["database"]
+    table = event["table"]
+    staging_table = event["stagingTable"]
+
+    staged = glue.get_table(DatabaseName=database, Name=staging_table)["Table"]
+    location = staged.get("StorageDescriptor", {}).get("Location")
+
+    created = False
+    try:
+        glue.update_table(DatabaseName=database, TableInput=_table_input(staged, table))
+    except glue.exceptions.EntityNotFoundException:
+        # First run, or someone dropped the table by hand. Same end state.
+        glue.create_table(DatabaseName=database, TableInput=_table_input(staged, table))
+        created = True
+
+    partitions = _move_partitions(database, table, _all_partitions(database, staging_table))
+
+    # The staging CATALOG entry is disposable; its DATA is now the published data, so this
+    # deletes a name and nothing else. Last, so a failure above leaves the staging table
+    # available to inspect.
+    _drop_table(database, staging_table)
+
+    logger.info(
+        "[%s] promoted table=%s.%s created=%s location=%s partitions=%s",
+        correlation_id,
+        database,
+        table,
+        created,
+        location,
+        partitions,
+    )
+
+    return {
+        "database": database,
+        "table": table,
+        "location": location,
+        "created": created,
+        "partitions": partitions,
+    }
+
+
+ACTIONS = {"prepare": prepare, "promote": promote}
+
+
+def handler(event, context):  # noqa: ANN001 - Lambda signature
+    correlation_id = event.get("correlation_id") or os.environ.get("CORRELATION_ID", "-")
+    action = event.get("action", "prepare")
+
+    if action not in ACTIONS:
+        raise ValueError(f"Unknown action {action!r}; expected one of {sorted(ACTIONS)}")
+
+    return ACTIONS[action](event, correlation_id)

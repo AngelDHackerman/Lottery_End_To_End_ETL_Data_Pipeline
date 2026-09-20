@@ -2106,6 +2106,40 @@ options list does not spell out:
 **Acceptance — this is the whole PR:** force a CTAS failure on one table and show the
 published table still returning its previous row count.
 
+> **PR-042.1 outcome.** Built as designed, with one deviation and one hazard worth naming.
+>
+> **The shape.** The Lambda grew two actions and the Map grew a state:
+> `PrepareGold → RunCTAS → PromoteGold`. `prepare` rewrites the file's CREATE to build
+> `<table>__stg_<run>` at `gold/<name>/run=<run>/` and touches nothing published; `promote`
+> runs only after Athena succeeded and swaps the catalog with **one `glue:UpdateTable`**.
+> The SQL file stays the single source of truth — both staging names are *derived* from it,
+> not configured anywhere. The rendered ASL was checked with
+> `aws stepfunctions validate-state-machine-definition`: `OK`.
+>
+> **Partitions are updated, not dropped and recreated.** `BatchUpdatePartition` for values
+> the new generation shares, create for new ones, delete for ones it no longer has — in that
+> order. A delete-then-create passes through a state where the table has no partitions at
+> all, which is the "successful swap, empty table" failure this section warns about.
+> Glue's batch APIs report per-item failures in the *response*, not as an exception, so
+> those are checked and raised: ignoring them is how a swap reports success while leaving
+> the table pointing half at one generation and half at another.
+>
+> **The deviation.** The roadmap suggested `run=<execution-id>` under the table's prefix,
+> which is what was built — but it is worth writing down that this makes the staging
+> location a CHILD of the location the published table currently points at. Athena reads a
+> location recursively, so between the first CTAS finishing and its promote, a query on the
+> old table would see the old files *and* the new ones and double-count. The window is
+> seconds, it closes at promote, **it happens once ever** (afterwards the table points at a
+> specific generation, not the parent), and Gold has no consumer today — which this section
+> already names as why fixing B now is cheap. Staging outside the table's prefix would avoid
+> it at the cost of a layout where a table's data does not live under the table's prefix.
+>
+> **The acceptance criterion, runnable in prod in under a minute** without breaking anything:
+> invoke the Lambda alone with `{"action":"prepare", ...}` for one table and then simply do
+> not run the CTAS — which is precisely the state a failed run leaves. Then query the
+> published table: it still returns its previous rows. Against the pre-042.1 Lambda the same
+> two steps leave the table dropped and its Parquet deleted.
+
 **PR-042.2 — Retire old generations.** Keep the live generation plus one, so the rollback
 is "re-point the catalog at the previous generation" — write that command in the runbook.
 The deletion is its **own** Step Functions state, running **after** the swap, allowed to
@@ -2390,7 +2424,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 040 | `.envrc.example` + final polish | todo | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` in-progress · `.2`/`.3` todo | — |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | todo | — |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` in-progress · `.2` todo | — |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` measure · `.2` incremental tables · `.3` decide the aggregates | todo | — |

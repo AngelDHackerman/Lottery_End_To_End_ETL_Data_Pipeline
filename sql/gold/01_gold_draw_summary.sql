@@ -23,6 +23,20 @@
 -- as-is in PR-021. PR-022 should parameterize the bucket.
 -- =====================================================================
 
+-- ⚠️ PR-042.1 CHANGED HOW THIS FILE IS RUN BY THE PIPELINE.
+--   The Step Function no longer executes this file as written. Its Lambda reads it, rewrites
+--   the CREATE below to build a STAGING table at a per-run location
+--   (gold/<name>/run=<execution>/), and only after Athena succeeds does it point the
+--   published table at that generation. Nothing published is dropped or emptied at any
+--   point, which is what removed the seven-day hole a failed CTAS used to leave.
+--   So: the DROP below is NOT what the pipeline runs, and external_location below is the
+--   table's FAMILY prefix, not where the current generation lives. The file remains the
+--   single source of truth for the table name, the target prefix and the SELECT — the
+--   Lambda derives everything else from it.
+--   Running this file BY HAND in the Athena console still works and still needs the old
+--   ritual (empty the prefix first), but it publishes a table outside the generation scheme
+--   — use it to check a query, not to publish.
+
 DROP TABLE IF EXISTS lottery_santalucia_db.gold_draw_summary;
 
 CREATE TABLE lottery_santalucia_db.gold_draw_summary
