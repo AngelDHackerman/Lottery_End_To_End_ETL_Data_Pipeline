@@ -113,7 +113,14 @@ variable "silver_prefix" {
 }
 
 variable "dq_timeout_minutes" {
-  description = "Hard stop for the DQ job. The observed run is seconds (~117k rows across ~222 files, dominated by the S3 reads), so this is a runaway guard, not a budget — a hung validation must not bill for the Glue default of 2880 minutes."
+  description = "Hard stop for the DQ job, in minutes. NOT a budget for the validation — that takes ~15 seconds. It is a budget for the STARTUP: --additional-python-modules pip-installs great-expectations on every run, and the first measured run (2026-09-16) spent 21m20s between StartedOn and the script's first log line, then finished in 15s. At the original 30 it left ~8 minutes of margin, and a slow PyPI day would have tripped the timeout, which the state machine's Catch reports as NotifyDQFailure — a false 'Silver failed quality' alert that also blocks Gold. 60 buys margin; it does not make the job slower, because billed time (ExecutionTime: 86s on that run) excludes the startup. PR-033.1. The real fix is to stop installing at runtime — see the roadmap."
   type        = number
-  default     = 30
+  default     = 60
+
+  validation {
+    # Below the measured 22-minute startup this is not a runaway guard, it is a scheduled
+    # false alarm.
+    condition     = var.dq_timeout_minutes >= 30
+    error_message = "dq_timeout_minutes must be >= 30: the observed startup alone is ~22 minutes."
+  }
 }
