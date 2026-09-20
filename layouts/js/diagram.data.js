@@ -31,7 +31,7 @@
 
     {id:"owner", x:44, y:356, w:312, h:56, st:"pend", t:"El owner, a mano", s:["make build → aws s3 cp → terraform apply"],
      title:"El puente humano", desc:"La única vía real entre GitHub y la cuenta de AWS. Terraform no gestiona los objetos de código en S3, así que construir y subir los zips es un paso manual.",
-     kv:{"Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Pendiente":"re-subir loteria_dq_lib.zip (PR-033.2)"}},
+     kv:{"Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Al día":"20 sep 2026, con el fix de PR-033.2"}},
 
     {id:"eb", x:424, y:158, w:180, h:56, st:"ok", t:"EventBridge", s:["cron(0 18 ? * THU *)"],
      title:"El disparador semanal", desc:"Una sola regla de cron. Arranca la máquina de estados los jueves a las 18:00 UTC (12:00 en Guatemala).",
@@ -63,7 +63,7 @@
     {id:"dq", x:988, y:252, w:172, h:84, st:"ok", t:"Gate de calidad", s:["Glue 5.0 · Spark","20 expectativas","corta el paso a Gold"],
      title:"El laboratorio — ya en la cadena", desc:"Valida el Silver entero contra dos suites de Great Expectations ANTES de tocar Gold. Si una expectativa falla, Gold no se construye: el Catch de la máquina lleva a NotifyDQFailure y la alerta nombra la suite, la expectativa y la columna.",
      kv:{"Estado":"aplicado 16 sep 2026","Cadena":"RunSilverCrawlers → RunSilverDQ → PrepGold","Si falla":"Catch → NotifyDQFailure → SilverDQFailed","Alcance":"20 expectativas · 116 sorteos · 121 945 premios","Runtime":"Glue 5.0 / Python 3.11","Rol":"glue_dq_role — solo lectura","Timeout":"60 min (PR-033.1)"},
-     warn:{k:"b",t:"Verificado en los DOS sentidos, que es lo que importa: una corrida validó el Silver real y otra, apuntada a un prefijo inexistente, falló diciendo «esto es un problema de cableado, no de calidad». Un gate que solo ha pasado es indistinguible de no tener gate. Lo que sigue roto es su log group propio: ver el defecto 033.2."}},
+     warn:{k:"p",t:"Verificado en los DOS sentidos, que es lo que importa: una corrida validó el Silver real y otra, apuntada a un prefijo inexistente, falló diciendo «esto es un problema de cableado, no de calidad». Un gate que solo ha pasado es indistinguible de no tener gate."}},
 
     {id:"gold", x:1176, y:252, w:172, h:84, st:"ok", t:"Gold", s:["Map · concurrencia 3","purga λ + CTAS Athena","7 tablas"],
      title:"El embotellado", desc:"Siete consultas CTAS de Athena que construyen las tablas de negocio. Una Lambda de purga borra la tabla y vacía su prefijo antes de cada CTAS, porque Athena se niega a escribir sobre una ubicación no vacía.",
@@ -97,7 +97,7 @@
     {id:"obs", x:424, y:756, w:440, h:72, st:"ok", t:"CloudWatch", s:["6 alarmas · dashboard · retención","conteo de objetos por capa"],
      title:"Observabilidad", desc:"Seis alarmas: ejecución fallida, sin éxito reciente, errores del extractor, Glue fallido, crawler que no arrancó y scrape.do fallido. Más un dashboard y una Lambda horaria que publica el número de objetos por capa.",
      kv:{"Alarmas":"6 (la cuenta tiene 10: 4 son de otro proyecto)","Emisor":"lottery-object-count-prod (horaria)","Retención":"sobre los log groups compartidos de Glue","Del gate":"/aws-glue/jobs/loteria-silver-dq-prod"},
-     warn:{k:"b",t:"Tener un log group no es llenarlo. El del gate lleva dos intentos vacío: --continuous-log-logGroup transporta el log4j de SPARK y este job nunca arranca Spark, y después el handler que escribía directo se auto-deshabilitó alimentándose con sus propios logs de boto3. Hasta subir el fix de PR-033.2, el veredicto se lee en /aws-glue/jobs/output."}},
+     warn:{k:"p",t:"Tener un log group no es llenarlo, y este costó dos intentos: --continuous-log-logGroup transporta el log4j de SPARK y este job nunca arranca Spark, y después el handler que escribía directo se auto-deshabilitó alimentándose con sus propios logs de boto3. Desde el 20 sep 20:55 UTC el grupo lleva las seis líneas del job y el veredicto completo. Ojo al comprobarlo: describe-log-streams reporta storedBytes 0 con minutos de retraso — hay que leer los eventos, no los metadatos."}},
 
     {id:"sns", x:890, y:756, w:220, h:72, st:"ok", t:"SNS → correo", s:["loteria-alerts-prod"],
      title:"Las alertas", desc:"Topic con suscripción por correo, confirmada. Avisa de que algo falló y, desde que el gate está en la cadena, también de QUÉ dato estaba mal: el mensaje de NotifyDQFailure lleva la suite, la expectativa y la columna.",
@@ -162,12 +162,12 @@
     {id:"dq",    t:"El gate valida el Silver entero —20 expectativas sobre 116 sorteos y 121 945 premios— antes de tocar Gold. Si una falla, el Catch va a NotifyDQFailure y Gold no se construye. La corrida del 17 sep pasó por aquí en 1m56s."},
     {id:"gold",  t:"Siete CTAS reconstruyen las tablas gold. Cada una borra su tabla y vacía su prefijo ANTES de escribir: si falla, se pierde también la copia buena (defecto 042)."},
     {id:"athena",t:"Athena ejecuta cada CTAS y registra la tabla en el catálogo por su cuenta, sin necesitar crawler."},
-    {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Si lo que falló fue el gate, el correo nombra la suite, la expectativa y la columna. El veredicto completo, eso sí, todavía hay que leerlo en /aws-glue/jobs/output (defecto 033.2)."},
+    {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Si lo que falló fue el gate, el correo nombra la suite, la expectativa y la columna, y el veredicto entero espera en /aws-glue/jobs/loteria-silver-dq-prod."},
     {id:"consumer",t:"Y aquí se acaba: las siete tablas existen y nadie las consume. El grifo está aplazado a propósito."}
   ];
 
   /* Nodos que resalta el botón «Resaltar defectos». */
-  const BAD = ["s3s", "gold", "dq"];
+  const BAD = ["s3s", "gold"];
 
   /* Nodos que resalta el botón «Resaltar lo nuevo»: lo que cambió desde la
      auditoría del 14 sep 2026, que es el gate de calidad y su cadena. */

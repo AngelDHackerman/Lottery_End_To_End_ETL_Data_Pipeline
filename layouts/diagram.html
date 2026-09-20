@@ -76,10 +76,11 @@
 
       <p class="hint">Y lo que ninguna auditoría podía ver, porque hizo falta que el gate
         corriera de verdad en la cuenta. Ninguno de los dos era visible en el código, en un
-        <code>plan</code>, ni en una suite de tests en verde.</p>
+        <code>plan</code>, ni en una suite de tests en verde. Los dos ya están cerrados — se
+        quedan aquí porque cómo aparecieron vale más que el arreglo.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr">033.1</td><td>Arranque de 22 min contra un timeout de 30</td>
+        <tr><td class="pr">033.1</td><td>Arranque de 22 min contra un timeout de 30 — cerrado el 16 sep</td>
           <td>Las dos primeras corridas tardaron 21m47s y 20m08s en arrancar —
             <code>--additional-python-modules</code> instala Great Expectations al empezar —
             y solo 90 s en trabajar. Con el timeout en 30 quedaban ~8 minutos de margen: un
@@ -87,13 +88,14 @@
             además dejaba Gold sin construir. Subido a 60. <b>Corregido</b>: no pasa en cada
             corrida — desde el 17 sep arranca en 8 s, probablemente porque Glue cachea el
             entorno, aunque eso es inferencia y no medición.</td></tr>
-        <tr><td class="pr">033.2</td><td>El log group del gate sigue vacío</td>
+        <tr><td class="pr">033.2</td><td>El log group del gate se quedó vacío — cerrado el 20 sep</td>
           <td>El handler que escribe el veredicto en el grupo propio se alimentaba con los
             logs de boto3 de sus propias llamadas, vaciaba su buffer a mitad de envío y
             llamaba a PutLogEvents con una lista vacía — así que se auto-deshabilitaba. El job
             quedaba verde y el grupo con un stream y cero eventos: un respaldo que funciona
-            es indistinguible de un arreglo que no. Hasta subir el fix, el veredicto se lee
-            en <code>/aws-glue/jobs/output</code>.</td></tr>
+            es indistinguible de un arreglo que no. Desde el 20 sep a las 20:55 UTC el grupo
+            lleva las seis líneas del job, veredicto incluido, y ni una de las ~180 líneas de
+            credenciales que antes lo habrían enterrado.</td></tr>
       </table>
     </div>
   </details>

@@ -218,9 +218,13 @@ Expected: `SUCCEEDED`. The verdict is in
 >
 > | Run date | Where the verdict actually is |
 > |---|---|
-> | before 2026-09-20 | `/aws-glue/jobs/output`, stream = the `jr_…` id |
-> | 2026-09-20, run `jr_68c2…` | `/aws-glue/jobs/output`. The per-job group has an empty stream |
-> | after the PR-033.2 upload | `/aws-glue/jobs/loteria-silver-dq-prod` |
+> | before 2026-09-20 20:55 UTC | `/aws-glue/jobs/output`, stream = the `jr_…` id |
+> | from `jr_2101…` (2026-09-20 20:55 UTC) on | `/aws-glue/jobs/loteria-silver-dq-prod` |
+>
+> **Read the events, not the stream metadata.** `describe-log-streams` on a healthy stream
+> reported `storedBytes: 0` and `firstEventTimestamp == lastEventTimestamp` while
+> `get-log-events` returned all six events; those fields lag by minutes. A stream existing
+> proves nothing either — the broken handler created one on every run and never wrote to it.
 >
 > **The stream is not named after the job run.** It is named with the correlation id — the
 > Step Function execution name for a pipeline run, a fresh UUID for a manual one. To tie a
