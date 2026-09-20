@@ -364,9 +364,7 @@ class TestItDoesNotFeedItself:
         assert sent.count("Found credentials from IAM Role") >= 2
         assert "first" in sent and "second" in sent
 
-    def test_it_says_disabled_once_not_once_per_nested_frame(
-        self, root_logging_restored, capsys
-    ):
+    def test_it_says_disabled_once_not_once_per_nested_frame(self, root_logging_restored, capsys):
         client = ChattyLogsClient(fail_on="put_log_events")
         handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
         handler.setFormatter(logging.Formatter("%(message)s"))
