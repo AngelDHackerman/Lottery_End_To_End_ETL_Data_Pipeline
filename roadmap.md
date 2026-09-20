@@ -1429,6 +1429,7 @@ console shows `Duration 0s` for most of the wait, and why that is not a hang.
 > | `jr_910c…` 09-16 02:12 UTC | **20m08s** | 82s |
 > | `jr_3c3d…` 09-17 18:04 UTC | 1m56s | 95s |
 > | `jr_68c2…` 09-20 20:10 UTC | 1m44s | 96s (console: start-up **8 seconds**) |
+> | `jr_2101…` 09-20 20:55 UTC | 2m09s | 115s |
 >
 > The billed work is constant at ~90s; only the startup collapsed. The obvious explanation
 > is that Glue caches the resolved `--additional-python-modules` environment per job after
@@ -1563,6 +1564,34 @@ handler.
 
 **Deploy note:** code-only. No Terraform change, so no `apply` — rebuild
 `scripts/build_dq_package.sh` and re-upload both artifacts.
+
+### Verified in prod (2026-09-20)
+
+`jr_21010e715de41c13…`, the first run after the re-upload. The per-job log group finally
+holds what it was created for:
+
+```
+20:57:21 INFO silver-dq         Silver DQ starting
+20:57:28 INFO loteria.dq.runner Loaded Silver dataset      (sorteos)
+20:57:28 INFO loteria.dq.runner Suite validated            (silver_sorteos)
+20:57:34 INFO loteria.dq.runner Loaded Silver dataset      (premios)
+20:57:34 INFO loteria.dq.runner Suite validated            (silver_premios)
+20:57:34 INFO silver-dq.verdict [PASS] silver_sorteos: 11 expectations, 116 rows from 116 files
+                                [PASS] silver_premios: 9 expectations, 121945 rows from 116 files
+                                DQ RESULT: PASS
+```
+
+Six events, and **exactly** the six the job means to emit. The run before this one put 204
+lines on stdout, ~180 of them `botocore.credentials` — so `quiet_sdk_loggers` is doing the
+other half of the work, and the verdict is not buried in chatter. It arrives as ONE
+multi-line event, which is the whole reason the group gets a plain formatter rather than the
+JSON one. No `[cloudwatch-logging] disabled` anywhere.
+
+**A trap for whoever checks this next:** `describe-log-streams` reported `storedBytes: 0`
+*and* `firstEventTimestamp == lastEventTimestamp` while `get-log-events` returned all six
+events. Those fields lag by minutes. **Read the events, not the metadata** — reading the
+metadata is how a working group looks broken, and it is the same field that made the broken
+group look merely slow on 2026-09-16.
 
 ---
 
@@ -2214,7 +2243,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
-| 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | in-progress | — |
+| 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |
