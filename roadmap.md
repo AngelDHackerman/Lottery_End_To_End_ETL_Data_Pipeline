@@ -1970,9 +1970,27 @@ repo-wide grep outside `scripts/policies/` and `docs/`.
 **Acceptance:** a full run completes and the simple bucket's object count is *unchanged*
 from the snapshot. **Out of scope:** any deletion.
 
+> ⚠️ **Found at 041.1's apply, and not in the prompt below: the bucket has a granted
+> READER.** `lottery-sagemaker-execution-role-prod` carries
+> `lottery-sagemaker-s3-read-policy-prod`, whose entire content is `s3:GetObject` +
+> `s3:ListBucket` on `lottery-data-simple-prod` and **nothing else**. So the one consumer this
+> architecture ever contemplated was SageMaker, pointed at exactly the bucket being retired —
+> which is also the honest answer to "why did the flat copies exist": they were the notebook
+> layer. Nothing is running (two domains `InService`, zero apps, zero notebook instances) and
+> the owner confirms they do not use it, but the *grant* is real and 041.2 must deal with it:
+> stripping only the write grants would leave a SageMaker role whose sole data permission
+> points at a bucket that is about to stop existing. Repoint it at `silver/` and `gold/` in
+> the partitioned bucket, which is where the data a notebook would want actually lives.
+>
+> ✅ **Also verified at 041.1: nothing in the bucket is unique.** All 115 raw `.txt` and 116
+> Parquet draws have a counterpart under the partitioned bucket's `raw/` and `silver/`
+> (`set(simple) - set(partitioned)` is empty for both). Deleting it therefore cannot lose
+> data — only a convenience copy. That is the fact 041.3's grace period was sized without,
+> and it is why shortening the window is defensible.
+
 **PR-041.2 — Strip the configuration surface.** Everything from the prompt above that is
 now dead: `--PROCESSED_PREFIX`, the `SIMPLE_BUCKET` wiring, the write grants in
-`modules/iam`, and the `"simple"` key in `get_secrets()`
+`modules/iam`, **the SageMaker read grant above**, and the `"simple"` key in `get_secrets()`
 (`src/loteria/common/aws_secrets.py:46`). Leave the key in the Secrets Manager payload —
 that is an owner edit, not Terraform's; record it in the runbook as a manual follow-up.
 `README.md:111-112,141` still sells the dual-bucket strategy as a feature; that is the
