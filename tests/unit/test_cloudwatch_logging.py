@@ -409,3 +409,44 @@ class TestQuietSdkLoggers:
 
         # `make dq` and this test suite go through here. Neither asked for quieter logs.
         assert logging.getLogger("botocore").level == logging.NOTSET
+
+
+class TestTheLazyClient:
+    """``_ensure_client`` imports boto3 the first time a record is sent, not at module
+    import. The module has to stay importable where boto3 is absent or unconfigured — every
+    test run, and `make dq` on a laptop — because ``glue_entrypoint`` imports it before it
+    knows whether a log group was even passed."""
+
+    def test_a_handler_built_without_a_client_makes_its_own(self):
+        with mock_aws():
+            logs = boto3.client("logs", region_name="us-east-1")
+            logs.create_log_group(logGroupName=GROUP)
+
+            handler = CloudWatchLogHandler(GROUP, STREAM)  # no client=
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            handler.emit(record("DQ RESULT: PASS"))
+
+            events = logs.get_log_events(logGroupName=GROUP, logStreamName=STREAM)["events"]
+            assert [e["message"] for e in events] == ["DQ RESULT: PASS"]
+
+    def test_the_client_is_built_once_not_per_record(self):
+        client = FakeLogsClient()
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=client)
+
+        assert handler._ensure_client() is client
+        assert handler._ensure_client() is client
+
+
+class TestDisableIsIdempotent:
+    def test_a_second_disable_says_nothing(self, capsys):
+        """PR-033.2 again, from the other side: the prod run printed the same line eight
+        times. Nested callers must be able to call this without turning one failure into a
+        wall of identical stderr."""
+        handler = CloudWatchLogHandler(GROUP, STREAM, client=FakeLogsClient())
+
+        handler._disable("first")
+        handler._disable("second")
+
+        err = capsys.readouterr().err
+        assert err.count("[cloudwatch-logging] disabled") == 1
+        assert "first" in err and "second" not in err
