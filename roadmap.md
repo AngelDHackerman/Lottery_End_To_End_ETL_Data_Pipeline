@@ -1701,6 +1701,85 @@ Also create .github/workflows/scraper-canary.yml: weekly cron Sundays 18:00 UTC 
 Ratchet pyproject.toml's --cov-fail-under from 70 to 85. Add tests as needed to clear the bar (focus on parser + transformer edge cases).
 ```
 
+### Outcome — 70 → 98, and most of the work was already written
+
+**The prompt's focus was stale.** `parser.py` has been at 100% since PR-029 and
+`transformer.py` at 86% since PR-030. The missing points were four modules that had never
+been executed by a test at all: `extractor/scraping.py`'s orchestration, `lambda_handler.py`,
+`gold/purge_and_load.py` and `observability/object_count.py`.
+
+**Most of it was rescued, not written.** `origin/feat/PR-035-coverage-85` had taken coverage
+to 98.45% in August 2026 and was lost when the stacked-PR chain collapsed — the work was
+never reviewed and never judged, only stranded (see the note at the top of this file). Three
+of the modules it covered have not changed since, so `test_gold_purge.py`,
+`test_object_count.py`, `test_common.py` and the transformer additions applied verbatim and
+passed on the first run.
+
+What did **not** apply was the extractor: PR-031.1 rewrote `scraping.py` between then and
+now. The stranded page fixture used `div.card-body div.row[2]` — the exact container the
+August redesign filled with legal boilerplate, and the reason PR-031.1 exists. So
+`extract_lottery_data`'s tests were rebuilt against `div.lista-premios-columnas`, and split
+into their own file: `scraping.py` reads secrets at *import* time, so two fixtures importing
+it with different fakes in one file is a trap for whoever adds the next test.
+
+**The gate is 98, not 85.** `pyproject.toml`'s convention since PR-029 is that the number
+sits at what the suite achieves; an 85 gate on a 98.52 suite leaves 13 points of silent
+regression room, which is the opposite of a ratchet. 85 was a floor and it is met. The 12
+statements still uncovered are dead ends, each one listed and justified in `pyproject.toml`.
+
+**Three findings, none of them fixed here** — a coverage PR must not change what the weekly
+production run does. All three are filed as PR-035.1 below.
+
+---
+
+## PR-035.1 — Three things writing the tests found (unplanned)
+
+**Filed 2026-09-20.** None of these is a coverage problem; they are what coverage *reveals*.
+Same class as PR-026.1, PR-031.1 and PR-033.1: defects found by exercising code, not
+deferred scope.
+
+### A — the extractor's idempotency guard is dead
+
+`check_if_sorteo_exists` asks for `processed/year=<Y>/sorteo=<N>/sorteos.parquet`, with the
+prefix **hardcoded** and no override (`s3_utils.py:18`). Nothing has written `processed/`
+since **2025-11-24**: Silver moved to `silver/`, and the transformer passes its own prefix
+explicitly (`transformer.py:92`) — which is why *its* idempotency still works and the
+extractor's does not.
+
+The branch cannot fire in production. A retry or a manual re-run re-scrapes a draw already
+captured: two scrape.do requests at 25 credits each, and a rewrite of `raw/` that adds a new
+version on a versioned bucket. Not corruption — a guard the code claims to have and does not.
+
+**Fix:** give `check_if_sorteo_exists` the same explicit-prefix treatment the transformer
+already has, defaulting to `silver/sorteos/`. Small, but it changes what a production run
+does, which is why it is not in PR-035. `test_extract_lottery_data.py::TestTheIdempotencyGuardIsDead`
+pins today's behaviour and fails the day it is fixed — deliberately.
+
+### B — the draw-date regex truncates instead of failing
+
+`FECHA DEL SORTEO:\s*([\d/]+)` is an unanchored character class, so `01/06/20XX` matches the
+prefix `01/06/20` and the draw is filed under `raw/year=20/`. The
+`except (ValueError, IndexError)` fallback to `"unknown"` never fires, because nothing
+raised — those two statements are unreachable today.
+
+`year=unknown` is greppable; `year=20` looks like real data and the crawler registers it
+without complaint. **Fix:** anchor to `\d{2}/\d{2}/\d{4}`. Every real capture so far is
+well-formed, which is why this is a latent defect rather than an outage.
+
+### C — one malformed header kills the whole transform
+
+`process_header` raises `ValueError("The HEADER does not contain the expected format.")` on a
+header missing `REINTEGROS`, and nothing catches it: the exception aborts the run for every
+*other* raw file in the batch, before anything is written. A draw type that omits the line —
+or a redesign that renames the label — is a full weekly outage rather than one skipped
+record.
+
+This is **fault E's territory (PR-044, `quarantine/`)** and should be fixed there rather than
+twice. Noted here because the test that pins it
+(`test_transformer.py::test_a_header_with_no_reintegros_line_at_all_is_rejected_by_the_parser`)
+is the one that has to change when the quarantine lands, and because it is the reason
+`transformer.py:204-206` is unreachable dead code.
+
 ---
 
 # Phase 6 — Documentation & diagrams
@@ -2245,7 +2324,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
 | 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
-| 035 | Coverage ratchet to 85% | todo | — |
+| 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | in-progress | — |
+| 035.1 | **Three defects the coverage work found** — the extractor's dead idempotency guard, the unanchored draw-date regex, and one malformed header killing the whole transform | todo | — |
 | 036 | README rewrite | todo | — |
 | 037 | Diagrams in draw.io | todo | — |
 | 038 | ADRs | todo | — |
