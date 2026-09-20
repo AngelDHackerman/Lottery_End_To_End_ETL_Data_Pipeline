@@ -1995,9 +1995,29 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 > keeps an unrecognised value ON, because a count that fails to stop moving is visible and a
 > silent stop is not.
 >
-> Plan: `0 to add, 3 to change, 0 to destroy` — the job argument, the environment variable,
-> and the known `gold_purge` phantom. **The 30-day clock for `.3` starts at the owner's apply
-> of the flip, not at the merge.**
+> **Applied 2026-09-20 22:31 UTC** (PR #53). Plan was `0 to add, 4 to change, 0 to destroy`:
+> the job argument, the Lambda's environment variable *and* its code (`scraping.py` changed,
+> and Terraform manages that zip), plus the known `gold_purge` phantom. The transformer's zip
+> is NOT Terraform-managed and was uploaded by hand the same minute —
+> `c20025f978cb2524736df6900dc84ea6`, verified byte-identical to `dist/`. Without that upload
+> the flip would have been half-applied: the extractor stops, the transformer keeps writing,
+> because code that has never heard of the argument ignores it.
+>
+> Verified live after the apply: job argument `false`, Lambda env var `false`, bucket at
+> **347 objects**.
+>
+> ### The clock for PR-041.3
+>
+> **Starts 2026-09-20. Earliest teardown: 2026-10-20.** Four weekly runs fall inside it —
+> 09-24, 10-01, 10-08, 10-15 — which is the point: the window is not a formality, it is four
+> chances for a reader nobody knew about to notice its data has gone stale and say so. The
+> evidence in `docs/inventory/` is blind to exactly that reader (CloudTrail data events are
+> off for this bucket, request metrics are not configured), so the grace period buys with
+> time what the evidence cannot prove. The cost is one bucket holding 9 MB it already held.
+>
+> **Abort condition, checked on 2026-10-20 before anything is deleted:**
+> `aws s3 ls s3://lottery-data-simple-prod/ --recursive | wc -l` must still be **347**. If it
+> moved, a writer nobody knew about is still running — find it before deleting a byte.
 
 **PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
 stated grace period of **at least 30 days** from 041.1's apply, with the date written down.
