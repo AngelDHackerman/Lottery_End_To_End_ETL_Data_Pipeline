@@ -209,8 +209,26 @@ aws glue get-job-run --job-name loteria-silver-dq-prod --run-id <id> \
 Expected: `SUCCEEDED`. The verdict is in
 `/aws-glue/jobs/loteria-silver-dq-prod` — look for the `DQ RESULT: PASS` line.
 
-**Expect the first run to be slow.** `--additional-python-modules` pip-installs
-great-expectations at job start; the validation itself is seconds, the install is not.
+> **This was not true when PR-033 shipped, and PR-033.1 made it true.** On the first real
+> run that group had **zero** streams and the verdict was only in the account-wide
+> `/aws-glue/jobs/output`. `--continuous-log-logGroup` ships *Spark's* log4j output, and this
+> job never starts Spark — so there was nothing for it to carry. The job now writes to the
+> group itself. If you are debugging a run from **before 2026-09-20**, look in
+> `/aws-glue/jobs/output` (and `/aws-glue/jobs/error`) instead, by job-run id.
+
+**Expect the run to be slow — about 22 minutes, every time.** `--additional-python-modules`
+pip-installs great-expectations at job *start*, on every run; there is no cache between runs.
+Measured on the first real run: 21m20s between `StartedOn` and the script's first log line,
+then **15 seconds** of actual validation. `ExecutionTime` reports only the billed portion
+(86s on that run), which is why the console shows `Duration 0s` for most of the wait — that
+is normal here and **not** a sign the job has hung.
+
+> PR-033.1 raised `timeout` from 30 to 60 minutes for exactly this reason: at 30 the startup
+> left ~8 minutes of margin, and a slow PyPI day would trip the timeout — which the state
+> machine's `Catch` reports as `NotifyDQFailure`, i.e. a **false** "Silver failed quality"
+> alert that also blocks Gold. Raising the ceiling costs nothing (billed time excludes the
+> startup); it is a stopgap, not the fix. The fix is to stop installing at runtime — see
+> PR-033.1 in the roadmap.
 
 **Failure triage on this first run:**
 
@@ -255,6 +273,40 @@ than by breaking production:
   `modules/observability/main.tf` leaves both sides valid strings and produces an
   `AccessDenied` at the first DQ failure. If the topic is ever renamed, `terraform/main.tf`
   and `modules/iam/main.tf` must move with it.
+
+## Verified in prod (2026-09-16 → 2026-09-20)
+
+Applied with `terraform apply tfplan`: **6 added, 5 changed, 1 destroyed**. The plan showed
+`6/6/1` — the extra `change` was `module.orchestration.aws_lambda_function.gold_purge`, the
+known phantom from the deferred `archive_file` data source (PR-027), which resolved to a
+no-op once the data source was actually read. The `1 destroyed` was the previous
+`aws_lambda_layer_version`: layer versions are immutable, so a rebuilt zip publishes N+1 and
+retires N. Both of those came from running the full `make build` rather than
+`scripts/build_dq_package.sh` alone.
+
+Checked before the first run, all read-only:
+
+| | |
+|---|---|
+| Artifacts in S3 vs `dist/` | identical (6,414 B and 39,621 B) |
+| `RunSilverDQ` in the deployed ASL | present; crawlers → gate → `PrepGold`, catch → `NotifyDQFailure` |
+| SNS ARN in `NotifyDQFailure` | matches the real topic — **this is the coupling a plan cannot catch** |
+| Topic subscription | `email`, confirmed (not `PendingConfirmation`) |
+| `glue-silver-dq-role-prod` | `s3:GetObject` + `s3:ListBucket` + logs only. No `Put`, no `Delete`, no Secrets Manager |
+
+**Both directions of the gate were exercised**, which is the part that matters — a gate that
+has only ever passed is indistinguishable from no gate:
+
+| Run | Result |
+|---|---|
+| `jr_6873896084f7a785…` (step 4, real Silver) | `SUCCEEDED` · 20 expectations over 115 sorteos / 121,050 premios · `DQ RESULT: PASS` |
+| `jr_910c242d010ea13c…` (step 5, `--SILVER_PREFIX silver_does_not_exist/`) | `FAILED` · `SilverDataQualityFailed: No Silver data to validate … this is a wiring problem, not a data-quality one` |
+
+The second run is the valuable one. It proves the gate closes **and** that it distinguishes
+a wiring fault from a data fault in the string the SNS alert will carry.
+
+Two defects were found by these runs and are fixed in PR-033.1: the per-job log group stayed
+empty, and the 30-minute timeout left only ~8 minutes of margin over a 22-minute startup.
 
 ## Rollback
 

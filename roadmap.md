@@ -1398,6 +1398,97 @@ If DQ fails, transition to a Fail state that publishes to the SNS alerts topic w
 >   The ASL itself still needs `aws stepfunctions validate-state-machine-definition` against
 >   a real plan (step 2 of the runbook) — that needs AWS and is the owner's step.
 
+## PR-033.1 — What the first real runs exposed (unplanned)
+
+**Filed 2026-09-20, after PR-033 was applied and verified in prod.** Same class as PR-026.1
+and PR-031.1: defects found by running the thing, not deferred scope. Neither was visible
+from the code, a plan, or a green test suite — both needed a real Glue run to surface.
+
+> **First, the good news, because it is what makes the rest worth fixing.** The gate was
+> exercised in **both** directions. `jr_6873896084f7a785…` validated the real Silver layer —
+> 20 expectations over 115 sorteos and 121,050 premios — and returned `DQ RESULT: PASS`.
+> `jr_910c242d010ea13c…`, pointed at a prefix that does not exist, returned `FAILED` with
+> *"No Silver data to validate … this is a wiring problem, not a data-quality one"*. A gate
+> that has only ever passed is indistinguishable from no gate; this one has been seen to
+> close, and to say why in the string the SNS alert carries.
+
+### Defect A — a 22-minute startup against a 30-minute timeout
+
+**Measured.** `StartedOn` 01:41:10 UTC, the script's first log line at 02:02:30,
+both suites validated by 02:02:45, `CompletedOn` 02:02:57. So **21m20s of provisioning plus
+`pip install great-expectations==1.20.0`, then 15 seconds of actual work.** `ExecutionTime`
+reports 86s, because it is billed time and excludes the startup — which is also why the
+console shows `Duration 0s` for most of the wait, and why that is not a hang.
+
+**Why it is a defect and not just slow.** `--additional-python-modules` runs on **every**
+job run; nothing is cached between them. At `timeout = 30` that left ~8 minutes of margin.
+A slow PyPI day trips the timeout, the state machine's `Catch` turns that into
+`NotifyDQFailure`, and the result is a **false** "Silver failed quality" email *and* Gold
+not built. An infrastructure hiccup wearing a data-quality alert's clothes is how a gate
+loses its credibility — the PR-031 canary lesson, third appearance.
+
+It is also a weekly runtime dependency on PyPI resolving the same way it did last week,
+which is the failure #45 already had to fix once as version drift.
+
+**Done in this PR:** `dq_timeout_minutes` 30 → 60, with a validation rejecting anything
+below 30. Costs nothing — billed time excludes startup — and it is a stopgap, not a fix.
+
+**The fix, deliberately not done here:**
+```
+Stop installing at runtime. Two options, in order:
+
+1. Vendor GX into the --extra-py-files zip that scripts/build_dq_package.sh already builds.
+   Glue 5.0 already ships pandas and pyarrow (the heavy, compiled ones), and requirements/dq.txt
+   already pins the exact set that was verified against prod. This is incremental: it extends
+   a script that exists, and it removes the PyPI dependency from the weekly path entirely.
+   Watch for: GX's own transitive deps that are NOT pure Python, and the zip size limit.
+
+2. Move the gate off Glue onto a Lambda container image. PR-033's own note says it plainly —
+   "we are paying for a Spark cluster to get an interpreter version". That reasoning counted
+   dollars (2 cents a run) and was right; it never counted WALL CLOCK against the timeout,
+   which is the cost that actually showed up. A container image with GX baked in starts in
+   seconds, runs Python 3.12, and this workload is 121k rows of pandas that never touches
+   Spark. Bigger change: new runtime, new IAM, new build path.
+```
+
+### Defect B — the per-job log group was empty
+
+**Measured.** Zero streams in `/aws-glue/jobs/loteria-silver-dq-prod` after a successful
+run. Every line — the JSON logs and the `DQ RESULT` verdict — landed in the account-wide
+`/aws-glue/jobs/output`, with `/aws-glue/jobs/error` alongside.
+
+**Why.** `--continuous-log-logGroup` ships **Spark's log4j output**, and
+`loteria.dq.glue_entrypoint` deliberately never creates a `SparkContext`. No Spark, no
+log4j, nothing to carry. `JobRun.LogGroupName` reporting the base `/aws-glue/jobs` rather
+than the configured group is the tell. PR-033's comment asserting that continuous logging
+"carries the application logs, which is where `format_report`'s verdict lands" was simply
+wrong, and nothing could have caught it short of a real run.
+
+**What it cost.** The runbook sent a woken-up reader to an empty group. And the log group
+resource, its 30-day retention, and the `CKV_AWS_158` checkov exception **accepted
+deliberately for it** were all paying for something that received nothing.
+
+**Done in this PR:** the job writes to the group itself —
+`loteria.common.cloudwatch_logging`, wired through a new `--DQ_LOG_GROUP` job argument so
+Terraform stays the single source of the group's name. Two properties are held by tests
+rather than by good intentions:
+
+- **It never raises.** A CloudWatch throttle or outage must not fail a data-quality run; the
+  handler disables itself, says so once on stderr, and stdout logging continues.
+- **It never creates the log group.** Terraform owns the group *and its retention*; a group
+  created by application code defaults to "never expire" and becomes a silent permanent
+  bill — precisely the drift PR-023 exists to prevent.
+
+The continuous-logging arguments are kept: they cost nothing and would start working the day
+this job ever touches Spark. They are just not what makes the group non-empty.
+
+The verdict goes to the group through a non-propagating logger carrying only the CloudWatch
+handler, so it is not also emitted on stdout a second time, JSON-escaped. stdout keeps the
+JSON envelope for machines; the group gets plain readable text for humans, because "the
+whole output of this job is a verdict someone reads after an alert" is what the group is for.
+
+---
+
 ## PR-034 — GitHub Actions CI
 **Prompt:**
 ```
@@ -2044,7 +2135,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
-| 033 | DQ gate in Step Function | in-progress | — |
+| 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
+| 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | in-progress | — |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |
