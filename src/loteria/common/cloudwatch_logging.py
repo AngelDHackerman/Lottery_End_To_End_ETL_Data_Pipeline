@@ -25,6 +25,22 @@ So the group has to be written to directly, which is all this module does.
   a revoked permission must not turn a green data-quality run red; the handler disables
   itself, says so once on stderr (which *does* reach ``/aws-glue/jobs/error``), and the
   process carries on with its stdout logging intact.
+
+**PR-033.2 — a logging handler that calls AWS feeds itself.** The first prod run of the fix
+above left the group with a stream and *zero events*: the handler had disabled itself eight
+times over with ``Invalid length for parameter logEvents, value: 0``. The cause is that this
+handler sits on the **root** logger and its own boto3 calls log — ``botocore.credentials``
+alone emitted ~180 records in a 96-second run. Each of those came back into :meth:`emit`
+*while a send was in flight*, and the nested flush emptied the buffer under the outer
+frame's feet, which then called PutLogEvents with ``[]``. Two things answer it, and both are
+held by tests:
+
+- :attr:`CloudWatchLogHandler._sending` makes a nested flush a no-op, so a send always owns
+  the buffer it sliced. Records that arrive mid-send ride out with the next one.
+- :func:`quiet_sdk_loggers` raises the AWS SDK loggers to ``WARNING``. Without it the
+  feedback loop is merely *bounded* rather than broken, and the group fills with credential
+  chatter — which defeats the point of a group whose whole job is that a woken-up human can
+  find one verdict in it.
 """
 
 from __future__ import annotations
@@ -63,6 +79,7 @@ class CloudWatchLogHandler(logging.Handler):
         self._client = client
         self._stream_ready = False
         self._disabled = False
+        self._sending = False
         self._buffer: list[dict] = []
 
     # -- internals ---------------------------------------------------------------------
@@ -89,6 +106,10 @@ class CloudWatchLogHandler(logging.Handler):
 
     def _disable(self, reason: object) -> None:
         """Stop trying, once, loudly enough to be found and quietly enough to be ignored."""
+        if self._disabled:
+            # PR-033.2: the first prod run printed this eight times, because every frame of
+            # the re-entrant stack below hit the same failure on the way out. Once means once.
+            return
         self._disabled = True
         self._buffer.clear()
         print(
@@ -112,12 +133,29 @@ class CloudWatchLogHandler(logging.Handler):
         self.flush()
 
     def flush(self) -> None:
-        if self._disabled or not self._buffer:
+        # ``_sending`` is what makes this handler safe to put on the ROOT logger, which is
+        # where attach_cloudwatch_handler puts it. See the module docstring: the boto3 calls
+        # below emit log records of their own, those records come straight back here, and
+        # without this guard the nested flush drains the buffer while the outer frame is
+        # still inside ``_ensure_stream`` — leaving it to call PutLogEvents with an empty
+        # batch, which is a ParamValidationError, which disables the handler. That is
+        # exactly how the group came up empty again on 2026-09-20 (PR-033.2).
+        #
+        # Records that arrive during a send are not lost: they stay at the BACK of the
+        # buffer, the outer frame deletes only the slice it sent (from the front), and the
+        # next emit carries them out.
+        if self._disabled or self._sending or not self._buffer:
             return
+        self._sending = True
         try:
             self._ensure_stream()
             client = self._ensure_client()
             batch = self._buffer[:MAX_BATCH_EVENTS]
+            if not batch:
+                # Unreachable through emit() now that re-entrancy is guarded, and kept
+                # anyway: PutLogEvents rejects an empty batch outright, so a future caller
+                # that flushes by hand must not be able to turn that into a disabled handler.
+                return
             client.put_log_events(
                 logGroupName=self.log_group,
                 logStreamName=self.log_stream,
@@ -128,12 +166,33 @@ class CloudWatchLogHandler(logging.Handler):
             del self._buffer[: len(batch)]
         except Exception as exc:  # noqa: BLE001 - see the module docstring
             self._disable(exc)
+        finally:
+            self._sending = False
 
     def close(self) -> None:
         try:
             self.flush()
         finally:
             super().close()
+
+
+#: Loggers that this handler would otherwise feed back to itself: every one of them is
+#: emitted by the AWS SDK machinery that the handler calls to ship a record. ``WARNING`` keeps
+#: the failures ("credentials expired", a retry storm) and drops the running commentary.
+SELF_AMPLIFYING_LOGGERS = ("boto3", "botocore", "urllib3", "s3transfer")
+
+
+def quiet_sdk_loggers(level: int = logging.WARNING) -> None:
+    """Raise the AWS SDK loggers to ``level``, never lower them (PR-033.2).
+
+    Called by :func:`attach_cloudwatch_handler`, because it is attaching the handler that
+    makes SDK chatter self-amplifying. A logger already set *quieter* than ``level`` is left
+    alone — silencing is a floor here, not an assignment.
+    """
+    for name in SELF_AMPLIFYING_LOGGERS:
+        logger = logging.getLogger(name)
+        if logger.getEffectiveLevel() < level:
+            logger.setLevel(level)
 
 
 def attach_cloudwatch_handler(
@@ -149,9 +208,16 @@ def attach_cloudwatch_handler(
 
     Call this **after** ``loteria.common.logging_setup.configure_logging``: that function
     replaces the root handler list wholesale, so a handler added before it would be dropped.
+
+    Attaching also quiets the AWS SDK loggers (:func:`quiet_sdk_loggers`) — a deliberate
+    global side effect, because the loop it breaks is global: this handler is on the root
+    logger, so every record the SDK emits becomes another record to ship. See PR-033.2 in
+    the module docstring.
     """
     if not log_group:
         return None
+
+    quiet_sdk_loggers()
 
     handler = CloudWatchLogHandler(log_group, log_stream, client=client, level=level)
     handler.setFormatter(logging.Formatter(DEFAULT_MESSAGE_FORMAT))

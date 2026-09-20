@@ -123,13 +123,16 @@ pythonpath = ["src"]
 # untracked lines into tracked and tested ones).
 # PR-033.1 69 (actual 69.97 — cloudwatch_logging.py at 97%, most of it the two properties
 # that keep a logging failure from failing a data-quality run).
+# PR-033.2 70 (actual 70.25 — the re-entrancy tests. A reminder that the ratchet measures
+# lines, not truth: cloudwatch_logging.py was already at 97% while the handler silently wrote
+# nothing in prod, because every test fed it a client that never logged).
 # Next stop PR-035, which takes it to 85; what is left uncovered is the extractor,
 # metrics.py, purge_and_load.py and object_count.py.
 #
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=69"
+addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=70"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see

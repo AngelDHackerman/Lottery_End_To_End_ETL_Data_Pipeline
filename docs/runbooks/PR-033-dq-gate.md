@@ -209,24 +209,46 @@ aws glue get-job-run --job-name loteria-silver-dq-prod --run-id <id> \
 Expected: `SUCCEEDED`. The verdict is in
 `/aws-glue/jobs/loteria-silver-dq-prod` — look for the `DQ RESULT: PASS` line.
 
-> **This was not true when PR-033 shipped, and PR-033.1 made it true.** On the first real
-> run that group had **zero** streams and the verdict was only in the account-wide
-> `/aws-glue/jobs/output`. `--continuous-log-logGroup` ships *Spark's* log4j output, and this
-> job never starts Spark — so there was nothing for it to carry. The job now writes to the
-> group itself. If you are debugging a run from **before 2026-09-20**, look in
-> `/aws-glue/jobs/output` (and `/aws-glue/jobs/error`) instead, by job-run id.
+> **It took two goes to make that true.** PR-033 asked Glue to fill the group with
+> `--continuous-log-logGroup`; that ships *Spark's* log4j output and this job never starts
+> Spark, so the group had **zero** streams. PR-033.1 made the job write to the group itself
+> — and its first run produced a stream with **zero events**, because the handler fed its
+> own boto3 log records back into itself and disabled itself (PR-033.2). Read the group by
+> job-run date:
+>
+> | Run date | Where the verdict actually is |
+> |---|---|
+> | before 2026-09-20 | `/aws-glue/jobs/output`, stream = the `jr_…` id |
+> | 2026-09-20, run `jr_68c2…` | `/aws-glue/jobs/output`. The per-job group has an empty stream |
+> | after the PR-033.2 upload | `/aws-glue/jobs/loteria-silver-dq-prod` |
+>
+> **The stream is not named after the job run.** It is named with the correlation id — the
+> Step Function execution name for a pipeline run, a fresh UUID for a manual one. To tie a
+> stream back to a console run, match the `job_run_id` field on the `Silver DQ starting`
+> line in `/aws-glue/jobs/output`, or the `correlation_id` those JSON lines carry.
 
-**Expect the run to be slow — about 22 minutes, every time.** `--additional-python-modules`
-pip-installs great-expectations at job *start*, on every run; there is no cache between runs.
-Measured on the first real run: 21m20s between `StartedOn` and the script's first log line,
-then **15 seconds** of actual validation. `ExecutionTime` reports only the billed portion
-(86s on that run), which is why the console shows `Duration 0s` for most of the wait — that
-is normal here and **not** a sign the job has hung.
+**Expect the run to be slow the first time, not every time.** `--additional-python-modules`
+pip-installs great-expectations at job *start*. Four measured runs:
 
-> PR-033.1 raised `timeout` from 30 to 60 minutes for exactly this reason: at 30 the startup
-> left ~8 minutes of margin, and a slow PyPI day would trip the timeout — which the state
-> machine's `Catch` reports as `NotifyDQFailure`, i.e. a **false** "Silver failed quality"
-> alert that also blocks Gold. Raising the ceiling costs nothing (billed time excludes the
+| Run | Wall clock | Billed (`ExecutionTime`) |
+|---|---|---|
+| `jr_6873…` 2026-09-16 | **21m47s** | 86s |
+| `jr_910c…` 2026-09-16 | **20m08s** | 82s |
+| `jr_3c3d…` 2026-09-17 | 1m56s | 95s |
+| `jr_68c2…` 2026-09-20 | 1m44s | 96s (start-up: 8s) |
+
+The validation itself is a constant ~90 seconds; only the startup varies, and it collapsed
+after the 16th — most likely Glue caching the resolved environment per job, though that is
+an inference from four runs and not something AWS documents. So: **a 20-minute run is not a
+hang** (the console showing `Duration 0s` through the wait is billed time, which excludes
+startup), and **a 2-minute run is not a job that skipped the work** — check the
+`Suite validated` lines with their row counts before believing either.
+
+> PR-033.1 raised `timeout` from 30 to 60 minutes for exactly this reason: at 30 the slow
+> startup left ~8 minutes of margin, and a slow PyPI day would trip the timeout — which the
+> state machine's `Catch` reports as `NotifyDQFailure`, i.e. a **false** "Silver failed
+> quality" alert that also blocks Gold. The ceiling has to cover the worst case this job has
+> shown, not the case it usually shows. Raising it costs nothing (billed time excludes the
 > startup); it is a stopgap, not the fix. The fix is to stop installing at runtime — see
 > PR-033.1 in the roadmap.
 

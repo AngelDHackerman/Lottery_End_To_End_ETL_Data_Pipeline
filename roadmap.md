@@ -1420,12 +1420,30 @@ both suites validated by 02:02:45, `CompletedOn` 02:02:57. So **21m20s of provis
 reports 86s, because it is billed time and excludes the startup — which is also why the
 console shows `Duration 0s` for most of the wait, and why that is not a hang.
 
-**Why it is a defect and not just slow.** `--additional-python-modules` runs on **every**
-job run; nothing is cached between them. At `timeout = 30` that left ~8 minutes of margin.
-A slow PyPI day trips the timeout, the state machine's `Catch` turns that into
-`NotifyDQFailure`, and the result is a **false** "Silver failed quality" email *and* Gold
-not built. An infrastructure hiccup wearing a data-quality alert's clothes is how a gate
-loses its credibility — the PR-031 canary lesson, third appearance.
+> **Corrected 2026-09-20 (PR-033.2).** This section first said the 22 minutes happen on
+> *every* run. Four runs say otherwise, and only the first two were slow:
+>
+> | Run | Wall clock | `ExecutionTime` |
+> |---|---|---|
+> | `jr_6873…` 09-16 01:41 UTC | **21m47s** | 86s |
+> | `jr_910c…` 09-16 02:12 UTC | **20m08s** | 82s |
+> | `jr_3c3d…` 09-17 18:04 UTC | 1m56s | 95s |
+> | `jr_68c2…` 09-20 20:10 UTC | 1m44s | 96s (console: start-up **8 seconds**) |
+>
+> The billed work is constant at ~90s; only the startup collapsed. The obvious explanation
+> is that Glue caches the resolved `--additional-python-modules` environment per job after
+> the first run, but **that is a hypothesis, not a measurement** — AWS does not document it
+> here, and four runs on three days cannot separate it from a slow PyPI afternoon on the
+> 16th. Treat the 22 minutes as the **worst case this job has actually shown**, which is
+> what a runaway guard must be sized against, and not as the expected duration.
+
+**Why it is a defect and not just slow.** At `timeout = 30` a 22-minute startup left ~8
+minutes of margin. A slow PyPI day trips the timeout, the state machine's `Catch` turns that
+into `NotifyDQFailure`, and the result is a **false** "Silver failed quality" email *and*
+Gold not built. An infrastructure hiccup wearing a data-quality alert's clothes is how a
+gate loses its credibility — the PR-031 canary lesson, third appearance. That the fast path
+is now the common one narrows the window; it does not close it, and a cache that AWS never
+promised is not something to size a timeout against.
 
 It is also a weekly runtime dependency on PyPI resolving the same way it did last week,
 which is the failure #45 already had to fix once as version drift.
@@ -1486,6 +1504,65 @@ The verdict goes to the group through a non-propagating logger carrying only the
 handler, so it is not also emitted on stdout a second time, JSON-escaped. stdout keeps the
 JSON envelope for machines; the group gets plain readable text for humans, because "the
 whole output of this job is a verdict someone reads after an alert" is what the group is for.
+
+---
+
+## PR-033.2 — The fix for defect B did not work in prod (unplanned)
+
+**Filed 2026-09-20, from the first run of PR-033.1's own fix.** `jr_68c2…` succeeded, the
+gate passed, and the per-job log group came up with **one stream and zero events** — the
+same symptom PR-033.1 existed to fix, arrived at by a different route. `storedBytes: 0` was
+not reporting lag; `get-log-events` returned nothing.
+
+**The job said why, eight times, in `/aws-glue/jobs/output`:**
+
+```
+[cloudwatch-logging] disabled for /aws-glue/jobs/loteria-silver-dq-prod/38025ca0-…:
+Parameter validation failed: Invalid length for parameter logEvents, value: 0,
+valid min length: 1. Logs continue on stdout.
+```
+
+**Cause — a logging handler that calls AWS feeds itself.** The handler sits on the **root**
+logger, and the boto3 calls it makes to ship a record emit records of their own:
+`botocore.credentials` alone produced ~180 of them in a 96-second run. Each came back into
+`emit()` *while a send was in flight*, and `flush()` checked for an empty buffer **before**
+calling `_ensure_stream()` rather than after:
+
+```python
+if self._disabled or not self._buffer:   # one event buffered → carry on
+    return
+self._ensure_stream()                    # create_log_stream → botocore logs → emit() →
+                                         # nested flush() drains the buffer
+batch = self._buffer[:MAX_BATCH_EVENTS]  # → []
+client.put_log_events(logEvents=batch)   # ParamValidationError → the handler disables itself
+```
+
+The handler kept every promise it made — it did not raise, it did not create the group, the
+job stayed green and `DQ RESULT: PASS` reached stdout intact. It just never wrote to the
+group it exists for. **A fallback that works is indistinguishable from a fix that doesn't**,
+which is the whole reason this had to be checked by reading the group rather than by reading
+the plan.
+
+**Why the PR-033.1 suite was green against it.** Every test injected a fake client, and a
+fake client does not log. The recursion needs a client that talks while it works, which is
+the one thing a stub never does. The new tests use one; all four fail against the PR-033.1
+handler.
+
+**Done in this PR:**
+
+- A re-entrancy guard (`_sending`): a nested flush is a no-op, so a send always owns the
+  batch it sliced. Records arriving mid-send stay at the back of the buffer and ride out
+  with the next one, rather than being dropped.
+- The empty-batch check moved to immediately before `put_log_events`, kept as belt and
+  braces for a future caller that flushes by hand.
+- `_disable()` made idempotent — it promised "once" in its own docstring and printed eight
+  times.
+- `quiet_sdk_loggers()`: the AWS SDK loggers are raised to `WARNING` when the handler is
+  attached. The guard alone leaves the feedback loop *bounded* rather than broken, and a
+  group whose job is to hold one readable verdict must not be 88% credential chatter.
+
+**Deploy note:** code-only. No Terraform change, so no `apply` — rebuild
+`scripts/build_dq_package.sh` and re-upload both artifacts.
 
 ---
 
@@ -2136,7 +2213,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
-| 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | in-progress | — |
+| 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
+| 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | in-progress | — |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | Coverage ratchet to 85% | todo | — |
 | 036 | README rewrite | todo | — |

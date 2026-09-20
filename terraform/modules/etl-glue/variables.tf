@@ -113,14 +113,14 @@ variable "silver_prefix" {
 }
 
 variable "dq_timeout_minutes" {
-  description = "Hard stop for the DQ job, in minutes. NOT a budget for the validation — that takes ~15 seconds. It is a budget for the STARTUP: --additional-python-modules pip-installs great-expectations on every run, and the first measured run (2026-09-16) spent 21m20s between StartedOn and the script's first log line, then finished in 15s. At the original 30 it left ~8 minutes of margin, and a slow PyPI day would have tripped the timeout, which the state machine's Catch reports as NotifyDQFailure — a false 'Silver failed quality' alert that also blocks Gold. 60 buys margin; it does not make the job slower, because billed time (ExecutionTime: 86s on that run) excludes the startup. PR-033.1. The real fix is to stop installing at runtime — see the roadmap."
+  description = "Hard stop for the DQ job, in minutes. NOT a budget for the validation — that is a constant ~90s of billed time. It is a budget for the STARTUP, which --additional-python-modules makes wildly variable: the two runs of 2026-09-16 spent 21m47s and 20m08s before the script's first log line, while 09-17 and 09-20 took under 2 minutes end to end (start-up: 8s). The startup most likely got cached by Glue after the first run, but AWS does not document that and four runs cannot prove it — so this is sized against the worst case OBSERVED, not the common one. At the original 30 the slow case left ~8 minutes of margin, and a slow PyPI day would have tripped the timeout, which the state machine's Catch reports as NotifyDQFailure — a false 'Silver failed quality' alert that also blocks Gold. 60 buys margin; it does not make the job slower, because billed time excludes the startup. PR-033.1, corrected in PR-033.2. The real fix is to stop installing at runtime — see the roadmap."
   type        = number
   default     = 60
 
   validation {
-    # Below the measured 22-minute startup this is not a runaway guard, it is a scheduled
-    # false alarm.
+    # Below the slowest startup this job has been measured at (21m47s) it is not a runaway
+    # guard, it is a scheduled false alarm.
     condition     = var.dq_timeout_minutes >= 30
-    error_message = "dq_timeout_minutes must be >= 30: the observed startup alone is ~22 minutes."
+    error_message = "dq_timeout_minutes must be >= 30: the slowest observed startup alone is ~22 minutes."
   }
 }
