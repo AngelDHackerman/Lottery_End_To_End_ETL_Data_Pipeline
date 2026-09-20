@@ -1980,6 +1980,25 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 **Acceptance:** the plan shows IAM/Glue-job updates only. **If it shows a destroy on any
 `aws_s3_bucket`, stop.**
 
+> **PR-041.1 outcome (2026-09-20).** Evidence in
+> `docs/inventory/2026-09-20-simple-bucket-readers.md`: 347 current objects (232
+> `processed/` + 115 `raw/`), 540 versions + 2 delete markers, newest written 2026-09-17 by
+> the weekly run. Nothing reads it — 23 code references, all writers or plumbing; every Glue
+> catalog table resolves to the partitioned bucket; 44 Athena queries over 45 days mention it
+> zero times. Two signals are blind and are recorded as such: **CloudTrail data events are
+> not enabled for this bucket** and S3 request metrics are not configured.
+>
+> The flag turned out to cover **three** writes, not the two the prompt above lists — the
+> extractor's raw `.txt` is the third, exactly as the sub-PR note warned. Both delivery
+> routes (a Glue job argument, a Lambda environment variable) go through
+> `loteria.common.config`, which keeps `"false"` meaning the same thing on both sides and
+> keeps an unrecognised value ON, because a count that fails to stop moving is visible and a
+> silent stop is not.
+>
+> Plan: `0 to add, 3 to change, 0 to destroy` — the job argument, the environment variable,
+> and the known `gold_purge` phantom. **The 30-day clock for `.3` starts at the owner's apply
+> of the flip, not at the merge.**
+
 **PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
 stated grace period of **at least 30 days** from 041.1's apply, with the date written down.
 Abort condition: if the final object count differs from 041.1's snapshot, something still
@@ -2332,7 +2351,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 039 | Fill in Makefile | todo | — |
 | 040 | `.envrc.example` + final polish | todo | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | todo | — |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` in-progress · `.2`/`.3` todo | — |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | todo | — |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
