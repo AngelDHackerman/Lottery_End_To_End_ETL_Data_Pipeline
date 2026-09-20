@@ -31,7 +31,7 @@
 
     {id:"owner", x:44, y:356, w:312, h:56, st:"pend", t:"El owner, a mano", s:["make build → aws s3 cp → terraform apply"],
      title:"El puente humano", desc:"La única vía real entre GitHub y la cuenta de AWS. Terraform no gestiona los objetos de código en S3, así que construir y subir los zips es un paso manual.",
-     kv:{"Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Destino":"s3://lambda-code-zip-prod","Con PR-033":"+ loteria_silver_dq.py y loteria_dq_lib.zip"}},
+     kv:{"Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Pendiente":"re-subir loteria_dq_lib.zip (PR-033.2)"}},
 
     {id:"eb", x:424, y:158, w:180, h:56, st:"ok", t:"EventBridge", s:["cron(0 18 ? * THU *)"],
      title:"El disparador semanal", desc:"Una sola regla de cron. Arranca la máquina de estados los jueves a las 18:00 UTC (12:00 en Guatemala).",
@@ -39,8 +39,8 @@
      warn:{k:"p",t:"Se movió del lunes al jueves: los sorteos del sábado dejan el sitio tras una sala de espera de Cloudflare durante días, y una corrida el lunes caía justo ahí. El jueves es el punto tranquilo de la semana."}},
 
     {id:"sfn", x:628, y:158, w:236, h:56, st:"ok", t:"Step Functions", s:["lottery-etl-pipeline-prod"],
-     title:"El orquestador", desc:"La máquina de estados que conduce todo el pipeline. Es quien decide el orden, reintenta, y —cuando PR-033 aterrice— quien corta el paso a Gold si la calidad falla.",
-     kv:{"Nombre":"lottery-etl-pipeline-prod","Logging":"ALL, con datos de ejecución","Rol":"sfn-lottery-execution-role-prod"}},
+     title:"El orquestador", desc:"La máquina de estados que conduce todo el pipeline: decide el orden, reintenta, y desde el 16 de septiembre corta el paso a Gold si la calidad falla.",
+     kv:{"Nombre":"lottery-etl-pipeline-prod","Estados":"7 · el gate entre los crawlers y Gold","Logging":"ALL, con datos de ejecución","Rol":"sfn-lottery-execution-role-prod","Última corrida":"17 sep 2026 · SUCCEEDED"}},
 
     {id:"tfstate", x:1140, y:158, w:216, h:56, st:"ok", t:"Estado de Terraform", s:["S3 + lock DynamoDB"],
      title:"Estado remoto", desc:"El estado de Terraform vive en S3 con bloqueo en DynamoDB. El estado legacy se perdió una vez y hubo que reconstruirlo importando 67 recursos a mano.",
@@ -60,10 +60,10 @@
      kv:{"Crawlers":"lottery-premios-silver-crawler · lottery-sorteos-silver-crawler","Espera":"polling hasta completar"},
      warn:{k:"p",t:"startCrawler no tiene variante .sync: la tarea terminaba en cuanto la API aceptaba la llamada, no cuando el crawl acababa. Los CTAS de gold leían un catálogo viejo y la tabla salía sin el sorteo nuevo, en silencio. PR-026.1 lo arregló con un bucle de polling."}},
 
-    {id:"dq", x:988, y:252, w:172, h:84, st:"pend", t:"Gate de calidad", s:["Glue 5.0 · Spark","Great Expectations","PR-033 · SIN DESPLEGAR"],
-     title:"El laboratorio — todavía desconectado", desc:"Valida el Silver completo contra dos suites de Great Expectations. Si una expectativa falla, Gold NO se construye y sale una alerta nombrando la suite, la expectativa y la columna.",
-     kv:{"Estado":"escrito y probado, sin desplegar","PR":"#46, abierto","Runtime":"Glue 5.0 / Python 3.11","Rol":"glue_dq_role — solo lectura"},
-     warn:{k:"b",t:"Hoy los crawlers conectan DIRECTO con Gold. Como Gold se destruye antes de reconstruirse (defecto 042), dejar pasar un Silver malo no solo produce Gold equivocada: destruye de camino la última Gold buena."}},
+    {id:"dq", x:988, y:252, w:172, h:84, st:"ok", t:"Gate de calidad", s:["Glue 5.0 · Spark","20 expectativas","corta el paso a Gold"],
+     title:"El laboratorio — ya en la cadena", desc:"Valida el Silver entero contra dos suites de Great Expectations ANTES de tocar Gold. Si una expectativa falla, Gold no se construye: el Catch de la máquina lleva a NotifyDQFailure y la alerta nombra la suite, la expectativa y la columna.",
+     kv:{"Estado":"aplicado 16 sep 2026","Cadena":"RunSilverCrawlers → RunSilverDQ → PrepGold","Si falla":"Catch → NotifyDQFailure → SilverDQFailed","Alcance":"20 expectativas · 116 sorteos · 121 945 premios","Runtime":"Glue 5.0 / Python 3.11","Rol":"glue_dq_role — solo lectura","Timeout":"60 min (PR-033.1)"},
+     warn:{k:"b",t:"Verificado en los DOS sentidos, que es lo que importa: una corrida validó el Silver real y otra, apuntada a un prefijo inexistente, falló diciendo «esto es un problema de cableado, no de calidad». Un gate que solo ha pasado es indistinguible de no tener gate. Lo que sigue roto es su log group propio: ver el defecto 033.2."}},
 
     {id:"gold", x:1176, y:252, w:172, h:84, st:"ok", t:"Gold", s:["Map · concurrencia 3","purga λ + CTAS Athena","7 tablas"],
      title:"El embotellado", desc:"Siete consultas CTAS de Athena que construyen las tablas de negocio. Una Lambda de purga borra la tabla y vacía su prefijo antes de cada CTAS, porque Athena se niega a escribir sobre una ubicación no vacía.",
@@ -72,7 +72,7 @@
 
     {id:"s3p", x:424, y:400, w:620, h:96, st:"ok", t:"S3 · lottery-partitioned-storage-prod", s:[],
      title:"El lago", desc:"El bucket que sostiene las tres capas. Tiene versionado, una política que deniega el borrado a todo el mundo salvo la raíz de la cuenta, y prevent_destroy en Terraform.",
-     kv:{"Prefijos":"raw/ · silver/ · gold/ · sql/gold/","Silver":"~117k filas en 222 Parquet","Protección":"versionado + Deny + prevent_destroy"}},
+     kv:{"Prefijos":"raw/ · silver/ · gold/ · sql/gold/","Silver":"116 sorteos y 121 945 premios en 232 Parquet","Al día hasta":"sorteo 3136 · 17 sep 2026","Protección":"versionado + Deny + prevent_destroy"}},
 
     {id:"s3s", x:1064, y:400, w:284, h:96, st:"bad", t:"S3 · lottery-data-simple-prod", s:["copia plana de cada Parquet","+ processed/ legacy","sin ningún lector"],
      title:"El tanque huérfano", desc:"El transformer escribe cada Parquet también aquí, en plano. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas.",
@@ -81,7 +81,7 @@
 
     {id:"cat", x:424, y:536, w:290, h:72, st:"ok", t:"Glue Data Catalog", s:["lottery_santalucia_db","2 tablas silver + 7 gold"],
      title:"El catálogo", desc:"Las dos tablas silver las registran los crawlers. Las siete gold se registran solas: un CTAS crea la tabla además de escribir el Parquet, así que no necesitan crawler.",
-     kv:{"Base":"lottery_santalucia_db","Silver":"por crawler","Gold":"las registra el propio CTAS"}},
+     kv:{"Base":"lottery_santalucia_db","Silver":"por crawler","Gold":"las registra el propio CTAS","Restos":"premios_premios y sorteos_sorteos, de los crawlers legacy de processed/ — nadie las consulta"}},
 
     {id:"athena", x:730, y:536, w:290, h:72, st:"ok", t:"Athena · lottery-wg", s:["startQueryExecution.sync","ejecuta los 7 CTAS"],
      title:"El motor de consulta", desc:"Workgroup propio. La máquina de estados lanza cada CTAS aquí con la integración .sync, así que espera de verdad a que la consulta termine.",
@@ -96,12 +96,12 @@
 
     {id:"obs", x:424, y:756, w:440, h:72, st:"ok", t:"CloudWatch", s:["6 alarmas · dashboard · retención","conteo de objetos por capa"],
      title:"Observabilidad", desc:"Seis alarmas: ejecución fallida, sin éxito reciente, errores del extractor, Glue fallido, crawler que no arrancó y scrape.do fallido. Más un dashboard y una Lambda horaria que publica el número de objetos por capa.",
-     kv:{"Alarmas":"6","Emisor":"lottery-object-count-prod (horaria)","Retención":"sobre los log groups compartidos de Glue"},
-     warn:{k:"p",t:"Glue no da log group por job en Python Shell: los grupos son de toda la cuenta. El gate de PR-033, al ser Spark, sí puede tener el suyo."}},
+     kv:{"Alarmas":"6 (la cuenta tiene 10: 4 son de otro proyecto)","Emisor":"lottery-object-count-prod (horaria)","Retención":"sobre los log groups compartidos de Glue","Del gate":"/aws-glue/jobs/loteria-silver-dq-prod"},
+     warn:{k:"b",t:"Tener un log group no es llenarlo. El del gate lleva dos intentos vacío: --continuous-log-logGroup transporta el log4j de SPARK y este job nunca arranca Spark, y después el handler que escribía directo se auto-deshabilitó alimentándose con sus propios logs de boto3. Hasta subir el fix de PR-033.2, el veredicto se lee en /aws-glue/jobs/output."}},
 
     {id:"sns", x:890, y:756, w:220, h:72, st:"ok", t:"SNS → correo", s:["loteria-alerts-prod"],
-     title:"Las alertas", desc:"Topic con suscripción por correo. Hoy avisa que algo falló; con el gate de PR-033 también dirá qué dato estaba mal.",
-     kv:{"Topic":"loteria-alerts-prod","Suscripción":"correo del owner"}},
+     title:"Las alertas", desc:"Topic con suscripción por correo, confirmada. Avisa de que algo falló y, desde que el gate está en la cadena, también de QUÉ dato estaba mal: el mensaje de NotifyDQFailure lleva la suite, la expectativa y la columna.",
+     kv:{"Topic":"loteria-alerts-prod","Suscripción":"correo del owner, confirmada","Quien publica":"6 alarmas + NotifyDQFailure"}},
 
     {id:"consumer", x:1136, y:756, w:212, h:72, st:"off", t:"Consumidor", s:["no existe","aplazado a propósito"],
      title:"El grifo que falta", desc:"Siete tablas gold se construyen cada jueves y nadie las bebe. No hay ni una línea de QuickSight, dashboard o API en el repo.",
@@ -115,8 +115,8 @@
     {a:"eb", b:"sfn", k:"", lab:""},
     {a:"extract", b:"transform", k:"", lab:""},
     {a:"transform", b:"crawlers", k:"", lab:""},
-    {a:"crawlers", b:"dq", k:"pend", lab:""},
-    {a:"dq", b:"gold", k:"pend", lab:""},
+    {a:"crawlers", b:"dq", k:"", lab:""},
+    {a:"dq", b:"gold", k:"", lab:""},
     {a:"extract",  b:"s3p", k:"", lab:"escribe raw/",    route:"write", tx:516, lx:522, ly:370},
     {a:"transform",b:"s3p", k:"", lab:"escribe silver/", route:"write", tx:666, lx:672, ly:388},
     {a:"gold",     b:"s3p", k:"", lab:"escribe gold/",   route:"write", tx:816, lx:906, ly:360},
@@ -128,9 +128,9 @@
   /* Texto suelto sobre el lienzo. */
   const NOTES = [
     {x:426, y:524, t:"Los crawlers registran silver aquí · cada CTAS registra su tabla gold por su cuenta, sin crawler."},
-    {x:44,  y:432, t:"Ningún workflow tiene credenciales de AWS.", color:"var(--flow)", weight:700},
-    {x:44,  y:450, t:"terraform init -backend=false: no puede leer"},
-    {x:44,  y:466, t:"ni siquiera el estado remoto."}
+    {x:44,  y:448, t:"Ningún workflow tiene credenciales de AWS.", color:"var(--flow)", weight:700},
+    {x:44,  y:466, t:"terraform init -backend=false: no puede leer"},
+    {x:44,  y:482, t:"ni siquiera el estado remoto."}
   ];
 
   /* Las dos líneas de texto dentro del marco de la VPC. */
@@ -141,15 +141,12 @@
   };
 
   /* La NO-conexión entre el plano de control y la cuenta: línea tachada. */
-  const GAP = {x1:380, x2:398, y:300, labels:[
-    {y:268, t:"conexión"},
-    {y:282, t:"sin"}
-  ]};
+  const GAP = {x1:380, x2:398, y:300, label:{x:389, y:258, t:"sin conexión"}};
 
   /* Chips de prefijo dentro de la caja del bucket particionado. */
   const PREFIXES = [
     {k:"raw/",      v:"year=/sorteo=", x:448},
-    {k:"silver/",   v:"117k filas",    x:598},
+    {k:"silver/",   v:"122k filas",    x:598},
     {k:"gold/",     v:"7 tablas",      x:748},
     {k:"sql/gold/", v:"los 7 .sql",    x:898}
   ];
@@ -162,15 +159,19 @@
     {id:"s3p",   t:"Bronze: el .txt queda intacto en raw/year=/sorteo=. Nunca se modifica."},
     {id:"transform",t:"El job de Glue parsea el texto, limpia con pandas y escribe Parquet en silver/. Aquí es donde las filas que no entiende se pierden sin registro (defecto 044)."},
     {id:"crawlers",t:"Dos crawlers registran la partición nueva en el catálogo, y la máquina espera de verdad a que terminen antes de seguir."},
-    {id:"dq",    t:"AQUÍ IRÁ EL GATE (PR-033). Hoy este paso no existe: los crawlers conectan directo con Gold, y un Silver corrupto pasa sin que nada lo mire."},
+    {id:"dq",    t:"El gate valida el Silver entero —20 expectativas sobre 116 sorteos y 121 945 premios— antes de tocar Gold. Si una falla, el Catch va a NotifyDQFailure y Gold no se construye. La corrida del 17 sep pasó por aquí en 1m56s."},
     {id:"gold",  t:"Siete CTAS reconstruyen las tablas gold. Cada una borra su tabla y vacía su prefijo ANTES de escribir: si falla, se pierde también la copia buena (defecto 042)."},
     {id:"athena",t:"Athena ejecuta cada CTAS y registra la tabla en el catálogo por su cuenta, sin necesitar crawler."},
-    {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Hoy dice que algo falló; con el gate dirá qué dato estaba mal."},
+    {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Si lo que falló fue el gate, el correo nombra la suite, la expectativa y la columna. El veredicto completo, eso sí, todavía hay que leerlo en /aws-glue/jobs/output (defecto 033.2)."},
     {id:"consumer",t:"Y aquí se acaba: las siete tablas existen y nadie las consume. El grifo está aplazado a propósito."}
   ];
 
   /* Nodos que resalta el botón «Resaltar defectos». */
   const BAD = ["s3s", "gold", "dq"];
+
+  /* Nodos que resalta el botón «Resaltar lo nuevo»: lo que cambió desde la
+     auditoría del 14 sep 2026, que es el gate de calidad y su cadena. */
+  const SPOT = ["crawlers", "dq", "gold"];
 
   /* Textos fijos del panel lateral cuando no hay nada seleccionado. */
   const IDLE = {
@@ -181,5 +182,5 @@
 
   const STATE_LABEL = {ok:"desplegado", pend:"sin desplegar", bad:"defecto anotado", off:"apagado"};
 
-  global.DIAGRAM_DATA = {ZONES, NODES, EDGES, NOTES, VPC_LABELS, GAP, PREFIXES, RUN, BAD, IDLE, STATE_LABEL};
+  global.DIAGRAM_DATA = {ZONES, NODES, EDGES, NOTES, VPC_LABELS, GAP, PREFIXES, RUN, BAD, SPOT, IDLE, STATE_LABEL};
 })(window);

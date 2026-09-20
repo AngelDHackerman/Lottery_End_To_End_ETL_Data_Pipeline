@@ -74,9 +74,12 @@
                 "stroke-width":3, "stroke-linecap":"round"}, map);
     el("line", {x1:x2 - 2, y1:y - 9, x2:x1 + 2, y2:y + 9, stroke:"var(--breach)",
                 "stroke-width":3, "stroke-linecap":"round"}, map);
-    g.labels.forEach(l => {
-      note(mid, l.y, l.t, "var(--breach)", 700).setAttribute("text-anchor", "middle");
-    });
+    /* El rótulo va GIRADO: el canal entre las dos zonas mide 24 px de ancho y
+       cualquier texto horizontal se derrama sobre ambos marcos. De pie cabe. */
+    const l = g.label;
+    const t = note(l.x, l.y, l.t, "var(--breach)", 700);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("transform", `rotate(-90 ${l.x} ${l.y})`);
   }
 
   function drawPrefixChips() {
@@ -153,9 +156,11 @@
   drawZones();
   drawNotes();
   drawGap();
-  drawPrefixChips();
   const edgeEls = drawEdges();
   const nodeEls = drawNodes(id => select(id), id => hover(id));
+  /* Después de las cajas: los chips viven DENTRO de la caja del bucket, y el
+     relleno opaco de un nodo pinta encima de todo lo dibujado antes. */
+  drawPrefixChips();
 
   /* ============================ PANEL ============================ */
 
@@ -215,22 +220,27 @@
 
   /* ============================ ALTERNADORES ============================ */
 
-  const tp = document.getElementById("tgl-pend");
-  tp.addEventListener("click", () => {
-    const on = tp.getAttribute("aria-pressed") === "true";
-    tp.setAttribute("aria-pressed", String(!on));
-    nodeEls.dq.classList.toggle("dim", on);
-    edgeEls.forEach(({e, p}) => { if (e.k === "pend") p.classList.toggle("dim", on); });
-  });
-
+  const tp = document.getElementById("tgl-spot");
   const tb = document.getElementById("tgl-bad");
-  tb.addEventListener("click", () => {
-    const on = tb.getAttribute("aria-pressed") === "true";
-    tb.setAttribute("aria-pressed", String(!on));
+
+  /* Los dos alternadores son focos sobre el mismo lienzo, así que se excluyen:
+     encender uno apaga el otro, en vez de dejar dos conjuntos de cajas atenuadas
+     superpuestos y sin decir cuál manda. */
+  function spotlight(btn, other, ids) {
+    const on = btn.getAttribute("aria-pressed") === "true";
+    btn.setAttribute("aria-pressed", String(!on));
+    other.setAttribute("aria-pressed", "false");
     NODES.forEach(n => {
-      if (D.BAD.indexOf(n.id) === -1) nodeEls[n.id].classList.toggle("dim", !on);
+      nodeEls[n.id].classList.toggle("dim", !on && ids.indexOf(n.id) === -1);
     });
-  });
+    edgeEls.forEach(({e, p}) => {
+      const inside = ids.indexOf(e.a) !== -1 && ids.indexOf(e.b) !== -1;
+      p.classList.toggle("dim", !on && !inside);
+    });
+  }
+
+  tp.addEventListener("click", () => spotlight(tp, tb, D.SPOT));
+  tb.addEventListener("click", () => spotlight(tb, tp, D.BAD));
 
   /* ============================ LA CORRIDA ============================ */
 

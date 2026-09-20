@@ -10,7 +10,7 @@
 <div class="wrap">
   <header>
     <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
-      <span>lago al día hasta el sorteo 3134</span><span>·</span><span>14 sep 2026</span></p>
+      <span>lago al día hasta el sorteo 3136</span><span>·</span><span>20 sep 2026</span></p>
     <h1>Arquitectura Lotería Santa Lucía</h1>
     <p>Lo que está desplegado hoy. Hacé clic en cualquier pieza para ver sus nombres reales y su
       estado, o reproducí la corrida semanal para seguir el dato de punta a punta.</p>
@@ -19,7 +19,7 @@
   <div class="bar">
     <button id="play" class="primary">▶ Reproducir la corrida semanal</button>
     <div class="sep"></div>
-    <button id="tgl-pend" aria-pressed="true">Mostrar PR-033 (sin desplegar)</button>
+    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: el gate</button>
     <button id="tgl-bad" aria-pressed="false">Resaltar defectos</button>
     <div class="keys">
       <span class="key"><span class="sw ok"></span>Desplegado</span>
@@ -37,7 +37,7 @@
   <div class="stage">
     <div class="canvas">
       <svg id="map" viewBox="0 0 1400 880" role="img"
-           aria-label="Diagrama de arquitectura: el plano de control en GitHub Actions no toca la cuenta de AWS; ambos golpean el sitio de la lotería en días distintos. En AWS, EventBridge dispara Step Functions, que encadena el Lambda extractor, el job de Glue transformador, dos crawlers, un gate de calidad sin desplegar, y la construcción de siete tablas gold en Athena. Debajo, los buckets de S3, el catálogo de Glue, Athena, Lake Formation, la observabilidad y una VPC sin consumidores."></svg>
+           aria-label="Diagrama de arquitectura: el plano de control en GitHub Actions no toca la cuenta de AWS; ambos golpean el sitio de la lotería en días distintos. En AWS, EventBridge dispara Step Functions, que encadena el Lambda extractor, el job de Glue transformador, dos crawlers, el gate de calidad —desplegado desde el 16 de septiembre de 2026, con su propio camino de fallo hacia una alerta— y la construcción de siete tablas gold en Athena. Debajo, los buckets de S3, el catálogo de Glue, Athena, Lake Formation, la observabilidad y una VPC sin consumidores."></svg>
     </div>
 
     <aside class="panel" id="panel">
@@ -52,8 +52,9 @@
   </div>
 
   <details>
-    <summary>Los cinco defectos anotados (auditoría 2026-09-14 · roadmap fase 8)</summary>
+    <summary>Los defectos anotados: cinco de la auditoría, dos que solo aparecieron al correrlo</summary>
     <div class="dbody">
+      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). Los cinco siguen abiertos.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
         <tr><td class="pr">041</td><td>Tubería doble al bucket simple</td>
@@ -71,6 +72,28 @@
         <tr><td class="pr">045</td><td>Silver sin trazabilidad</td>
           <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se puede decir qué corrida
             produjo una fila sin cruzar timestamps de S3 con logs a mano.</td></tr>
+      </table>
+
+      <p class="hint">Y lo que ninguna auditoría podía ver, porque hizo falta que el gate
+        corriera de verdad en la cuenta. Ninguno de los dos era visible en el código, en un
+        <code>plan</code>, ni en una suite de tests en verde.</p>
+      <table>
+        <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
+        <tr><td class="pr">033.1</td><td>Arranque de 22 min contra un timeout de 30</td>
+          <td>Las dos primeras corridas tardaron 21m47s y 20m08s en arrancar —
+            <code>--additional-python-modules</code> instala Great Expectations al empezar —
+            y solo 90 s en trabajar. Con el timeout en 30 quedaban ~8 minutos de margen: un
+            día lento de PyPI se convertía en un correo falso de «Silver falló calidad» que
+            además dejaba Gold sin construir. Subido a 60. <b>Corregido</b>: no pasa en cada
+            corrida — desde el 17 sep arranca en 8 s, probablemente porque Glue cachea el
+            entorno, aunque eso es inferencia y no medición.</td></tr>
+        <tr><td class="pr">033.2</td><td>El log group del gate sigue vacío</td>
+          <td>El handler que escribe el veredicto en el grupo propio se alimentaba con los
+            logs de boto3 de sus propias llamadas, vaciaba su buffer a mitad de envío y
+            llamaba a PutLogEvents con una lista vacía — así que se auto-deshabilitaba. El job
+            quedaba verde y el grupo con un stream y cero eventos: un respaldo que funciona
+            es indistinguible de un arreglo que no. Hasta subir el fix, el veredicto se lee
+            en <code>/aws-glue/jobs/output</code>.</td></tr>
       </table>
     </div>
   </details>
