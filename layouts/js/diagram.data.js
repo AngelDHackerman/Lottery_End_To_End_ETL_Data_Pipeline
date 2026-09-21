@@ -67,7 +67,7 @@
 
     {id:"gold", x:1176, y:252, w:172, h:84, st:"ok", t:"Gold", s:["Map · concurrencia 3","prepare → CTAS → promote","7 tablas"],
      title:"El embotellado", desc:"Siete consultas CTAS de Athena que construyen las tablas de negocio. Desde el 21 sep cada una se construye AL LADO de la que está publicada —en gold/<tabla>/run=<ejecución>/— y solo cuando Athena termina bien se mueve el puntero del catálogo, con un único UpdateTable. Un CTAS que falla ya no cambia nada.",
-     kv:{"Tablas":"draw_summary · winning_number_frequency · terminations · letters_distribution · geo_winnings · vendor_leaderboard · time_series","Lambda":"lottery-gold-purge-prod","Cadena":"PrepareGold → RunCTAS → PromoteGold","Concurrencia":"3 de 7 a la vez","Atómica desde":"21 sep 2026 · PR-042.1"},
+     kv:{"Tablas":"draw_summary · winning_number_frequency · terminations · letters_distribution · geo_winnings · vendor_leaderboard · time_series","Lambda":"lottery-gold-purge-prod","Cadena":"PrepareGold → RunCTAS → PromoteGold","Concurrencia":"3 de 7 a la vez","Atómica desde":"21 sep 2026, 01:02 UTC · PR-042.1"},
      warn:{k:"b",t:"Aquí queda el defecto 043: se rehace el histórico entero cada semana para añadir un solo sorteo, así que el costo escala con el pasado y no con lo que llega. El 042 se cerró el 21 sep, y se verificó en prod dejando una tabla en el estado exacto que deja un CTAS fallido: la tabla publicada siguió devolviendo sus 116 filas, con su Parquet intacto y cero objetos borrados."}},
 
     {id:"s3p", x:424, y:400, w:620, h:96, st:"ok", t:"S3 · lottery-partitioned-storage-prod", s:[],
