@@ -281,6 +281,10 @@ $RECYCLE.BIN/
 *.auto.tfvars
 terraform.tfvars.json
 terraform.log
+# Saved plan files. `terraform plan -out=tfplan` serialises the resource values it
+# refreshed, secret ARNs included, so a committed plan leaks state into the repo.
+tfplan
+*.tfplan
 crash.log
 backend.hcl
 

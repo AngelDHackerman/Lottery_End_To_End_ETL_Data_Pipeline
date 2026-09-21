@@ -54,9 +54,9 @@
   <details>
     <summary>Los defectos anotados: cinco de la auditoría, dos que solo aparecieron al correrlo</summary>
     <div class="dbody">
-      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). Ninguno está cerrado del
-        todo, pero dos ya se movieron: 041 dejó de escribir el 20 sep, y 042 tiene su arreglo
-        escrito y mergeado — sin desplegar.</p>
+      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El primero ya está
+        cerrado</b>: 042 se aplicó y se verificó en prod el 21 sep. De los cuatro restantes,
+        041 dejó de escribir el 20 sep pero sus bytes siguen ahí.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
         <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras detenidas
@@ -68,13 +68,15 @@
             congelado en 347 objetos. Sigue abierto porque los bytes siguen ahí: falta que
             041.2 quite la configuración muerta —incluido el grant de lectura de SageMaker,
             hoy su único permiso de datos— y 041.3 no puede borrar nada antes del 20 oct.</td></tr>
-        <tr><td class="pr">042</td><td>Gold no es atómica — <b>arreglo escrito, sin
-          desplegar</b></td>
-          <td>Borra la tabla y vacía su prefijo <b>antes</b> del CTAS. Si el CTAS falla, se pierde
-            también la copia buena — durante 7 días, hasta la siguiente corrida. Eso es lo que
-            sigue ocurriendo en la cuenta: 042.1 cambia el orden a construir-al-lado y mover el
-            puntero, pero está en master sin aplicar, y aquí «mergeado» no ha significado nunca
-            «desplegado».</td></tr>
+        <tr><td class="pr">042</td><td>Gold no es atómica — <b>cerrado el 21 sep</b></td>
+          <td>Borraba la tabla y vaciaba su prefijo <b>antes</b> del CTAS. Si el CTAS fallaba, se
+            perdía también la copia buena — durante 7 días, hasta la siguiente corrida. Desde el
+            21 sep cada tabla se construye en <code>run=&lt;ejecución&gt;</code> al lado de la
+            publicada, y el catálogo se mueve con un solo <code>UpdateTable</code> cuando Athena
+            ya terminó bien. Verificado como se verifica esto: dejando una tabla en el estado
+            exacto que deja un CTAS fallido —<code>prepare</code> y ningún CTAS— y comprobando
+            que la publicada seguía devolviendo sus 116 filas, su Parquet intacto y
+            <code>objectsDeleted: 0</code>.</td></tr>
         <tr><td class="pr">043</td><td>Reconstrucción total semanal</td>
           <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo escala
             con el pasado, no con lo que llega.</td></tr>
