@@ -557,30 +557,44 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         Next       = "BuildGold"
       },
 
-      # One iteration per gold table: purge (drop table + empty S3 prefix, returns the
-      # CREATE statement) -> run the CTAS. MaxConcurrency caps parallel Athena CTAS; the
-      # 7 tables are independent (all read only silver_*), so parallelism is safe.
+      # One iteration per gold table: prepare -> CTAS -> promote (PR-042.1, blue/green).
+      # MaxConcurrency caps parallel Athena CTAS; the 7 tables are independent (all read
+      # only silver_*), so parallelism is safe.
+      #
+      # ⚠️ The ORDER is the fix. Before PR-042.1 the first state dropped the table and
+      # emptied its S3 prefix, so a CTAS failure left nothing behind — a seven-day hole
+      # until the next Thursday. Now nothing published is touched until PromoteGold, which
+      # only runs when the CTAS has already succeeded. A failed run leaves the previous
+      # generation serving reads, untouched.
       BuildGold = {
         Type           = "Map",
         ItemsPath      = "$.gold.sqlKeys",
         MaxConcurrency = 3,
         Iterator = {
-          StartAt = "PurgeAndLoad",
+          StartAt = "PrepareGold",
           States = {
-            PurgeAndLoad = {
+            PrepareGold = {
               Type     = "Task",
               Resource = "arn:aws:states:::lambda:invoke",
               Parameters = {
                 FunctionName = aws_lambda_function.gold_purge.arn,
                 Payload = {
+                  "action"           = "prepare",
                   "bucket"           = var.partitioned_bucket_name,
                   "sqlKey.$"         = "$.sqlKey",
                   "correlation_id.$" = "$$.Execution.Name"
                 }
               },
-              # Lift the Lambda's return out of the invoke envelope for the CTAS step.
+              # Lift the Lambda's return out of the invoke envelope. Everything but the
+              # query string is carried through the CTAS so PromoteGold knows what it is
+              # promoting and where from — the state machine never derives those names
+              # itself, which keeps the SQL file the single source of truth.
               ResultSelector = {
-                "queryString.$" = "$.Payload.queryString"
+                "queryString.$"  = "$.Payload.queryString",
+                "database.$"     = "$.Payload.database",
+                "table.$"        = "$.Payload.table",
+                "stagingTable.$" = "$.Payload.stagingTable",
+                "location.$"     = "$.Payload.location"
               },
               Next = "RunCTAS"
             },
@@ -593,6 +607,33 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
                 QueryExecutionContext = {
                   Database = var.database_name
                 }
+              },
+              # ResultPath keeps the prepare output alive: Athena's response would otherwise
+              # replace the state input, and PromoteGold would have nothing to act on.
+              ResultPath = "$.ctas",
+              Next       = "PromoteGold"
+            },
+            # The swap. One glue:UpdateTable on the published table, then its partitions are
+            # moved onto the new generation. The previous generation stays in S3 — retiring
+            # it is PR-042.2, deliberately separate, because a delete that runs before the
+            # swap is the defect this PR removes.
+            PromoteGold = {
+              Type     = "Task",
+              Resource = "arn:aws:states:::lambda:invoke",
+              Parameters = {
+                FunctionName = aws_lambda_function.gold_purge.arn,
+                Payload = {
+                  "action"           = "promote",
+                  "database.$"       = "$.database",
+                  "table.$"          = "$.table",
+                  "stagingTable.$"   = "$.stagingTable",
+                  "correlation_id.$" = "$$.Execution.Name"
+                }
+              },
+              ResultSelector = {
+                "table.$"      = "$.Payload.table",
+                "location.$"   = "$.Payload.location",
+                "partitions.$" = "$.Payload.partitions"
               },
               End = true
             }
