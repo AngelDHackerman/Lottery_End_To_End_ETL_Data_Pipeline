@@ -2169,6 +2169,39 @@ published table still returning its previous row count.
 > (`md5 d786e490aa9dba1ea6d5223b5c5bee6a`, 942 417 bytes, matching the live `etag` and
 > `source_code_size` exactly) so the apply carried 042.1 and nothing else. It is deferred,
 > not avoided — it returns on the next `make build`. See **PR-046**.
+>
+> ### Applied 2026-09-21 01:02 UTC — and verified, which is the part that counts
+>
+> Plan applied exactly as reconciled: **12 changed, 0 destroyed**. Live afterwards: the
+> Lambda at `2026-09-21T01:02:19Z`, the Map reading `PrepareGold → RunCTAS → PromoteGold →
+> END`, and the policy carrying `SwapGoldTable` beside `ReadGoldSqlAndData` and
+> `EmptyGoldPrefix`.
+>
+> **The acceptance criterion was run, and `StatusCode: 200` is not it.** A Lambda that
+> raises also returns 200, with `FunctionError` beside it — the invocation succeeding says
+> nothing about whether anything published survived. What was actually checked, on
+> `gold_draw_summary`, after `prepare` and *without* running the CTAS:
+>
+> | Evidence | Result |
+> |---|---|
+> | `prepare` response | staging `gold_draw_summary__stg_manual_test_042` at `run=manual_test_042/` · `publishedLocation` unchanged · **`objectsDeleted: 0`** |
+> | `glue get-table gold_draw_summary` | exists · `Location` still `gold/draw_summary/` · `UpdateTime` still 2026-09-17, the last weekly run |
+> | `glue get-table <staging>` | `EntityNotFoundException` — `prepare` registers nothing |
+> | `s3 ls gold/draw_summary/ --recursive` | 1 object, 4 731 bytes, written 2026-09-17 — untouched |
+> | `SELECT count(*)` | **116**, matching Silver's 116 sorteos |
+>
+> Against the pre-042.1 Lambda those same two steps left the table dropped and that Parquet
+> deleted. Note the run id is sanitised on the way in (`manual-test-042` →
+> `manual_test_042`) — hyphens are not legal in a table name, and the staging prefix follows
+> the table so the two can never disagree. Nothing needed cleaning up afterwards: `prepare`
+> created no S3 objects, only a name.
+>
+> **Still unexercised in prod: `promote`.** Everything above proves the *failure* path —
+> that a run dying before the CTAS changes nothing. The swap itself, and specifically the
+> partition handling on the three partitioned tables, has so far only been exercised by
+> tests. The first real proof is the Thursday run (2026-09-24), and that is the one to
+> watch: a table that reads empty after a "successful" swap is the failure mode this
+> sub-PR names, and it is invisible until someone counts rows.
 
 **PR-042.2 — Retire old generations.** Keep the live generation plus one, so the rollback
 is "re-point the catalog at the previous generation" — write that command in the runbook.
@@ -2498,8 +2531,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 039 | Fill in Makefile | todo | — |
 | 040 | `.envrc.example` + final polish | todo | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` in-progress · `.2`/`.3` todo | — |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` in-progress · `.2` todo | — |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` todo · `.3` blocked until 2026-10-20 | [PR #53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + verified** (2026-09-21) · `.2` todo | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` measure · `.2` incremental tables · `.3` decide the aggregates | todo | — |

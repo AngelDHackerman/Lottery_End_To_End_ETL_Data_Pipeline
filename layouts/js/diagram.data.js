@@ -65,10 +65,10 @@
      kv:{"Estado":"aplicado 16 sep 2026","Cadena":"RunSilverCrawlers → RunSilverDQ → PrepGold","Si falla":"Catch → NotifyDQFailure → SilverDQFailed","Alcance":"20 expectativas · 116 sorteos · 121 945 premios","Runtime":"Glue 5.0 / Python 3.11","Rol":"glue_dq_role — solo lectura","Timeout":"60 min (PR-033.1)"},
      warn:{k:"p",t:"Verificado en los DOS sentidos, que es lo que importa: una corrida validó el Silver real y otra, apuntada a un prefijo inexistente, falló diciendo «esto es un problema de cableado, no de calidad». Un gate que solo ha pasado es indistinguible de no tener gate."}},
 
-    {id:"gold", x:1176, y:252, w:172, h:84, st:"ok", t:"Gold", s:["Map · concurrencia 3","purga λ + CTAS Athena","7 tablas"],
-     title:"El embotellado", desc:"Siete consultas CTAS de Athena que construyen las tablas de negocio. Una Lambda de purga borra la tabla y vacía su prefijo antes de cada CTAS, porque Athena se niega a escribir sobre una ubicación no vacía.",
-     kv:{"Tablas":"draw_summary · winning_number_frequency · terminations · letters_distribution · geo_winnings · vendor_leaderboard · time_series","Lambda":"lottery-gold-purge-prod","Concurrencia":"3 de 7 a la vez"},
-     warn:{k:"b",t:"Defectos 042 y 043 viven aquí: la publicación no es atómica (hay una ventana en que la tabla no existe) y se reconstruye el histórico entero cada semana para añadir un solo sorteo."}},
+    {id:"gold", x:1176, y:252, w:172, h:84, st:"ok", t:"Gold", s:["Map · concurrencia 3","prepare → CTAS → promote","7 tablas"],
+     title:"El embotellado", desc:"Siete consultas CTAS de Athena que construyen las tablas de negocio. Desde el 21 sep cada una se construye AL LADO de la que está publicada —en gold/<tabla>/run=<ejecución>/— y solo cuando Athena termina bien se mueve el puntero del catálogo, con un único UpdateTable. Un CTAS que falla ya no cambia nada.",
+     kv:{"Tablas":"draw_summary · winning_number_frequency · terminations · letters_distribution · geo_winnings · vendor_leaderboard · time_series","Lambda":"lottery-gold-purge-prod","Cadena":"PrepareGold → RunCTAS → PromoteGold","Concurrencia":"3 de 7 a la vez","Atómica desde":"21 sep 2026 · PR-042.1"},
+     warn:{k:"b",t:"Aquí queda el defecto 043: se rehace el histórico entero cada semana para añadir un solo sorteo, así que el costo escala con el pasado y no con lo que llega. El 042 se cerró el 21 sep, y se verificó en prod dejando una tabla en el estado exacto que deja un CTAS fallido: la tabla publicada siguió devolviendo sus 116 filas, con su Parquet intacto y cero objetos borrados."}},
 
     {id:"s3p", x:424, y:400, w:620, h:96, st:"ok", t:"S3 · lottery-partitioned-storage-prod", s:[],
      title:"El lago", desc:"El bucket que sostiene las tres capas. Tiene versionado, una política que deniega el borrado a todo el mundo salvo la raíz de la cuenta, y prevent_destroy en Terraform.",
@@ -160,7 +160,7 @@
     {id:"transform",t:"El job de Glue parsea el texto, limpia con pandas y escribe Parquet en silver/. Aquí es donde las filas que no entiende se pierden sin registro (defecto 044)."},
     {id:"crawlers",t:"Dos crawlers registran la partición nueva en el catálogo, y la máquina espera de verdad a que terminen antes de seguir."},
     {id:"dq",    t:"El gate valida el Silver entero —20 expectativas sobre 116 sorteos y 121 945 premios— antes de tocar Gold. Si una falla, el Catch va a NotifyDQFailure y Gold no se construye. La corrida del 17 sep pasó por aquí en 1m56s."},
-    {id:"gold",  t:"Siete CTAS reconstruyen las tablas gold. Cada una borra su tabla y vacía su prefijo ANTES de escribir: si falla, se pierde también la copia buena (defecto 042)."},
+    {id:"gold",  t:"Siete CTAS reconstruyen las tablas gold, cada una en su propio prefijo run=<ejecución>, al lado de la que sigue publicada. Solo cuando Athena termina bien se mueve el puntero del catálogo. Lo que sigue abierto es que rehace el histórico entero para añadir un sorteo (defecto 043)."},
     {id:"athena",t:"Athena ejecuta cada CTAS y registra la tabla en el catálogo por su cuenta, sin necesitar crawler."},
     {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Si lo que falló fue el gate, el correo nombra la suite, la expectativa y la columna, y el veredicto entero espera en /aws-glue/jobs/loteria-silver-dq-prod."},
     {id:"consumer",t:"Y aquí se acaba: las siete tablas existen y nadie las consume. El grifo está aplazado a propósito."}
