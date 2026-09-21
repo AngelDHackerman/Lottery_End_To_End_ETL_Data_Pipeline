@@ -2139,6 +2139,36 @@ published table still returning its previous row count.
 > not run the CTAS — which is precisely the state a failed run leaves. Then query the
 > published table: it still returns its previous rows. Against the pre-042.1 Lambda the same
 > two steps leave the table dropped and its Parquet deleted.
+>
+> ### What the plan really said, measured at apply time (2026-09-20)
+>
+> The verification line in the commit claims `0 add, 3 change, 0 destroy`. **The real plan
+> is 12 changes**, and the gap is not drift — it is two things that line was measured
+> without:
+>
+> - **The seven `aws_s3_object.gold_sql` objects.** The same commit added a 14-line header
+>   note to every `.sql` file, and those objects carry `etag = filemd5(...)`, so they were
+>   always going to appear. `14 insertions, 0 deletions` each — header only, no CTAS body
+>   touched, verified before applying.
+> - **`extractor_lambda` + its `aws_s3_object.lambda_package`.** `lambda_package.zip` ships
+>   **the whole `loteria/` package** — all 24 entries, `loteria/gold/purge_and_load.py`
+>   among them. Rewriting the gold module therefore changes the extractor's
+>   `source_code_hash` even though the extractor never imports it. Structural and harmless,
+>   but it means *every* PR that touches *any* module under `src/loteria/` redeploys the
+>   extractor. Worth knowing before reading it as a surprise.
+>
+> **Lesson, the same one PR-019 already paid for in the other direction:** a plan quoted in
+> a commit message is a measurement of the tree at the moment it was taken, not a promise
+> about the tree that gets merged. Re-measure at apply time and reconcile every line — the
+> point is not the count, it is that nothing unexplained is in there.
+>
+> **Also stripped out of this apply, deliberately:** `make build` marked
+> `aws_lambda_layer_version.loteria_deps` for replacement (`1 add, 1 destroy`) plus its S3
+> object. Cause: one floating transitive, `idna 3.19 -> 3.20` — every other package in the
+> layer was byte-identical. The deployed zip was restored over the rebuilt one
+> (`md5 d786e490aa9dba1ea6d5223b5c5bee6a`, 942 417 bytes, matching the live `etag` and
+> `source_code_size` exactly) so the apply carried 042.1 and nothing else. It is deferred,
+> not avoided — it returns on the next `make build`. See **PR-046**.
 
 **PR-042.2 — Retire old generations.** Keep the live generation plus one, so the rollback
 is "re-point the catalog at the previous generation" — write that command in the runbook.
@@ -2356,6 +2386,51 @@ the question this sub-phase exists for: *"sorteo 3134 looks wrong — which run 
 from which raw file, and what else did that run write?"* as a single Athena query.
 
 
+## PR-046 — Pin the transitive dependencies so `make build` is reproducible
+**Found at PR-042.1's apply, 2026-09-20. Not an audit fault — a build defect.**
+
+**The defect.** `requirements/extractor.txt` pins its two direct dependencies
+(`beautifulsoup4==4.13.4`, `requests==2.32.4`) and **nothing else**. The seven transitive
+packages that actually land in the layer — `certifi`, `charset_normalizer`, `idna`,
+`soupsieve`, `typing_extensions`, `urllib3` — float. `requirements/glue.txt` and
+`requirements/dq.txt` have the same shape.
+
+**Why it matters, concretely.** `make build` must run before any `plan`, because
+`filemd5`/`filebase64sha256` read the zips at plan time (PR-019). So every plan in this repo
+is taken against a layer that was resolved *that day*. On 2026-09-20 that meant PyPI's
+`idna 3.20` silently replaced `3.19`, `aws_lambda_layer_version` was marked **for
+replacement**, and PR-042.1's plan arrived as `1 add, 13 change, 1 destroy` instead of
+`0 add, 12 change, 0 destroy`. The unrelated change was larger and scarier-looking than the
+reviewed one.
+
+Three costs, in order of how much they hurt:
+1. **It buries the PR's real diff.** A reviewer reconciling a plan has to separate the
+   change under review from build noise, every single time. That is exactly the failure
+   mode PR-023 already recorded when `make build` churn masked its own plan, now with a
+   second and more persistent cause.
+2. **It ships untested code.** A patch bump nobody chose, nobody read and no test covered
+   rides into prod attached to an unrelated apply. `idna` is low-risk; the mechanism is not.
+3. **A build is not reproducible.** Rebuilding last month's commit does not reproduce last
+   month's artifact, so "is the deployed zip current?" stops being answerable by hash —
+   which is the check PR-019 established and PR-041.1 depended on.
+
+**The fix.** Compile a fully-pinned lock per runtime (`pip-compile` / `uv pip compile`,
+hashes included) and have the build scripts install from the lock, keeping the hand-written
+`.txt` as the input. Then a layer hash changes only when someone deliberately recompiles.
+
+**Sequencing.** Do it **after** PR-042.1 is applied and verified, not before — landing it
+first would put a new layer into the very apply this PR exists to keep clean. The first
+recompile legitimately bumps the layer; that is its own plan, reviewed on its own.
+
+**Acceptance:** `make build` run twice on different days produces byte-identical zips, and
+a `plan` immediately after a `build` shows **no** layer diff.
+
+> **Owed from 2026-09-20:** the rebuilt layer carrying `idna 3.20` was set aside rather than
+> applied, and the deployed `idna 3.19` zip was restored in its place. That bump is still
+> owed — it should land as the first recompile under this PR, not as a stray.
+
+---
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -2428,3 +2503,4 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` measure · `.2` incremental tables · `.3` decide the aggregates | todo | — |
+| 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) | todo | — |
