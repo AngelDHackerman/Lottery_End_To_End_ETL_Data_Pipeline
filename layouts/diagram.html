@@ -54,15 +54,27 @@
   <details>
     <summary>Los defectos anotados: cinco de la auditoría, dos que solo aparecieron al correrlo</summary>
     <div class="dbody">
-      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). Los cinco siguen abiertos.</p>
+      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). Ninguno está cerrado del
+        todo, pero dos ya se movieron: 041 dejó de escribir el 20 sep, y 042 tiene su arreglo
+        escrito y mergeado — sin desplegar.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr">041</td><td>Tubería doble al bucket simple</td>
-          <td>Cada Parquet se escribe dos veces. La segunda copia no la lee nadie: paga
-            almacenamiento e invita a deriva, porque nada verifica que coincidan.</td></tr>
-        <tr><td class="pr">042</td><td>Gold no es atómica</td>
+        <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras detenidas
+          el 20 sep</b>, bucket en pie</td>
+          <td>Cada Parquet se escribía dos veces — tres escrituras en realidad, contando el
+            <code>.txt</code> crudo del extractor. La segunda copia no la leía nadie: pagaba
+            almacenamiento e invitaba a deriva, porque nada verificaba que coincidieran. Desde
+            el 20 sep a las 22:31 UTC las tres están apagadas por bandera y el bucket quedó
+            congelado en 347 objetos. Sigue abierto porque los bytes siguen ahí: falta que
+            041.2 quite la configuración muerta —incluido el grant de lectura de SageMaker,
+            hoy su único permiso de datos— y 041.3 no puede borrar nada antes del 20 oct.</td></tr>
+        <tr><td class="pr">042</td><td>Gold no es atómica — <b>arreglo escrito, sin
+          desplegar</b></td>
           <td>Borra la tabla y vacía su prefijo <b>antes</b> del CTAS. Si el CTAS falla, se pierde
-            también la copia buena — durante 7 días, hasta la siguiente corrida.</td></tr>
+            también la copia buena — durante 7 días, hasta la siguiente corrida. Eso es lo que
+            sigue ocurriendo en la cuenta: 042.1 cambia el orden a construir-al-lado y mover el
+            puntero, pero está en master sin aplicar, y aquí «mergeado» no ha significado nunca
+            «desplegado».</td></tr>
         <tr><td class="pr">043</td><td>Reconstrucción total semanal</td>
           <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo escala
             con el pasado, no con lo que llega.</td></tr>

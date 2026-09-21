@@ -74,10 +74,10 @@
      title:"El lago", desc:"El bucket que sostiene las tres capas. Tiene versionado, una política que deniega el borrado a todo el mundo salvo la raíz de la cuenta, y prevent_destroy en Terraform.",
      kv:{"Prefijos":"raw/ · silver/ · gold/ · sql/gold/","Silver":"116 sorteos y 121 945 premios en 232 Parquet","Al día hasta":"sorteo 3136 · 17 sep 2026","Protección":"versionado + Deny + prevent_destroy"}},
 
-    {id:"s3s", x:1064, y:400, w:284, h:96, st:"bad", t:"S3 · lottery-data-simple-prod", s:["copia plana de cada Parquet","+ processed/ legacy","sin ningún lector"],
-     title:"El tanque huérfano", desc:"El transformer escribe cada Parquet también aquí, en plano. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas.",
-     kv:{"Defecto":"A → PR-041","Lectores":"ninguno"},
-     warn:{k:"b",t:"Borrarlo no es una línea: la política Deny de PR-002 bloquea el borrado a todo principal salvo la raíz, y con versionado encendido un borrado normal solo deja delete markers. Necesita su propio runbook."}},
+    {id:"s3s", x:1064, y:400, w:284, h:96, st:"off", t:"S3 · lottery-data-simple-prod", s:["escrituras detenidas el 20 sep","347 objetos congelados","ni escritor ni lector"],
+     title:"El tanque huérfano, ya cerrado por arriba", desc:"El transformer y el extractor escribían aquí una copia plana de cada Parquet y cada .txt. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas. Desde el 20 sep a las 22:31 UTC las tres escrituras están apagadas por bandera: el bucket sigue existiendo, pero ya no entra ni sale nada de él.",
+     kv:{"Defecto":"A → PR-041 (a medio cerrar)","Escrituras":"detenidas el 20 sep 2026 (PR-041.1)","Contenido":"347 objetos · 540 versiones · 9 MB","Lectores":"ninguno activo, pero SageMaker tiene el grant","Borrado":"no antes del 20 oct 2026 (PR-041.3)"},
+     warn:{k:"b",t:"Nada de aquí es único: los 115 .txt y los 116 Parquet tienen su contraparte en raw/ y silver/, así que borrarlo no pierde datos. Pero borrarlo no es una línea: la política Deny de PR-002 bloquea el borrado a todo principal salvo la raíz, y con versionado encendido un borrado normal solo deja delete markers. Antes hay que repuntar lottery-sagemaker-s3-read-policy-prod, cuyo único permiso de datos apunta a este bucket. La condición de aborto del 20 oct: si el conteo ya no es 347, algo sigue escribiendo."}},
 
     {id:"cat", x:424, y:536, w:290, h:72, st:"ok", t:"Glue Data Catalog", s:["lottery_santalucia_db","2 tablas silver + 7 gold"],
      title:"El catálogo", desc:"Las dos tablas silver las registran los crawlers. Las siete gold se registran solas: un CTAS crea la tabla además de escribir el Parquet, así que no necesitan crawler.",
