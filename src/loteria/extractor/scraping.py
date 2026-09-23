@@ -214,18 +214,17 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):  # nosec B1
         "_"
     )  # Reemplaza con guiones bajos
 
-    # Extraer fecha del sorteo
-    fecha_match = re.search(r"FECHA DEL SORTEO:\s*([\d/]+)", header_text)
-    if fecha_match:
-        fecha_sorteo_text = fecha_match.group(1)
-        try:
-            year = int(fecha_sorteo_text.split("/")[-1])
-        except (ValueError, IndexError):
-            year = "unknown"
-    else:
-        year = "unknown"
+    # Extraer fecha del sorteo.
+    # PR-035.1 B: anchored to dd/mm/yyyy. The old `([\d/]+)` matched any run of digits and
+    # slashes, so `01/06/20XX` captured `01/06/20` and filed the draw under `year=20/` —
+    # plausible-looking, and registered by the crawler without complaint. Now anything that
+    # is not a full date falls through to `year=unknown`, which is greppable.
+    fecha_match = re.search(r"FECHA DEL SORTEO:\s*\d{2}/\d{2}/(\d{4})\b", header_text)
+    year = int(fecha_match.group(1)) if fecha_match else "unknown"
 
-    # Verificar si ya fue procesado
+    # Verificar si ya fue procesado. Note this runs AFTER both proxied fetches (the number
+    # and the date only exist on the detail page), so skipping saves no scrape.do credits:
+    # it saves the raw/ rewrite, its new object version, and the simple-bucket copy.
     if check_if_sorteo_exists(partitioned_bucket, year, numero_sorteo_real):
         logger.warning(
             f"⚠️ Sorteo {numero_sorteo_real} has already been processed. Canceling extraction."

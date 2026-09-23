@@ -13,9 +13,23 @@ def upload_to_s3(local_file_path, s3_bucket, s3_key):
     logger.info("File uploaded to S3", extra={"s3_uri": f"s3://{s3_bucket}/{s3_key}"})
 
 
-def check_if_sorteo_exists(s3_bucket, year, sorteo_number):
+# Where the transformer writes a finished draw — the same value as
+# transformer.SILVER_SORTEOS_PREFIX (tests/unit/test_transformer.py pins that the two agree).
+# Not imported from there: the transformer module reads Secrets Manager at import time, and
+# this module is loaded by the extractor Lambda.
+SILVER_SORTEOS_PREFIX = "silver/sorteos/"
+
+
+def check_if_sorteo_exists(s3_bucket, year, sorteo_number, prefix=SILVER_SORTEOS_PREFIX):
+    """True when the draw already has its Silver ``sorteos.parquet``.
+
+    PR-035.1 A: the prefix used to be hardcoded to ``processed/``, which nothing has written
+    since 2025-11-24, so this returned False for every draw and the extractor's guard never
+    fired. The transformer already passed its prefix explicitly, which is why *its*
+    idempotency kept working.
+    """
     s3 = boto3.client("s3")
-    key = f"processed/year={year}/sorteo={sorteo_number}/sorteos.parquet"
+    key = f"{prefix}year={year}/sorteo={sorteo_number}/sorteos.parquet"
     try:
         s3.head_object(Bucket=s3_bucket, Key=key)
         logger.info("Sorteo already exists", extra={"sorteo_number": sorteo_number, "s3_key": key})

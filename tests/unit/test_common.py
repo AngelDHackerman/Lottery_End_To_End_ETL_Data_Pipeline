@@ -132,8 +132,8 @@ class TestUploadToS3:
 class TestCheckIfSorteoExists:
     """The extractor's idempotency guard: a True here cancels the whole scrape."""
 
-    def _key(self, year, sorteo):
-        return f"processed/year={year}/sorteo={sorteo}/sorteos.parquet"
+    def _key(self, year, sorteo, prefix="silver/sorteos/"):
+        return f"{prefix}year={year}/sorteo={sorteo}/sorteos.parquet"
 
     def test_true_when_the_object_is_there(self, s3):
         s3.put_object(Bucket=BUCKET, Key=self._key(2024, 3046), Body=b"x")
@@ -147,6 +147,15 @@ class TestCheckIfSorteoExists:
         that would silently skip a real draw."""
         s3.put_object(Bucket=BUCKET, Key=self._key(2024, 3046), Body=b"x")
         assert s3_utils.check_if_sorteo_exists(BUCKET, 2025, 3046) is False
+
+    def test_the_legacy_processed_prefix_is_not_consulted(self, s3):
+        """PR-035.1 A: ``processed/`` is where this used to look, and nothing writes there."""
+        s3.put_object(Bucket=BUCKET, Key=self._key(2024, 3046, "processed/"), Body=b"x")
+        assert s3_utils.check_if_sorteo_exists(BUCKET, 2024, 3046) is False
+
+    def test_the_prefix_can_be_overridden(self, s3):
+        s3.put_object(Bucket=BUCKET, Key=self._key(2024, 3046, "other/"), Body=b"x")
+        assert s3_utils.check_if_sorteo_exists(BUCKET, 2024, 3046, prefix="other/") is True
 
     def test_a_non_404_error_is_re_raised(self, monkeypatch):
         """Only "not found" means "not processed". Swallowing an AccessDenied would make a

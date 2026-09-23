@@ -133,30 +133,27 @@ pythonpath = ["src"]
 # PR-035 98 (actual 98.52 — the four modules that had never been executed by a test:
 # extractor/scraping.py's orchestration, lambda_handler.py, gold/purge_and_load.py and
 # observability/object_count.py).
+# PR-035.1 98 (actual 98.91 — fixing the draw-date regex deleted the two statements it had
+# made unreachable, so the suite got smaller in the right place, not bigger).
 #
 # The gate is 98, not the roadmap's 85. The convention above is that the number sits at what
 # the suite ACHIEVES — an 85 gate on a 98.52 suite leaves 13 points of silent regression
 # room, which is the opposite of a ratchet. 85 was a floor, and it is met.
 #
-# The 12 statements still uncovered are dead ends, each deliberate:
+# The 10 statements still uncovered are dead ends, each deliberate:
 #   transformer/__main__.py (3)      the real Glue entry point is scripts/glue_zip_main.py,
 #                                    which imports main() directly; this module is inert
 #                                    (PR-016).
-#   transformer.py 204-206           the `else` filling the reintegro columns when the
+#   transformer.py 206-208           the `else` filling the reintegro columns when the
 #                                    column is absent. process_header is its only producer
 #                                    and raises on a header without REINTEGROS, so the
 #                                    branch cannot be reached from the pipeline — see
 #                                    test_transformer.py's rejection test, which pins the
 #                                    behaviour that IS reachable.
-#   transformer.py 338 · glue_entrypoint.py 161    `if __name__ == "__main__"` guards.
-#   scraping.py 222-223              the `except (ValueError, IndexError)` fallback to
-#                                    year="unknown". Unreachable today because the date
-#                                    regex is unanchored and matches a prefix instead of
-#                                    failing — the defect documented in
-#                                    test_extract_lottery_data.py and filed in roadmap.md.
+#   transformer.py 364 · glue_entrypoint.py 161    `if __name__ == "__main__"` guards.
 #   cloudwatch_logging.py 158        the empty-batch guard, kept as belt and braces for a
 #                                    caller that flushes by hand (PR-033.2).
-#   purge_and_load.py 91             `if not batch: continue` inside a range() loop whose
+#   purge_and_load.py 112            `if not batch: continue` inside a range() loop whose
 #                                    slices are never empty.
 #
 # Everything on that list is either a defect's shadow or a deliberate guard. None of it is

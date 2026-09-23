@@ -327,51 +327,45 @@ class TestSimpleBucketWritesFlag:
         assert "CENTENARES" not in open(path, encoding="utf-8").read()
 
 
-class TestTheIdempotencyGuardIsDead:
-    """⚠️ DOCUMENTS A DEFECT. These tests pin what the code does, not what it should do.
+class TestTheIdempotencyGuard:
+    """PR-035.1 A. Until this PR the guard asked for ``processed/year=<Y>/sorteo=<N>/``, a
+    prefix nothing had written since 2025-11-24, so it never fired. It now looks where the
+    transformer actually writes a finished draw: ``silver/sorteos/``.
 
-    ``check_if_sorteo_exists`` asks for ``processed/year=<Y>/sorteo=<N>/sorteos.parquet``,
-    with the prefix hardcoded and no override. Nothing has written ``processed/`` since
-    **2025-11-24**: the transformer moved to ``silver/`` and passes its own prefix
-    explicitly (``transformer.py:92``), which is why ITS idempotency still works and this one
-    does not. The branch below cannot fire in production any more.
-
-    What it costs: a retry or a manual re-run re-scrapes a draw already captured — two
-    scrape.do requests at 25 credits each — and rewrites raw/, creating a new version on a
-    versioned bucket. Not corruption. A guard the code claims to have and does not.
-
-    NOT fixed here on purpose: PR-035 is a coverage ratchet, and making the extractor start
-    skipping draws changes what the weekly production run does. Filed in roadmap.md.
+    It runs after both proxied fetches, so a skip saves no scrape.do credits. What it saves
+    is the raw/ rewrite (a new object version on a versioned bucket) and the simple copy.
     """
 
-    def test_an_object_under_the_legacy_prefix_still_skips(self, s3, scraping, pages, tmp_path):
-        s3.put_object(
-            Bucket=PARTITIONED,
-            Key="processed/year=2024/sorteo=3046/sorteos.parquet",
-            Body=b"x",
-        )
+    SILVER_KEY = "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet"
+
+    def test_a_draw_already_in_silver_is_skipped(self, s3, scraping, pages, tmp_path):
+        s3.put_object(Bucket=PARTITIONED, Key=self.SILVER_KEY, Body=b"x")
         pages()
 
         assert scraping.extract_lottery_data(output_folder=str(tmp_path)) is None
 
-    def test_nothing_is_uploaded_when_the_sorteo_is_skipped(self, s3, scraping, pages, tmp_path):
-        s3.put_object(
-            Bucket=PARTITIONED,
-            Key="processed/year=2024/sorteo=3046/sorteos.parquet",
-            Body=b"x",
-        )
+    def test_nothing_is_uploaded_when_the_draw_is_skipped(self, s3, scraping, pages, tmp_path):
+        s3.put_object(Bucket=PARTITIONED, Key=self.SILVER_KEY, Body=b"x")
         pages()
         scraping.extract_lottery_data(output_folder=str(tmp_path))
 
+        assert [o["Key"] for o in s3.list_objects_v2(Bucket=PARTITIONED)["Contents"]] == [
+            self.SILVER_KEY
+        ]
         assert s3.list_objects_v2(Bucket=SIMPLE).get("Contents", []) == []
 
-    def test_the_real_silver_layout_does_NOT_skip(self, s3, scraping, pages, tmp_path):
-        """The defect itself. This is where the draw actually lives today, and the extractor
-        scrapes it again anyway. The day the guard is fixed, this test fails — which is the
-        point of writing it."""
+    def test_raw_alone_does_not_skip(self, s3, scraping, pages, tmp_path):
+        """A draw that was scraped but never transformed (the transform failed) must be
+        scraped again: raw/ is not proof the draw made it into the lake."""
+        s3.put_object(Bucket=PARTITIONED, Key="raw/year=2024/sorteo=3046/results.txt", Body=b"x")
+        pages()
+
+        assert scraping.extract_lottery_data(output_folder=str(tmp_path)) is not None
+
+    def test_the_legacy_processed_prefix_no_longer_skips(self, s3, scraping, pages, tmp_path):
         s3.put_object(
             Bucket=PARTITIONED,
-            Key="silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
+            Key="processed/year=2024/sorteo=3046/sorteos.parquet",
             Body=b"x",
         )
         pages()
@@ -455,32 +449,25 @@ class TestYearDerivation:
 
         assert "year=unknown" in key
 
-    def test_a_partially_numeric_date_yields_a_truncated_year_DEFECT(
-        self, s3, scraping, pages, tmp_path
+    @pytest.mark.parametrize(
+        "fecha",
+        ["01/06/20XX", "1/6/2024", "01/06/24", "01/06/20245"],
+        ids=["truncated-year", "unpadded", "two-digit-year", "five-digit-year"],
+    )
+    def test_anything_short_of_a_full_date_falls_back_to_unknown(
+        self, s3, scraping, pages, tmp_path, fecha
     ):
-        """⚠️ DOCUMENTS A DEFECT, found by writing this test. Not the desired behaviour.
-
-        The date regex is ``FECHA DEL SORTEO:\\s*([\\d/]+)`` — an unanchored character class,
-        so on ``01/06/20XX`` it matches the prefix ``01/06/20`` rather than failing. The year
-        then parses cleanly as ``20`` and the draw is filed under ``raw/year=20/``. The
-        ``except (ValueError, IndexError)`` fallback to ``"unknown"`` never fires, because
-        nothing raised.
-
-        A partition named ``year=unknown`` is greppable; ``year=20`` looks like real data and
-        the crawler registers it without complaint.
-
-        NOT fixed here on purpose: PR-035 is a coverage ratchet, and changing the extractor's
-        parsing would alter what the weekly production run does for a case the site has never
-        actually produced (every real capture is ``dd/mm/yyyy``). The fix is to anchor the
-        pattern to ``\\d{2}/\\d{2}/\\d{4}``. Filed in roadmap.md.
-        """
-        detail = DETAIL_PAGE.replace("01/06/2024", "01/06/20XX")
+        """PR-035.1 B. The old pattern ``([\\d/]+)`` took whatever run of digits and slashes
+        it found, so ``01/06/20XX`` filed the draw under ``raw/year=20/`` — a real-looking
+        partition the crawler registers without complaint. Anchored to dd/mm/yyyy, every
+        malformed date lands in the greppable ``year=unknown`` instead."""
+        detail = DETAIL_PAGE.replace("01/06/2024", fecha)
         pages(detail=detail)
 
         scraping.extract_lottery_data(output_folder=str(tmp_path))
         key = s3.list_objects_v2(Bucket=PARTITIONED)["Contents"][0]["Key"]
 
-        assert "year=20/" in key, "if this now says year=unknown, the defect was fixed"
+        assert "year=unknown/" in key
 
 
 class TestHeaderNormalisation:

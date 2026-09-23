@@ -1750,6 +1750,13 @@ The branch cannot fire in production. A retry or a manual re-run re-scrapes a dr
 captured: two scrape.do requests at 25 credits each, and a rewrite of `raw/` that adds a new
 version on a versioned bucket. Not corruption — a guard the code claims to have and does not.
 
+> ⚠️ **Corrected 2026-09-23, at the fix:** the credit cost above is wrong. The guard runs
+> *after* both proxied fetches — the draw number and date only exist on the detail page — so
+> a skip saves **no** scrape.do credits, fixed or not. What the fix saves is the `raw/`
+> rewrite (a new object version) and the simple-bucket copy. Moving the guard ahead of the
+> second fetch would save 25 credits per re-run, but needs the number from the award page's
+> link text, which no fixture of the real page pins today; not done here.
+
 **Fix:** give `check_if_sorteo_exists` the same explicit-prefix treatment the transformer
 already has, defaulting to `silver/sorteos/`. Small, but it changes what a production run
 does, which is why it is not in PR-035. `test_extract_lottery_data.py::TestTheIdempotencyGuardIsDead`
@@ -1765,6 +1772,23 @@ raised — those two statements are unreachable today.
 `year=unknown` is greppable; `year=20` looks like real data and the crawler registers it
 without complaint. **Fix:** anchor to `\d{2}/\d{2}/\d{4}`. Every real capture so far is
 well-formed, which is why this is a latent defect rather than an outage.
+
+### Outcome of A and B (2026-09-23)
+
+- **A:** `check_if_sorteo_exists(..., prefix="silver/sorteos/")`. The guard looks for the
+  draw where the transformer writes it; `raw/` alone does not skip, so a draw whose
+  transform failed is scraped again. A transformer test asserts the extractor's guard finds
+  what the transformer wrote, so the two spellings of the Silver path cannot drift apart
+  again unnoticed. The Step Function's retry comment claimed this guard made retries safe;
+  it never did (and still would not — the transformer has not run yet at retry time). What
+  makes them safe is the deterministic `raw/` key; the comment now says so.
+- **B:** anchored to `\d{2}/\d{2}/(\d{4})\b`. Four malformed shapes (`20XX`, unpadded,
+  two-digit, five-digit year) now land in `year=unknown`. The canary's copy of the regex
+  moved with it, so the live contract test now also fails on a malformed date. The two
+  statements B had made unreachable are gone: coverage 98.52 → **98.91**.
+- **Deploy:** `make deploy` — `0 add, 3 change, 0 destroy` (extractor function + its zip;
+  `gold_purge` is the known deferred-read phantom). Both Glue zips carry `src/loteria` and
+  change too; `make deploy` uploads them.
 
 ### C — one malformed header kills the whole transform
 
@@ -2766,11 +2790,11 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
-| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | todo | — |
+| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` in review · `C` → PR-044 | — |
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
-| 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | in review | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
+| 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` todo · `.3` blocked until 2026-10-20 | [PR #53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) |
