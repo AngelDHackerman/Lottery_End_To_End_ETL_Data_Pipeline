@@ -187,6 +187,8 @@ celerybeat.pid
 
 # Environments
 .env
+# direnv (PR-039). The committed template is .envrc.example.
+.envrc
 .venv
 env/
 venv/

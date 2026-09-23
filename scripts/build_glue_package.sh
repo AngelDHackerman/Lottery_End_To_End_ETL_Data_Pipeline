@@ -38,5 +38,6 @@ find "$BUILD_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
 echo "✅  lottery_transformer.zip ready -> $OUT_ZIP"
 echo "    entry point: __main__.py at the zip root -> loteria.transformer.transformer:main"
 echo
-echo "    Upload it (Terraform does not manage this object):"
+echo "    Upload it (Terraform does not manage this object) — 'make upload-glue' does all"
+echo "    three Glue artifacts, 'make deploy' does it after the apply:"
 echo "      aws s3 cp $OUT_ZIP s3://${CODE_BUCKET}/lottery_transformer.zip"
