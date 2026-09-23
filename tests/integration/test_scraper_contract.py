@@ -61,7 +61,9 @@ EXTRACTOR_LOCATORS = {
     # behind, so the old locator kept passing while pointing at boilerplate.
     "prize list": "div.lista-premios-columnas",
     "sorteo number regex": r"SORTEO.*?NO\.?\s+(\d+)",
-    "fecha regex": r"FECHA DEL SORTEO:\s*([\d/]+)",
+    # PR-035.1 B: anchored to a full dd/mm/yyyy, so the canary now also fails on a date the
+    # extractor would file under year=unknown, not only on a missing label.
+    "fecha regex": r"FECHA DEL SORTEO:\s*\d{2}/\d{2}/(\d{4})\b",
 }
 
 # The waiting room answers HTTP 200 with a queue page, which is why PR-026's status-code

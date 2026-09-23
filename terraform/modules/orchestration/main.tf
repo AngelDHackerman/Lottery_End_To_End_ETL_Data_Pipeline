@@ -471,9 +471,12 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         # instead of once. Listed here are the errors a second attempt can actually fix:
         # network faults from `requests`, and Lambda's own transient service errors.
         #
-        # Retrying is safe: extract_lottery_data() calls check_if_sorteo_exists() and
-        # returns without writing when the sorteo is already in S3, so a retry after a
-        # partial success is a no-op rather than a duplicate.
+        # Retrying is safe because the raw/ key is deterministic (year + sorteo + the
+        # heading), so a retry after a partial success overwrites the same object rather
+        # than adding a second draw. NOT because of check_if_sorteo_exists(): that guard
+        # looks for the draw in silver/ (PR-035.1 A — it used to look in processed/, and
+        # never fired), and the transformer has not run yet at this point in the execution.
+        # It also runs after both proxied fetches, so a retry still costs its 50 credits.
         #
         # 60 s / 2 attempts / 2.0 backoff = attempts at t+0, t+60, t+180. The Cloudflare
         # block this PR fixes was persistent, so retries would NOT have saved those two

@@ -509,6 +509,18 @@ class TestYearPartition:
 # Idempotency + skipping
 # ==========================================================================================
 class TestIdempotency:
+    def test_the_extractor_guard_finds_what_the_transformer_wrote(self, s3, transformer):
+        """PR-035.1 A. The extractor's guard and the transformer's writer each spell the
+        Silver path themselves (s3_utils cannot import the transformer). This is the test
+        that fails if they drift apart again, the way processed/ → silver/ once did."""
+        from loteria.common.s3_utils import check_if_sorteo_exists
+
+        assert check_if_sorteo_exists(PARTITIONED, 2024, 3046) is False
+        put_raw(s3, sorteo=3046, year=2024)
+        run(transformer)
+
+        assert check_if_sorteo_exists(PARTITIONED, 2024, 3046) is True
+
     def test_second_run_skips_an_already_processed_sorteo(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024)
         run(transformer)
