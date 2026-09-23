@@ -2770,7 +2770,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
-| 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — 7 targets still print TODO, and `make secrets` names a script that was never written. **Prerequisite of 036; do first** | todo | — |
+| 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | in review | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` todo · `.3` blocked until 2026-10-20 | [PR #53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) |

@@ -48,7 +48,8 @@ echo "✅  Silver DQ artifacts ready:"
 echo "      $OUT_SCRIPT   (job script_location)"
 echo "      $OUT_ZIP   (--extra-py-files)"
 echo
-echo "    Upload them (Terraform does not manage these objects):"
+echo "    Upload them (Terraform does not manage these objects) — 'make upload-glue' does all"
+echo "    three Glue artifacts, 'make deploy' does it after the apply:"
 echo "      aws s3 cp $OUT_SCRIPT s3://${CODE_BUCKET}/loteria_silver_dq.py"
 echo "      aws s3 cp $OUT_ZIP s3://${CODE_BUCKET}/loteria_dq_lib.zip"
 echo

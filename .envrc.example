@@ -1,0 +1,21 @@
+# Copy to .envrc (gitignored) and fill in:  cp .envrc.example .envrc && direnv allow
+# Without direnv, `source .envrc` in each new shell does the same thing.
+
+# Which AWS credentials and region every `make` target, `aws` and `terraform` call uses.
+export AWS_PROFILE=your-profile
+export AWS_REGION=us-east-1
+
+# Name of the Secrets Manager secret the pipeline reads. `make secrets` creates it under
+# this name, and Terraform scopes the IAM grants to it, so the two must agree.
+export LOTERIA_SECRET_NAME=lottery_secret_prod_2
+export TF_VAR_lottery_secret_name="$LOTERIA_SECRET_NAME"
+
+# Only read by `make secrets`, which stores it in the secret above. Leave it empty and the
+# script asks for it without echoing. The deployed pipeline reads it from Secrets Manager,
+# never from here.
+export SCRAPE_DO_TOKEN=
+
+# Where the pipeline's SNS alarms are emailed. Empty creates no subscription.
+# AWS sends a confirmation email that must be clicked before any alert arrives.
+export ALERT_EMAIL=
+export TF_VAR_alert_email="$ALERT_EMAIL"
