@@ -2462,6 +2462,93 @@ a `plan` immediately after a `build` shows **no** layer diff.
 > applied, and the deployed `idna 3.19` zip was restored in its place. That bump is still
 > owed — it should land as the first recompile under this PR, not as a stray.
 
+### Outcome — one lock, and the other two files deliberately left alone
+
+**Scope, decided 2026-09-22.** The fix above says "a lock per runtime", but only **one**
+build script pip-installs anything: `build_lambda_layer.sh`. The other two files are not
+the same defect wearing a different hat, and locking them would have been cargo cult:
+
+| file | who installs it | what PR-046 did |
+|---|---|---|
+| `extractor.txt` | `build_lambda_layer.sh`, at build time | **locked** — `extractor.lock`, fully pinned with hashes |
+| `glue.txt` | nobody — the Glue Python Shell runtime already ships pandas/pyarrow/boto3, and the transformer zip vendors nothing | left as a record of what the code was written against; a lock no build reads is a file that goes stale unwatched |
+| `dq.txt` | the **Glue job itself, at runtime**, via `--additional-python-modules` | left alone and filed as **PR-046.1** — see below |
+
+**The recompile moved exactly one package.** `idna 3.19 → 3.20`, which is precisely the bump
+owed above; `certifi`, `charset-normalizer`, `soupsieve`, `typing-extensions` and `urllib3`
+all resolved to what was already deployed. The layer also gained five `dist-info/REQUESTED`
+marker files, because every package is now an explicit requirement rather than a resolved
+dependency — pip metadata, zero runtime effect, and worth knowing before reading the diff
+as "six things changed".
+
+**Reproducible now means machine-independent, not just day-independent.** The build already
+had a deterministic zipper (`scripts/_zipdir.py` fixes timestamps and sort order, PR-019),
+so the only remaining variable was what pip resolved — but *two* variables hid in there.
+Besides the floating versions, `charset_normalizer` is the one dependency that ships a
+compiled wheel (`cp312-...-manylinux_2_17_x86_64`), so the layer silently depended on the
+architecture of whoever ran `make build`. The install now pins `--platform`,
+`--python-version` and `--implementation` to the Lambda runtime and passes
+`--only-binary=:all:`, so a machine that cannot produce the right wheel **fails** instead of
+quietly shipping the wrong one.
+
+**Verified 2026-09-22:** two consecutive builds produced sha256
+`0d17886be4760f7f47883b3ea3c8c18e20fb93d9ad2ddfd6bf8e8ecbaaef5adb` both times. The
+previously deployed layer was `3cb7e0c135c3b4e60db3b0c073caadda303f6dd24129cf00f99d17c3706771c0`;
+the difference between them is the `idna` bump and the marker files above, nothing else.
+
+**Two CI guards, because neither claim survives on good intentions** (job
+`build-reproducible`, which unlike `build-artifacts` runs on pull requests too):
+1. *lock in sync with its input* — recompiles **without** `--upgrade` and fails if the
+   committed lock moves. Editing `extractor.txt` without running `make lock` is caught; a
+   new upstream release is **not** a failure, because taking it is `make lock-upgrade` and
+   that has to stay a deliberate act.
+2. *byte-identical across runs* — builds the layer twice and compares sha256.
+
+`pip-tools` is pinned in CI (`PIP_TOOLS_VERSION`) for the same reason ruff is, only more
+sharply: guard 1 compares generated output byte for byte, so a pip-tools release that
+changed the header would fail PRs that touched nothing.
+
+**Still owed: the apply.** Plan taken 2026-09-22 (read-only, `-lock=false`) is
+`1 to add, 3 to change, 1 to destroy`, and every line of it is this PR:
+
+| resource | why |
+|---|---|
+| `module.etl_lambda.aws_lambda_layer_version.loteria_deps` | replaced — the `idna` bump. The add and the destroy are this one resource |
+| `module.etl_lambda.aws_lambda_function.extractor_lambda` | in-place — points at the new layer ARN |
+| `module.etl_lambda.aws_s3_object.lambda_layer` | in-place — new etag |
+| `module.orchestration.aws_lambda_function.gold_purge` | the known phantom: `module.iam`'s `depends_on` defers a data-source read, so this shows `(known after apply)` on every plan. Not this PR's |
+
+This is the *last* plan that should carry a layer diff for a reason nobody chose. That was
+the point: from here, a layer line in somebody else's plan means somebody ran `make
+lock-upgrade`, and that shows up in their diff.
+
+---
+
+## PR-046.1 — Stop installing great-expectations at runtime
+
+**Filed 2026-09-22, from PR-046's scoping.** Same defect as PR-046, one layer down and
+harder: the DQ Glue job resolves great-expectations' *entire* transitive tree on every
+weekly run, from
+`--additional-python-modules = "great-expectations==${var.great_expectations_version}"`
+(`terraform/modules/etl-glue/main.tf:207`). The version is pinned; nothing under it is.
+
+It is worse than the layer case in one way and better in another. Worse: there is no build
+artifact to hash, so nobody can even tell after the fact which versions the gate ran
+against — the weekly DQ verdict is produced by a dependency set that is not recorded
+anywhere. Better: it cannot contaminate anyone's `terraform plan`, which is why it did not
+have to be fixed alongside PR-046.
+
+**Why not just pin the list.** Passing ~40 pins to that argument is a production change to
+the gate, needs an apply to land, and adds to a start-up that already burns roughly 21
+minutes of a 60-minute timeout in its worst observed case (PR-033.1/033.2). The roadmap's
+own answer is the right one: **stop installing at runtime.** Ship great-expectations inside
+the artifact — a Docker image for the job, or vendored into `--extra-py-files` — which
+removes the resolution *and* the 21 minutes at the same time.
+
+**Sequencing:** not urgent and not on Phase 8's path. It belongs wherever the DQ job's
+start-up cost gets revisited, and it should be one PR with that work rather than a pin now
+and a rewrite later.
+
 ---
 
 # Open later (deferred decisions)
@@ -2523,7 +2610,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
 | 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
-| 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | in-progress | — |
+| 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
 | 035.1 | **Three defects the coverage work found** — the extractor's dead idempotency guard, the unanchored draw-date regex, and one malformed header killing the whole transform | todo | — |
 | 036 | README rewrite | todo | — |
 | 037 | Diagrams in draw.io | todo | — |
@@ -2536,4 +2623,5 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` measure · `.2` incremental tables · `.3` decide the aggregates | todo | — |
-| 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) | todo | — |
+| 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rides along | **merged, apply owed** (layer replacement) | — |
+| 046.1 | **Stop installing great-expectations at runtime** in the DQ job (found at 046's scoping) — no artifact to hash, so the gate's dependency set is unrecorded | todo | — |

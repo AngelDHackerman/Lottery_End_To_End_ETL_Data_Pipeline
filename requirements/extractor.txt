@@ -1,2 +1,10 @@
+# The extractor Lambda's DIRECT dependencies — the hand-written input, not what gets
+# installed. `scripts/build_lambda_layer.sh` installs `requirements/extractor.lock`, which
+# is compiled from this file and pins the transitive tree with hashes (PR-046).
+#
+# To change a dependency: edit this file, then run `make lock` and commit BOTH files. To
+# pick up upstream releases without changing anything here: `make lock-upgrade`. Either way
+# the layer hash moves, so the recompile is its own reviewable plan — which is the whole
+# point. Editing this file without recompiling is caught by CI (`lock in sync with input`).
 beautifulsoup4==4.13.4
 requests==2.32.4

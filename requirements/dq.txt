@@ -1,3 +1,12 @@
+# ⚠️ PR-046 deliberately left this file WITHOUT a lock, for a different reason than
+# glue.txt: this one IS installed, but at RUNTIME, inside the Glue job, from
+# `--additional-python-modules = "great-expectations==${var.great_expectations_version}"`
+# (terraform/modules/etl-glue/main.tf). So great-expectations' own transitive tree is
+# resolved fresh on every weekly run — the same defect PR-046 fixed for the Lambda layer,
+# one layer down and with no build artifact to pin. Pinning it here would not help; it
+# would have to be passed to that argument, which is a production change and would add to a
+# start-up that already cost 21 minutes in its worst observed case. The roadmap's answer is
+# to stop installing at runtime, not to lock the runtime install. Filed as PR-046.1.
 # Runtime dependencies for the Silver data-quality job (PR-032), pinned the same way as
 # extractor.txt and glue.txt so the job installs a known set rather than "whatever PyPI has".
 #

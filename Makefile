@@ -2,13 +2,28 @@
 # Targets are stubs for now (PR-001) and get filled in by later PRs.
 # See roadmap.md PR-039 for the final implementations.
 
-.PHONY: bootstrap secrets build deploy test dq dq-sync destroy lint fmt tf-plan sagemaker
+.PHONY: bootstrap secrets lock lock-upgrade build deploy test dq dq-sync destroy lint fmt tf-plan sagemaker
 
 bootstrap: ## Create the remote Terraform state backend (PR-003/PR-039)
 	@echo "TODO(PR-039): cd terraform/bootstrap && terraform init && terraform apply"
 
 secrets: ## Seed Secrets Manager from prompts (PR-039)
 	@echo "TODO(PR-039): bash scripts/seed_secrets.sh"
+
+# PR-046. The layer is the only build artifact that pip-installs anything, so it is the
+# only one with a lock. Regenerating is deliberate on purpose: it bumps the layer hash, and
+# that shows up as a real `terraform plan` diff which someone has to read and approve.
+#
+#   make lock          recompile from requirements/extractor.txt, keeping pins that still
+#                      satisfy it (use after editing the input)
+#   make lock-upgrade  recompile AND take upstream releases (use when you mean to bump)
+lock: ## Recompile requirements/extractor.lock from its input (PR-046)
+	pip-compile --generate-hashes --strip-extras \
+	  --output-file requirements/extractor.lock requirements/extractor.txt
+
+lock-upgrade: ## Same as `lock`, but allow transitive dependencies to move forward (PR-046)
+	pip-compile --generate-hashes --strip-extras --upgrade \
+	  --output-file requirements/extractor.lock requirements/extractor.txt
 
 build: ## Build the lambda layer + code zip + the glue transformer + DQ artifacts (PR-019/PR-033)
 	bash scripts/build_lambda_layer.sh

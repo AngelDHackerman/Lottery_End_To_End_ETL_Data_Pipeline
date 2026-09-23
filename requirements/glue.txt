@@ -1,3 +1,8 @@
+# ⚠️ PR-046 deliberately left this file WITHOUT a lock. Nothing installs it: the Glue
+# transformer zip is code-only (scripts/build_glue_package.sh vendors no dependencies),
+# because the Python Shell runtime already ships pandas, pyarrow and boto3. This file is a
+# record of the versions the code was written against, so a lock here would be a file no
+# build consumes — and one nothing would catch going stale.
 beautifulsoup4==4.13.4
 pandas==2.2.3
 pyarrow==20.0.0

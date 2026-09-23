@@ -1,6 +1,6 @@
 # CI for the Loteria Santa Lucia pipeline (PR-034).
 #
-# Runs on every push to master and every pull request. Seven jobs, deliberately independent
+# Runs on every push to master and every pull request. Eight jobs, deliberately independent
 # so a Terraform-only change still gets a fast red/green on the Python side and vice versa —
 # and so a non-blocking scanner can never take down a blocking one (see tf-security-trivy).
 #
@@ -31,6 +31,11 @@ env:
   # release would fail PRs on rules the pre-commit hook never mentioned locally — the
   # fastest way to teach people that CI is noise.
   RUFF_VERSION: "0.6.9"
+  # PR-046. Pinned for the same reason as ruff, and with sharper teeth: the lock-in-sync
+  # check below compares pip-compile's output against the committed file byte for byte, so
+  # a pip-tools release that changes the header or the sort order would fail PRs that
+  # touched nothing.
+  PIP_TOOLS_VERSION: "7.6.1"
   TERRAFORM_VERSION: "1.15.7"
 
 jobs:
@@ -91,6 +96,51 @@ jobs:
       # and PR-031's own bug was a guard that skipped silently.
       - name: pytest
         run: pytest -v
+
+  # -------------------------------------------------------------------------------------
+  # PR-046. Two claims, both of which used to be false and neither of which a human would
+  # notice going false again: the lock matches its input, and the layer build is
+  # deterministic. The second one is the whole point of the PR — `make build` runs before
+  # every `plan` (PR-019), so a layer that rebuilds differently puts a replacement into
+  # somebody else's plan.
+  build-reproducible:
+    name: build (lock in sync + byte-identical layer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install pip-tools
+        run: pip install "pip-tools==${PIP_TOOLS_VERSION}"
+
+      # Recompiling WITHOUT --upgrade keeps every pin that still satisfies the input, so
+      # this is a no-op unless requirements/extractor.txt changed without `make lock`.
+      # A real upstream release does NOT fail this job — that is `make lock-upgrade`, and
+      # it is meant to be a deliberate act, not a surprise from CI.
+      - name: lock is in sync with its input
+        run: |
+          make lock
+          git diff --exit-code -- requirements/extractor.lock \
+            || { echo "::error::requirements/extractor.lock is stale — run 'make lock' and commit it"; exit 1; }
+
+      # Twice, in the same runner, is a weaker test than twice on different days — but it
+      # catches the class of defect that timestamps and directory ordering cause, and the
+      # lock covers the resolution half. --require-hashes in the build script is what makes
+      # the second half hold across days.
+      - name: layer build is byte-identical across runs
+        run: |
+          bash scripts/build_lambda_layer.sh
+          first=$(sha256sum terraform/lambda_layer.zip | cut -d' ' -f1)
+          bash scripts/build_lambda_layer.sh
+          second=$(sha256sum terraform/lambda_layer.zip | cut -d' ' -f1)
+          echo "run 1: $first"
+          echo "run 2: $second"
+          test "$first" = "$second" \
+            || { echo "::error::lambda_layer.zip is not reproducible"; exit 1; }
 
   # -------------------------------------------------------------------------------------
   tf-validate:
@@ -254,6 +304,8 @@ jobs:
       # from terraform/, while the Glue and DQ artifacts have to be uploaded to the code
       # bucket by hand (see the runbooks). Publishing them here means the exact bytes that
       # passed CI are the ones that can be deployed, instead of whatever a laptop produced.
+      # Since PR-046 the layer is reproducible, so for that one artifact "the bytes that
+      # passed CI" and "the bytes a laptop produced" are now the same bytes, verifiably.
       #
       # The two DQ paths in particular must travel together: the job script imports
       # loteria.dq from the library zip, so a mismatched pair fails at import inside Glue
