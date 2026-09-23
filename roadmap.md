@@ -2790,7 +2790,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
-| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` in review · `C` → PR-044 | — |
+| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` in review · `C` → PR-044 | [PR #62](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/62) |
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
