@@ -1782,6 +1782,45 @@ is the one that has to change when the quarantine lands, and because it is the r
 
 ---
 
+# Close-out — what is still on the path, decided 2026-09-23
+
+**The owner's call: the repo closes after Phase 8.** Phases 1–5 are done, the pipeline runs,
+CI is green and the coverage gate sits at 98. What remains is the difference between "it
+works" and "somebody else can read it", plus the five structural faults the 2026-09-14 audit
+found. Everything outside those two buckets is cut here rather than left rotting as a `todo`
+nobody intends to do — a tracker full of aspirational rows is a tracker nobody trusts.
+
+**Cut, with the reason:**
+
+| | decision |
+|---|---|
+| **PR-037** diagrams in draw.io | **dropped.** `layouts/diagram.html` already does this and is maintained — six commits in the week of 2026-09-16. It is interactive, it is versioned as source (HTML + CSS + JS, not opaque XML), and it describes what is *deployed* rather than what was designed. A second set of static PNGs would be a worse artifact that also has to be kept in step. Its only residue moves into PR-036. |
+| **PR-038** ADRs | **dropped, folded into PR-036.** The decisions are already written, and better than a MADR template would render them: each PR's "Outcome" section here, `DoD.md`'s locked decisions, and `challanges_faced.md`. What is missing is not the content, it is an **index** — so PR-036 gains a "Decisions" section that links into them. Six new files would duplicate what exists and then drift from it. |
+| **PR-040's** "fresh-account deploy verified" badge | **dropped.** Earning it means standing up a clean AWS account and deploying into it. That is not closing the repo, it is opening a second one. The `.envrc.example` half of PR-040 stays — it is ten lines and the quick start needs it. |
+| **PR-043.2 / .3** the incremental Gold rewrite | **moved to Open later (L8).** Fault C is a *cost* defect, and this file already says why it is not urgent: "at ~117k rows it is a rounding error". **PR-043.1 stays** — the measurement is what carries the value, because it answers the reviewer's question ("why do you recompute 2024 every week?") with numbers, and "keep the full rebuild" is an outcome the spike is explicitly allowed to reach. |
+| **PR-046.1** stop installing GX at runtime | **moved to Open later (L7).** Same root cause as L6: it is solved by leaving Python Shell, not by pinning a list. Keeping it as a numbered PR implies it is on the path, and it is not. |
+
+**PR-039 is NOT cut, and the reason is worth writing down.** It looks like polish and it is
+not: it is a **prerequisite of PR-036**. Seven Makefile targets print `TODO(PR-039)` today,
+including `deploy`, `lint` and `fmt`. A README promising "5 commands max to deploy" either
+references those targets — and lies — or routes around the Makefile, which raises the
+question of why the Makefile exists. `make lint` echoing a TODO while CI runs ruff for real
+is the repo contradicting itself, the same class of defect PR-041.2 exists to remove.
+It also has a hole of its own: `make secrets` calls `scripts/seed_secrets.sh`, **which was
+never written.** Either write it or delete the target; do not leave it pointing at nothing.
+
+**The order to finish in:**
+
+1. **PR-039 + `.envrc.example`** — small, no AWS, makes the README able to tell the truth.
+2. **PR-035.1 A and B** — the dead idempotency guard and the unanchored draw-date regex.
+   Correctness, which is this project's stated thesis; both are small.
+3. **Phase 8: 041.2 → 042.2 → 045 (8C) → 044 (8D) → 043.1.** Sub-phase order, as ever.
+4. **PR-036 README** — last, so it describes a finished thing rather than a moving one.
+5. **PR-041.3** — on or after **2026-10-20**, owner-run, irreversible. The only item with a
+   hard date; it does not block anything above it.
+
+---
+
 # Phase 6 — Documentation & diagrams
 
 ## PR-036 — README rewrite
@@ -1803,7 +1842,35 @@ Move the existing "Challenges Faced" content into docs/challenges.md (renamed fr
 DELETE aws_etl_setup.md (it describes a defunct design).
 ```
 
-## PR-037 — Diagrams in draw.io (XML committed)
+### Amended 2026-09-23 — this PR absorbs 037 and 038
+
+**Item 1 and 4 point at `layouts/diagram.html`,** not at a PNG. It is the diagram now.
+
+**Item 10 changes from "link to docs/adr/" to a "Decisions" section**, because 038 is
+dropped. It indexes what already exists rather than restating it: `DoD.md` for the locked
+decisions, this file's per-PR **Outcome** sections for the ones made under fire, and
+`docs/challenges.md` for the ones that were learned the hard way. Six entries is enough —
+VPC separation, Glue vs Lambda for the transform, the scrape.do proxy, Athena CTAS for Gold,
+the DQ gate as a blocker, and single-account. Each is a link and one sentence on why, not a
+new document.
+
+**Two things in the README are false today and this PR is where they stop being false:**
+- Lines 12–16 say the two NAT images are "kept as history until PR-037 redraws them".
+  PR-037 is dropped, so that promise has no expiry. **Delete both images and the caveat**;
+  the network they describe is not on the pipeline's path at all (no `vpc_config` on the
+  extractor, no connection on the Glue jobs, `enable_sagemaker = false`).
+- `README.md:111-112,141` still sells the dual-bucket strategy as a feature. PR-041.2 is
+  what makes that false in the code; this is where it stops being false in the prose.
+
+**Do this LAST.** It describes a finished thing, and it is the only remaining item whose
+content depends on every other one landing first.
+
+## PR-037 — Diagrams in draw.io (XML committed) — **DROPPED 2026-09-23**
+
+> **Superseded by `layouts/diagram.html`,** which shipped between this PR being written and
+> being reached. See the close-out table above for the reasoning. The prompt is kept below
+> as the record of what was planned; do not execute it.
+
 **Prompt:**
 ```
 Create docs/diagrams/ with .drawio source files (also export to PNG into docs/diagrams/png/):
@@ -1816,7 +1883,13 @@ Create docs/diagrams/ with .drawio source files (also export to PNG into docs/di
 Replace images in README with references to docs/diagrams/png/*.
 ```
 
-## PR-038 — ADRs
+## PR-038 — ADRs — **DROPPED 2026-09-23, folded into PR-036**
+
+> The six ADRs below became the six entries of PR-036's "Decisions" section. The content
+> they would have carried already exists in `DoD.md`, in this file's Outcome sections and in
+> `challanges_faced.md`; what was missing was an index, and an index is what PR-036 now
+> builds. The prompt is kept as the record of which six decisions were judged worth naming.
+
 **Prompt:**
 ```
 Create docs/adr/ with one file per ADR (use the MADR-lite format):
@@ -1851,6 +1924,30 @@ Fill in the Makefile targets stubbed in PR-001:
 - sagemaker: cd terraform && terraform apply -var=enable_sagemaker=true
 ```
 
+### Amended 2026-09-23 — do this FIRST, and mind the hole in it
+
+**Not polish: a prerequisite of PR-036.** Seven targets print `TODO(PR-039)` today —
+`bootstrap`, `secrets`, `deploy`, `destroy`, `lint`, `fmt`, `tf-plan`. Five already work
+(`build`, `test`, `dq`, `dq-sync`, `sagemaker`) plus PR-046's `lock` / `lock-upgrade`, so
+the file is half-true, which is worse than either half alone.
+
+**`make secrets` points at a script that does not exist.** `scripts/seed_secrets.sh` was
+never written. Write it or delete the target — a target that names a missing file is a
+promise the repo cannot keep, and it is the kind of thing a reader checks first.
+
+**Three of the prompt's lines are already stale:**
+- `build` — the prompt lists three artifacts; there are **five** since PR-033 (layer, code
+  zip, transformer zipapp, DQ script, DQ lib). The target is already correct; the prompt is
+  not.
+- `test` — `pytest -v` alone is right. Coverage flags live in `pyproject.toml`'s `addopts`
+  as a ratchet (PR-029); repeating `--cov` here would guarantee the two drift.
+- `deploy` — must state that `make build` has to run first, because `filemd5` reads the zips
+  at plan time (PR-019). A `deploy` that skips the build applies whatever zip was last left
+  on disk.
+
+**Fold in PR-040's `.envrc.example`** rather than making it a second PR — it is ten lines
+and it exists to serve the same quick start.
+
 ## PR-040 — `.envrc.example` + final README polish
 **Prompt:**
 ```
@@ -1858,6 +1955,19 @@ Create .envrc.example documenting required env vars: AWS_PROFILE, AWS_REGION, SC
 Update README "Quick Start" to reference `cp .envrc.example .envrc && direnv allow`.
 Add a "Tested deploy" badge / note: "Fresh-account deploy verified on YYYY-MM-DD" — once the owner does a clean test deploy.
 ```
+
+### Amended 2026-09-23 — split: the file stays, the badge goes
+
+**`.envrc.example` moves into PR-039** (same quick start, ten lines, no reason to be its own
+PR). The five variables listed are still the right five.
+
+**The "Fresh-account deploy verified" badge is DROPPED.** Earning it honestly means creating
+a clean AWS account and deploying into it end to end — new account, new secrets, a real
+scrape.do token, and a first run to prove it. That is a project, not a polish step, and the
+badge is worth nothing if claimed without doing it. **The README should say what is actually
+true instead:** this stack was built by importing a running pipeline (PR-004 onward), it has
+never been deployed from zero, and a fresh-account deploy is untested. That sentence is more
+useful to a reader than a badge, and it costs nothing.
 
 ---
 
@@ -1890,8 +2000,16 @@ mechanism change reviewable apart from the data change it enables.
 | **8D** | 044 | `.1` make the loss visible · `.2` persist the rejects | Quarantine records reference 8C's `run_id`; without it a quarantined row cannot be tied to the run that rejected it. |
 | **8E** | 043 | `.1` measure · `.2` the four incremental tables · `.3` decide the three aggregates | **Last.** The largest change in the phase, and it is only safe once publication is atomic (8B) and rows are traceable (8C). |
 
-**Phase 8 is done when** `layouts/diagram.html` has no red boxes left and its five-defect
-`<details>` table is rewritten as history, each row naming the PR that closed it.
+**Phase 8 is done when** `layouts/diagram.html`'s five-defect `<details>` table is rewritten
+as history, each row naming the PR that closed it — or, for fault C, the PR that measured it
+and the decision that followed.
+
+> **Amended 2026-09-23.** The original condition was "no red boxes left". With 043.2/.3
+> moved to Open later (L8), fault C's box does not go away; it changes colour and meaning.
+> **It must not simply be deleted.** It should say what 043.1 measured, that the full
+> rebuild was kept deliberately, and at what point that stops being the right call — a
+> defect that is understood and priced is a different thing from one nobody looked at, and
+> the diagram is where a reader learns which one this is.
 
 ---
 
@@ -2264,6 +2382,14 @@ file's `GROUP BY` rather than against its name. Deliverable:
 verdict per table** — if the machinery costs more complexity than it saves, say so with the
 numbers and do not build it.
 
+> **Scope cut 2026-09-23: 043.1 stays on the path; 043.2 and 043.3 move to Open later (L8).**
+> Fault C is a cost defect, and this section already says it is "a rounding error" today.
+> The spike is what carries the value — it turns "it was cheap" into a number, and it is
+> explicitly allowed to conclude that the full rebuild should stay. The two sub-PRs below
+> are kept in place, unedited, because L8 points at them: when the numbers say it is time,
+> the plan is already written. **043.2's collision with 042's generations is the part not to
+> lose** — whoever picks this up later must resolve it in writing before touching SQL.
+
 **PR-043.2 — The four incremental tables.** Only what 043.1 recommends. Two requirements
 the prompt sketch above leaves implicit:
 - **Idempotency comes from querying the target**, not from assuming the run is the first:
@@ -2522,6 +2648,25 @@ This is the *last* plan that should carry a layer diff for a reason nobody chose
 the point: from here, a layer line in somebody else's plan means somebody ran `make
 lock-upgrade`, and that shows up in their diff.
 
+> **Applied + verified 2026-09-23 00:51 UTC** (PR #59). `lottery-extractor-prod` now runs
+> layer version **5**, and `terraform plan` afterwards reports **`No changes`** — including
+> the `gold_purge` phantom, which only appears when something else in that module is
+> already moving.
+>
+> **The apply also closed a drift this PR did not cause.** Both Glue artifacts were stale:
+> `lottery_transformer.zip` sat at PR-041.1's upload (2026-09-20 22:30) and
+> `loteria_dq_lib.zip` at 20:54, while PR-042.1 had since changed
+> `src/loteria/gold/purge_and_load.py`. Both zips ship the **whole** `src/loteria` package,
+> so a change anywhere in it moves all three artifacts — but only the Lambda's is
+> Terraform-managed, so the other two silently fall behind on every `src/` change. It was
+> inert (the transformer never imports `loteria.gold`, and `loteria/dq` imports only
+> `loteria.dq.suites`; both `__init__.py` files are docstrings), but it is exactly the
+> question this PR exists to make answerable. Both were re-uploaded and now match master.
+>
+> **This will bite again in 8C**, which changes the transformer. Until `make build` and the
+> two `aws s3 cp` commands are one step — PR-039's job — every `src/` change owes a manual
+> upload, and nothing in the repo reminds anyone.
+
 ---
 
 ## PR-046.1 — Stop installing great-expectations at runtime
@@ -2563,12 +2708,22 @@ These are deliberately *not* on the path to "hiring-manager-ready". Capture once
 | L4 | QuickSight asset-as-code | The TF provider for QS is rough. Snapshot dashboard JSON until it improves. |
 | L5 | Iceberg / Apache Hudi for Silver | If we ever need MERGE/UPSERT semantics. |
 | L6 | Migrate transform off Python Shell (→ Spark `glueetl` or Ray) | The only path to Python 3.10+ / a "Glue 4.0/5.0" runtime — Python Shell caps at 3.9 (see PR-020 outcome). Requires rewriting `loteria.transformer` to PySpark, a new DPU/billing model, and reworked IAM/logging. AWS now publishes a "Migrate from Python shell jobs" guide, so this is the sanctioned long-term direction. Do only when a concrete need (scale, a 3.10-only lib) appears. |
+| L7 | Stop installing great-expectations at runtime in the DQ job (was PR-046.1) | Filed 2026-09-22 at PR-046's scoping, moved here 2026-09-23. `--additional-python-modules = "great-expectations==${var.great_expectations_version}"` pins the version and nothing beneath it, so the gate's dependency set is resolved fresh every Thursday and recorded nowhere — there is no artifact to hash. Pinning ~40 packages into that argument is the wrong fix: it is a production change that adds to a start-up already burning ~21 min of a 60-min timeout in its worst observed case (PR-033.1/.2). The right fix is to ship GX inside the artifact (a job image, or vendored into `--extra-py-files`), which removes the resolution *and* the start-up together. **Pairs with L6** — same root cause, same move. |
+| L8 | Incremental Gold: the four tables + the three aggregates (was PR-043.2 / .3) | Moved here 2026-09-23. Fault C from the 2026-09-14 audit. **PR-043.1 stays on the path** and is the gate for this: it measures bytes scanned and projects to 2× and 10× Silver, and "keep the full rebuild" is a verdict it is allowed to reach. Do this when 043.1's numbers say the rebuild has stopped being a rounding error. The plan is already written at PR-043.2/.3 — including the one thing not to lose, that `INSERT INTO` collides with PR-042's generations and the collision must be resolved in writing before any SQL changes. |
 
 ---
 
 # PR Tracker
 
-Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dropped`.
+Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dropped`,
+`split`, `deferred`.
+
+> **`dropped` vs `deferred`, since 2026-09-23 uses both.** `dropped` means the work will not
+> happen and nothing replaces it, or something already did it better — the row stays so
+> nobody re-proposes it. `deferred` means it is still worth doing but is off the path to
+> closing this repo; every deferred row names its **Open later** ID, and that is where the
+> reasoning lives. Neither is a synonym for "todo we gave up on": see the **Close-out**
+> section for why each one moved.
 
 | PR | Title | Status | Link |
 |----|-------|--------|------|
@@ -2611,17 +2766,17 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
-| 035.1 | **Three defects the coverage work found** — the extractor's dead idempotency guard, the unanchored draw-date regex, and one malformed header killing the whole transform | todo | — |
-| 036 | README rewrite | todo | — |
-| 037 | Diagrams in draw.io | todo | — |
-| 038 | ADRs | todo | — |
-| 039 | Fill in Makefile | todo | — |
-| 040 | `.envrc.example` + final polish | todo | — |
+| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | todo | — |
+| 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
+| 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
+| 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
+| 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — 7 targets still print TODO, and `make secrets` names a script that was never written. **Prerequisite of 036; do first** | todo | — |
+| 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` todo · `.3` blocked until 2026-10-20 | [PR #53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + verified** (2026-09-21) · `.2` todo | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
-| 043 | **8E** · Incremental Gold (fault C) — `.1` measure · `.2` incremental tables · `.3` decide the aggregates | todo | — |
-| 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rides along | **merged, apply owed** (layer replacement) | — |
-| 046.1 | **Stop installing great-expectations at runtime** in the DQ job (found at 046's scoping) — no artifact to hash, so the gate's dependency set is unrecorded | todo | — |
+| 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
+| 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
+| 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
