@@ -54,7 +54,7 @@ ships it.
 
 - Inputs: `lambda_code_bucket`, `lambda_zip_key`, `lambda_zip_path`,
   `lambda_layer_zip_key`, `lambda_layer_zip_path`, `lambda_exec_role_arn`,
-  `partitioned_bucket_name`, `simple_bucket_name`, `secret_name`, `region`,
+  `partitioned_bucket_name`, `secret_name`, `region`,
   `environment`.
 - Outputs: `extractor_lambda_arn`, `extractor_lambda_name`, `deps_layer_arn`.
 
@@ -68,3 +68,16 @@ collides with Terraform's. The group already exists in prod and is `terraform im
 see `docs/runbooks/PR-023-log-retention.md`.
 
 Extra input: `log_retention_days` (default 30). Extra output: `log_group_name`.
+
+## PR-041.2: `SIMPLE_BUCKET` and the write flag are gone
+
+The function's environment no longer carries `SIMPLE_BUCKET` or
+`ENABLE_SIMPLE_BUCKET_WRITES`, and the module no longer takes `simple_bucket_name` or
+`enable_simple_bucket_writes`. The extractor writes the raw `.txt` once, to
+`raw/year=<YYYY>/sorteo=<N>/` in the partitioned bucket.
+
+The flag existed to make PR-041.1 revertible by editing one Terraform value while the
+bytes were still in play. The code that read it is gone, so keeping it would be a value
+nothing consumes — the kind of contradiction PR-041 exists to remove. Restoring the second
+write is now a `git revert` of this PR plus `make deploy`, which is a real rollback path;
+it is just no longer a one-liner.

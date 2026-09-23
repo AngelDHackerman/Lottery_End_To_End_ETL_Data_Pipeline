@@ -32,8 +32,12 @@ from moto import mock_aws
 
 REGION = "us-east-1"
 PARTITIONED = "test-partitioned-bucket"
-SIMPLE = "test-simple-bucket"
 TOKEN = "test-token"
+
+# PR-041.2 removed the extractor's second write. The bucket stays in the fixtures, and is
+# only ever asserted to be EMPTY: "writes to exactly one bucket" needs a second bucket that
+# exists, or the assertion passes for the wrong reason.
+OTHER_BUCKET = "test-simple-bucket"
 
 
 # ==========================================================================================
@@ -108,7 +112,7 @@ def s3():
     with mock_aws():
         client = boto3.client("s3", region_name=REGION)
         client.create_bucket(Bucket=PARTITIONED)
-        client.create_bucket(Bucket=SIMPLE)
+        client.create_bucket(Bucket=OTHER_BUCKET)
         yield client
 
 
@@ -125,7 +129,7 @@ def scraping(monkeypatch):
     monkeypatch.setattr(
         aws_secrets,
         "get_secrets",
-        lambda: {"partitioned": PARTITIONED, "simple": SIMPLE, "scrape_do_token": TOKEN},
+        lambda: {"partitioned": PARTITIONED, "scrape_do_token": TOKEN},
     )
     sys.modules.pop("loteria.extractor.scraping", None)
     sys.modules.pop("loteria.extractor.lambda_handler", None)
@@ -183,15 +187,15 @@ class TestExtractLotteryData:
         assert "\nBODY\n" in content
         assert content.index("HEADER") < content.index("BODY")
 
-    def test_uploads_to_both_buckets(self, s3, scraping, pages, tmp_path):
+    def test_uploads_to_exactly_one_bucket(self, s3, scraping, pages, tmp_path):
+        """PR-041.2. The capture used to be written twice — the Hive-style key here and a
+        flat `raw/sorteo_<N>.txt` in the simple bucket, the third write the roadmap's
+        PR-041 prompt never listed. One capture, one object, one bucket."""
         pages()
         scraping.extract_lottery_data(output_folder=str(tmp_path))
 
-        partitioned = s3.list_objects_v2(Bucket=PARTITIONED).get("Contents", [])
-        simple = s3.list_objects_v2(Bucket=SIMPLE).get("Contents", [])
-
-        assert len(partitioned) == 1
-        assert len(simple) == 1
+        assert len(s3.list_objects_v2(Bucket=PARTITIONED).get("Contents", [])) == 1
+        assert s3.list_objects_v2(Bucket=OTHER_BUCKET).get("KeyCount") == 0
 
     def test_the_partitioned_key_is_hive_partitioned_by_year_and_sorteo(
         self, s3, scraping, pages, tmp_path
@@ -215,74 +219,6 @@ class TestExtractLotteryData:
         key = s3.list_objects_v2(Bucket=PARTITIONED)["Contents"][0]["Key"]
         assert "sorteo=3046" in key
         assert "sorteo=999" not in key
-
-    def test_the_simple_key_is_flat(self, s3, scraping, pages, tmp_path):
-        """Fault A in one line: every capture is written twice, and this is the copy nothing
-        reads. Still true by default — PR-041.1 gates this write, it does not remove it."""
-        pages()
-        scraping.extract_lottery_data(output_folder=str(tmp_path))
-
-        assert s3.list_objects_v2(Bucket=SIMPLE)["Contents"][0]["Key"] == "raw/sorteo_3046.txt"
-
-
-class TestSimpleBucketWritesFlag:
-    """PR-041.1 — the write the roadmap's own PR-041 prompt forgets.
-
-    That prompt lists the transformer's two Parquet copies and stops there. The extractor
-    writes the raw .txt to the simple bucket as well, and a flag that stopped only two of
-    the three writes would leave the bucket growing every Thursday while the PR claimed it
-    had stopped — which is worse than not having touched it, because the next person would
-    trust the claim.
-
-    Delivered as an environment variable here, not a job argument: this one runs in Lambda.
-    ``loteria.common.config`` is what keeps the two spellings meaning the same thing.
-    """
-
-    def test_the_raw_copy_stops(self, s3, scraping, pages, tmp_path, monkeypatch):
-        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "false")
-        pages()
-
-        scraping.extract_lottery_data(output_folder=str(tmp_path))
-
-        assert s3.list_objects_v2(Bucket=SIMPLE).get("Contents", []) == []
-
-    def test_the_partitioned_copy_is_untouched(self, s3, scraping, pages, tmp_path, monkeypatch):
-        """The Hive-style key is the transformer's only input. If disabling the duplicate
-        touched it, the flag would break the pipeline rather than trim it."""
-        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "false")
-        pages()
-
-        scraping.extract_lottery_data(output_folder=str(tmp_path))
-
-        key = s3.list_objects_v2(Bucket=PARTITIONED)["Contents"][0]["Key"]
-        assert key.startswith("raw/year=2024/sorteo=3046/")
-
-    def test_writing_is_the_default(self, s3, scraping, pages, tmp_path, monkeypatch):
-        monkeypatch.delenv("ENABLE_SIMPLE_BUCKET_WRITES", raising=False)
-        pages()
-
-        scraping.extract_lottery_data(output_folder=str(tmp_path))
-
-        assert len(s3.list_objects_v2(Bucket=SIMPLE).get("Contents", [])) == 1
-
-    def test_the_flag_is_read_per_invocation_not_at_import(
-        self, s3, scraping, pages, tmp_path, monkeypatch
-    ):
-        """scraping.py already does real work at import (`get_secrets()`), and PR-017 had to
-        unpick one value being read there. Reading this one at call time means flipping it
-        in Terraform takes effect on the next invocation — no rebuild of the zip, no
-        redeploy — which is the only reason it is worth having as a flag at all."""
-        pages()
-        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "true")
-        scraping.extract_lottery_data(output_folder=str(tmp_path))
-
-        monkeypatch.setenv("ENABLE_SIMPLE_BUCKET_WRITES", "false")
-        s3.delete_object(Bucket=PARTITIONED, Key="processed/year=2024/sorteo=3046/sorteos.parquet")
-        pages()
-        scraping.extract_lottery_data(lottery_number=998, output_folder=str(tmp_path))
-
-        # One object: the first call's, from before the flip. The second call wrote none.
-        assert len(s3.list_objects_v2(Bucket=SIMPLE)["Contents"]) == 1
 
     def test_the_body_carries_the_prize_lines(self, s3, scraping, pages, tmp_path):
         """The failure PR-031.1 was built to make impossible: a raw file with a header, a
@@ -333,7 +269,8 @@ class TestTheIdempotencyGuard:
     transformer actually writes a finished draw: ``silver/sorteos/``.
 
     It runs after both proxied fetches, so a skip saves no scrape.do credits. What it saves
-    is the raw/ rewrite (a new object version on a versioned bucket) and the simple copy.
+    is the raw/ rewrite — a new object version on a versioned bucket. (It also saved the
+    flat copy to the simple bucket, until PR-041.2 removed that write entirely.)
     """
 
     SILVER_KEY = "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet"
@@ -352,7 +289,7 @@ class TestTheIdempotencyGuard:
         assert [o["Key"] for o in s3.list_objects_v2(Bucket=PARTITIONED)["Contents"]] == [
             self.SILVER_KEY
         ]
-        assert s3.list_objects_v2(Bucket=SIMPLE).get("Contents", []) == []
+        assert s3.list_objects_v2(Bucket=OTHER_BUCKET).get("KeyCount") == 0
 
     def test_raw_alone_does_not_skip(self, s3, scraping, pages, tmp_path):
         """A draw that was scraped but never transformed (the transform failed) must be

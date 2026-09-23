@@ -77,10 +77,15 @@ resource "aws_glue_job" "lottery_transform" {
     # only as documentation of where the job's code lives; changing it has no effect.
     "--script-file"        = "loteria/transformer/transformer.py"
     "--PARTITIONED_BUCKET" = var.partitioned_bucket_name
-    "--SIMPLE_BUCKET"      = var.simple_bucket_name
     "--RAW_PREFIX"         = "raw/"
-    "--PROCESSED_PREFIX"   = "processed/"
     "--job-language"       = "python"
+
+    # PR-041.2 removed --SIMPLE_BUCKET, --PROCESSED_PREFIX and --ENABLE_SIMPLE_BUCKET_WRITES.
+    # --PROCESSED_PREFIX was the most misleading of the three: it was named after the legacy
+    # `processed/` prefix the idempotency check moved off in PR-016, but what it actually
+    # addressed was the flat copies in the simple bucket. Nothing consumes any of them now;
+    # getResolvedOptions only reads the names the job asks for, so removing them here and
+    # uploading the new zip can happen in either order.
     # PR-017: pass the secret name so the code isn't pinned to a hard-coded default.
     # Glue delivers job arguments on the command line (sys.argv), NOT as env vars, so the
     # zipapp entry point (scripts/glue_zip_main.py) copies this into os.environ as
@@ -88,10 +93,6 @@ resource "aws_glue_job" "lottery_transform" {
     # loteria.common.aws_secrets.get_secrets() reads it.
     "--LOTERIA_SECRET_NAME" = var.secret_name
 
-    # PR-041.1: fault A. false stops the two flat Parquet copies to the simple bucket and
-    # deletes nothing. The job reads this argument as OPTIONAL — see the module's variable
-    # description — so the order of "upload the zip" and "apply this" does not matter.
-    "--ENABLE_SIMPLE_BUCKET_WRITES" = tostring(var.enable_simple_bucket_writes)
   }
 
   execution_property {

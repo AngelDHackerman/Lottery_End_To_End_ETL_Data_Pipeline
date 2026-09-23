@@ -29,6 +29,11 @@ BUCKET = "test-bucket"
 # ==========================================================================================
 # aws_secrets
 # ==========================================================================================
+# The simple-bucket ARN is deliberately still here. PR-041.2 stopped *reading* it, but the
+# live payload still contains it — Terraform does not own the secret's contents, so removing
+# the key is a manual owner edit filed in docs/runbooks/PR-041-retire-simple-bucket.md.
+# Until that edit happens, this is what get_secrets() is handed, and TestGetSecrets below
+# pins that the extra key is ignored rather than tripping anything.
 SECRET_PAYLOAD = {
     "s3_bucket_simple_data_storage_prod_arn": "arn:aws:s3:::lottery-data-simple-prod",
     "s3_bucket_partitioned_data_storage_prod_arn": "arn:aws:s3:::lottery-partitioned-storage-prod",
@@ -84,8 +89,17 @@ class TestGetSecrets:
         secretsmanager()
         result = aws_secrets.get_secrets()
 
-        assert result["simple"] == "lottery-data-simple-prod"
         assert result["partitioned"] == "lottery-partitioned-storage-prod"
+
+    def test_the_retired_simple_bucket_is_not_returned(self, secretsmanager):
+        """PR-041.2. The key is still in the payload and must stay ignorable: a caller that
+        could still reach a bucket nothing may write to is the contradiction this PR
+        removes. Deleting the key from Secrets Manager is the owner's follow-up, and this
+        asserts the code does not wait for it."""
+        secretsmanager()
+        result = aws_secrets.get_secrets()
+
+        assert set(result) == {"partitioned", "scrape_do_token"}
 
     def test_passes_the_scrape_token_through_verbatim(self, secretsmanager):
         secretsmanager()
@@ -94,7 +108,7 @@ class TestGetSecrets:
     def test_reads_the_secret_name_from_the_environment(self, secretsmanager):
         """PR-017: cloning into another account should mean changing one env var, not code."""
         secretsmanager(name="some-other-secret")
-        assert aws_secrets.get_secrets()["simple"] == "lottery-data-simple-prod"
+        assert aws_secrets.get_secrets()["partitioned"] == "lottery-partitioned-storage-prod"
 
     def test_a_missing_secret_raises_rather_than_returning_empty(self, secretsmanager, monkeypatch):
         """This runs at module import in the extractor and the transformer. Returning a

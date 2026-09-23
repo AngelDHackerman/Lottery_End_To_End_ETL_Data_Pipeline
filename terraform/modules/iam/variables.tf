@@ -27,16 +27,6 @@ variable "partitioned_bucket_arn" {
   type        = string
 }
 
-variable "simple_bucket_name" {
-  description = "Name of the simple / EDA dataset bucket."
-  type        = string
-}
-
-variable "simple_bucket_arn" {
-  description = "ARN of the simple dataset bucket."
-  type        = string
-}
-
 variable "athena_results_bucket_name" {
   description = "Name of the Athena query-results bucket."
   type        = string

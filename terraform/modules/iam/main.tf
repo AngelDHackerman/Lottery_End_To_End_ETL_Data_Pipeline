@@ -227,24 +227,48 @@ resource "aws_iam_role" "object_count_lambda" {
 # CUSTOMER-MANAGED POLICIES
 # ===========================================================================
 
-# SageMaker S3 read-only for the simple/EDA dataset
+# SageMaker S3 read-only over the Silver and Gold layers.
+#
+# PR-041.2 REPOINTED this policy. Until here its entire content was GetObject + ListBucket
+# on the simple bucket and nothing else — so the one consumer this architecture ever
+# contemplated (a notebook) was granted read on exactly the bucket PR-041.3 destroys, and
+# on nothing that survives it. Stripping the write grants without fixing this would have
+# left a SageMaker role whose only data permission points at a bucket that stops existing.
+#
+# Silver and Gold, not raw/: a notebook wants the typed Parquet, and raw/ is the
+# transformer's input, not an analysis surface. Reading these through Athena additionally
+# needs a Lake Formation grant — this policy covers the direct S3 read (pandas.read_parquet
+# and friends), which is what the simple bucket's flat files were for.
 resource "aws_iam_policy" "sagemaker_s3_read_policy" {
   name        = "lottery-sagemaker-s3-read-policy-${var.environment}"
-  description = "Allows SageMaker to read raw and processed data"
+  description = "Allows SageMaker to read the Silver and Gold layers of the partitioned bucket"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "ReadSilverAndGoldObjects",
         Effect = "Allow",
-        Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
-        ],
+        Action = ["s3:GetObject"],
         Resource = [
-          var.simple_bucket_arn,
-          "${var.simple_bucket_arn}/*"
+          "${var.partitioned_bucket_arn}/silver/*",
+          "${var.partitioned_bucket_arn}/gold/*"
         ]
+      },
+      {
+        # ListBucket is bucket-level, so the resource must be the bucket itself; the
+        # s3:prefix condition is what keeps it from being a licence to enumerate raw/.
+        # A list with no prefix sends no s3:prefix key and is therefore denied — that is
+        # deliberate, not an oversight.
+        Sid      = "ListSilverAndGoldOnly",
+        Effect   = "Allow",
+        Action   = ["s3:ListBucket"],
+        Resource = [var.partitioned_bucket_arn],
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["silver/*", "gold/*"]
+          }
+        }
       }
     ]
   })
@@ -320,11 +344,11 @@ data "aws_iam_policy_document" "glue_job_policy" {
       "s3:DeleteObject",
       "s3:HeadObject"
     ]
+    # PR-041.2: the simple bucket's ARNs were here too, for the transformer's flat copies.
+    # The code that wrote them is gone, so the grant is now permission to do nothing.
     resources = [
       var.partitioned_bucket_arn,
-      "${var.partitioned_bucket_arn}/*",
-      var.simple_bucket_arn,
-      "${var.simple_bucket_arn}/*"
+      "${var.partitioned_bucket_arn}/*"
     ]
   }
 
@@ -465,11 +489,11 @@ data "aws_iam_policy_document" "lambda_custom_doc" {
       "s3:HeadObject"
     ]
 
+    # PR-041.2: dropped the simple bucket, whose only use here was the extractor's third
+    # write (the flat raw/sorteo_<N>.txt), removed in the same PR.
     resources = [
       var.partitioned_bucket_arn,
-      "${var.partitioned_bucket_arn}/*",
-      var.simple_bucket_arn,
-      "${var.simple_bucket_arn}/*"
+      "${var.partitioned_bucket_arn}/*"
     ]
   }
 
