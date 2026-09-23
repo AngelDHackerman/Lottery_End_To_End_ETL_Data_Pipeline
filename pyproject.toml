@@ -49,6 +49,10 @@ dev = [
     "great-expectations==1.20.0",  # keep in step with the "dq" extra and requirements/dq.txt
     "nbstripout",
     "pre-commit",
+    # PR-046. Provides `pip-compile`, which `make lock` runs to regenerate
+    # requirements/extractor.lock. Only needed to CHANGE the lock — `make build` installs
+    # from the committed lock with plain pip and does not need this.
+    "pip-tools",
 ]
 
 [tool.uv]
