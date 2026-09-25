@@ -37,9 +37,9 @@ The public subnet is associated with a route table that points to the Internet G
 
 1. The process starts with **Amazon EventBridge**, which triggers every Monday (weekly) and activates a Python-based **AWS Lambda function** for data extraction.
 
-2. It fetches **.txt files** from the target website via a proxy and stores them into two **Amazon S3 buckets**: one with a simple structure, and another in Hive-style partitioning.
+2. It fetches **.txt files** from the target website via a proxy and stores them in **Amazon S3** under a Hive-style partitioned key (`raw/year=<YYYY>/sorteo=<N>/`).
 
-3. A **Glue Job** then transforms the `.txt` data into `.parquet` files and saves the results back into the corresponding S3 buckets.
+3. A **Glue Job** then transforms the `.txt` data into `.parquet` files and writes them back to the same bucket's Silver layer (`silver/{sorteos,premios}/year=<YYYY>/sorteo=<N>/`).
 
 4. Next, an **AWS Glue Crawler** updates the **Data Catalog**, making the data queryable through **Amazon Athena** and ready for visualization in **Amazon QuickSight**.
 
@@ -108,8 +108,8 @@ Each stage will eventually run inside its own **AWS Lambda** function, but you c
 
 | Stage | What happens | Key AWS resources |
 |-------|--------------|-------------------|
-| **Extraction** | *extract.py* scrapes the Santa Lucía site with headless Chrome → saves a `.txt` per draw → uploads it **twice**:<br>  • `raw/sorteo_<N>.txt` &nbsp;(_simple bucket_)<br>  • `raw/year=<YYYY>/sorteo=<N>/…` &nbsp;(_partitioned bucket_)<br>Skips draws that are already present. | *S3 (simple + partitioned)*<br>*Secrets Manager* (bucket names)<br>*VPC Gateway Endpoint* (S3) |
-| **Transformation + Load** | *transformer.py* downloads any new `.txt`, splits **HEADER / BODY**, cleans with Pandas/pyarrow, and writes:<br>  • `premios_<N>.parquet`  & `sorteos_<N>.parquet` → **simple bucket**<br>  • Hive-style `processed/premios/` & `processed/sorteos/` partitioned by `year` and `sorteo` → **partitioned bucket** | *S3 (simple + partitioned)*<br>*Secrets Manager* |
+| **Extraction** | *scraping.py* fetches the Santa Lucía page through the scrape.do proxy → saves a `.txt` per draw → uploads it **once**, to `raw/year=<YYYY>/sorteo=<N>/…` in the partitioned bucket.<br>Skips draws already present in Silver. | *S3 (partitioned)*<br>*Secrets Manager* (bucket names)<br>*VPC Gateway Endpoint* (S3) |
+| **Transformation + Load** | *transformer.py* downloads any new `.txt`, splits **HEADER / BODY**, cleans with Pandas/pyarrow, and writes Hive-style Parquet to **one** place: `silver/sorteos/` & `silver/premios/`, partitioned by `year` and `sorteo`. | *S3 (partitioned)*<br>*Secrets Manager* |
 | **Discovery + Query (serverless)** | A **Glue Crawler** runs on the partitioned bucket, registers tables `loteria.premios` & `loteria.sorteos`.<br>Analysts query with **Athena** or visualise in **QuickSight** without touching the VPC. | *AWS Glue Crawler*<br>*AWS Athena*<br>*AWS QuickSight* |
 
 ---
@@ -120,7 +120,7 @@ Each stage will eventually run inside its own **AWS Lambda** function, but you c
 |------|---------|
 | **Tool** | Selenium + Python |
 | **Script** | [`src/loteria/extractor/scraping.py`](src/loteria/extractor/scraping.py) |
-| **Flow** | 1. Open awards page → dismiss pop-up<br>2. Choose ID (or latest) → click link<br>3. Parse header/body, infer real draw number & date<br>4. Write `results_raw_lottery_id_<ID>_<title>.txt`<br>5. Upload to both buckets (simple & partitioned) |
+| **Flow** | 1. Fetch the awards page through the proxy<br>2. Choose ID (or latest) → follow the draw link<br>3. Parse header/body, infer real draw number & date<br>4. Write `results_raw_lottery_id_<ID>_<title>.txt`<br>5. Upload to the partitioned bucket |
 | **Idempotence** | Before scraping, the script checks `processed/year=<YYYY>/sorteo=<N>/sorteos.parquet`; if it exists, the draw is skipped. |
 
 ---
@@ -131,14 +131,14 @@ Each stage will eventually run inside its own **AWS Lambda** function, but you c
 |------|---------|
 | **Tool** | Pandas, PyArrow, Boto3 |
 | **Script** | [`src/loteria/transformer/transformer.py`](src/loteria/transformer/transformer.py) |
-| **Flow** | 1. List raw `.txt` files in partitioned bucket<br>2. Skip draws already processed<br>3. Download → split HEADER/BODY<br>4. Create two DataFrames:<br>   • **sorteos** (metadata + prize digits)<br>   • **premios** (ticket, letters, amount, vendor, city, depto.)<br>5. Write Parquet to **simple bucket** (`premios_<N>.parquet`, `sorteos_<N>.parquet`)<br>6. Write partitioned Parquet (`processed/premios/`, `processed/sorteos/`) to **partitioned bucket** |
+| **Flow** | 1. List raw `.txt` files in the partitioned bucket<br>2. Skip draws already processed<br>3. Download → split HEADER/BODY<br>4. Create two DataFrames:<br>   • **sorteos** (metadata + prize digits)<br>   • **premios** (ticket, letters, amount, vendor, city, depto.)<br>5. Write partitioned Parquet (`silver/sorteos/`, `silver/premios/`) to the partitioned bucket |
 | **Data model** | Columns are strongly typed; extra columns (`year`, `sorteo`) are added before partition write. |
 
 ---
 
 ### 🟢 Resulting benefits
 
-* **Dual-bucket strategy** → quick ad-hoc analysis (simple) **and** scalable lakehouse queries (partitioned).  
+* **One bucket, three layers** (`raw/` → `silver/` → `gold/`) → a single declared owner for every byte, and ad-hoc analysis reads the same Parquet the dashboards do.
 * **Glue Crawler + Athena** → zero-admin SQL layer, cheap (< $5/TB scanned).  
 * **QuickSight dashboards** → shareable insights without moving data out of AWS.  
 * **Ready for Lambda/Step Functions** → push-button or cron-based automation.
@@ -164,9 +164,9 @@ This automated ETL project demonstrates expertise in data extraction, transforma
   - **re / json / os** – Standard libraries used in extraction and transformation.
 
 ### ☁️ AWS Cloud Services
-- **Amazon S3** – Dual-storage strategy:  
-  - Simple bucket (flat files for EDA)  
-  - Partitioned bucket (Hive-style for Athena/QuickSight)
+- **Amazon S3** – One partitioned bucket, layered:
+  - `raw/` (the scraped `.txt`, Hive-style)  
+  - `silver/` (typed Parquet — the source of truth) and `gold/` (CTAS aggregates for Athena/QuickSight)
 - **AWS Secrets Manager** – Secure retrieval of S3 bucket names and credentials.
 - **AWS Glue Crawler** – Automatically detects and registers schema + partitions for Athena.
 - **Amazon Athena** – Serverless SQL engine to query Parquet data stored in S3.
@@ -186,7 +186,7 @@ This automated ETL project demonstrates expertise in data extraction, transforma
 
 ### ⚙️ Methods & Design Patterns
 - **Serverless-first architecture** – All core services designed to run without persistent compute.
-- **Dual Storage Strategy** – Separate S3 buckets for flat (notebook) and partitioned (analytics) use cases.
+- **Medallion layering** – One bucket, three prefixes (`raw/` → `silver/` → `gold/`), so every byte has exactly one declared owner. A second, flat bucket carried a duplicate of every draw until PR-041 retired it: nothing read it, and two copies with one owner is drift waiting to happen.
 - **Partitioned Data Lake** – Optimized S3 structure with `year=/sorteo=` folders.
 - **Modular Python code** – Scripts are atomic and Lambda-compatible.
 - **Secure-by-default** – All sensitive config (bucket names, keys) are managed with Secrets Manager.

@@ -5,8 +5,9 @@
 # recreated. See docs/runbooks/PR-010-lambda-migration.md.
 #
 # PR-010 also changes the function's environment on purpose (an in-place update, not a
-# no-op): the PARTITIONED_BUCKET / SIMPLE_BUCKET values switch from bucket ARNs to bucket
-# NAMES, and LOTERIA_SECRET_NAME is added. As of PR-017 the extractor code consumes
+# no-op): the PARTITIONED_BUCKET value switches from a bucket ARN to a bucket NAME, and
+# LOTERIA_SECRET_NAME is added. (SIMPLE_BUCKET was carried the same way until PR-041.2
+# removed it along with the write it fed.) As of PR-017 the extractor code consumes
 # LOTERIA_SECRET_NAME (via loteria.common.aws_secrets.get_secrets()) to locate the
 # Secrets Manager secret; the region comes from AWS_REGION, which the Lambda runtime
 # sets automatically.
@@ -110,14 +111,13 @@ resource "aws_lambda_function" "extractor_lambda" {
       # the code reads as of PR-017). REGION is retained for reference; get_secrets()
       # reads the region from AWS_REGION, which the Lambda runtime sets automatically.
       PARTITIONED_BUCKET  = var.partitioned_bucket_name
-      SIMPLE_BUCKET       = var.simple_bucket_name
       REGION              = var.region
       LOTERIA_SECRET_NAME = var.secret_name
 
-      # PR-041.1: fault A. The extractor writes the raw .txt to BOTH buckets; false stops
-      # the second write and deletes nothing. SIMPLE_BUCKET above stays until PR-041.2, so
-      # a rollback is this value alone.
-      ENABLE_SIMPLE_BUCKET_WRITES = tostring(var.enable_simple_bucket_writes)
+      # PR-041.2 removed SIMPLE_BUCKET and ENABLE_SIMPLE_BUCKET_WRITES. The flag's job was
+      # to make 041.1 revertible by one line while the bytes were still in play; the code
+      # that read it is gone, so leaving either here would be a value nothing consumes.
+      # Restoring the write is now `git revert` of that PR plus a redeploy.
 
       # PR-031.1: the scrape.do profile, surfaced as env vars so the next Cloudflare change
       # can be answered with a console edit instead of a rebuild-and-redeploy of the zip.

@@ -51,11 +51,6 @@ variable "partitioned_bucket_name" {
   type        = string
 }
 
-variable "simple_bucket_name" {
-  description = "Name of the simple / EDA dataset bucket."
-  type        = string
-}
-
 variable "secret_name" {
   description = "Name of the lottery secret in Secrets Manager, passed as LOTERIA_SECRET_NAME."
   type        = string
@@ -125,10 +120,4 @@ variable "scrape_timeout" {
     condition     = var.scrape_timeout >= 58 && var.scrape_timeout <= 110
     error_message = "scrape_timeout must be 58-110s: above scrape.do's ~57s give-up, below the Lambda's 120s ceiling."
   }
-}
-
-variable "enable_simple_bucket_writes" {
-  description = "PR-041.1. Passed to the extractor as ENABLE_SIMPLE_BUCKET_WRITES; false stops the raw .txt copy to the simple bucket. Read at invocation time by loteria.common.config.env_flag, so a console edit of this value takes effect on the next run without rebuilding the zip."
-  type        = bool
-  default     = true
 }

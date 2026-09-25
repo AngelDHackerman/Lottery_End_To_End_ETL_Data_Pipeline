@@ -36,9 +36,7 @@ from loteria.dq.runner import (
 
 REGION = "us-east-1"
 PARTITIONED = "test-partitioned-bucket"
-SIMPLE = "test-simple-bucket"
 RAW_PREFIX = "raw/"
-SIMPLE_PREFIX = "processed/"
 SILVER_PREFIX = "silver/"
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "sorteos"
@@ -56,7 +54,6 @@ def s3():
     with mock_aws():
         client = boto3.client("s3", region_name=REGION)
         client.create_bucket(Bucket=PARTITIONED)
-        client.create_bucket(Bucket=SIMPLE)
         yield client
 
 
@@ -69,14 +66,11 @@ def transformer(monkeypatch):
     """
     import loteria.common.aws_secrets as aws_secrets
 
-    monkeypatch.setattr(
-        aws_secrets, "get_secrets", lambda: {"partitioned": PARTITIONED, "simple": SIMPLE}
-    )
+    monkeypatch.setattr(aws_secrets, "get_secrets", lambda: {"partitioned": PARTITIONED})
     sys.modules.pop("loteria.transformer.transformer", None)
 
     module = importlib.import_module("loteria.transformer.transformer")
     monkeypatch.setattr(module, "partitioned_bucket", PARTITIONED)
-    monkeypatch.setattr(module, "simple_bucket", SIMPLE)
 
     yield module
 
@@ -353,7 +347,6 @@ class TestAgainstRealTransformerOutput:
         transformer.transform(
             bucket_name=PARTITIONED,
             raw_prefix=RAW_PREFIX,
-            simple_prefix=SIMPLE_PREFIX,
             silver_prefix=SILVER_PREFIX,
         )
         return s3

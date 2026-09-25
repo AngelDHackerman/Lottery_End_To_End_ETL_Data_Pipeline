@@ -5,10 +5,12 @@ Goal:
 - Read raw .txt files from the partitioned bucket (raw/year=YYYY/sorteo=NNNN/...)
 - Parse into two DataFrames: sorteos + premios
 - Enforce a *stable Silver schema* (types + partitions)
-- Write Parquet to:
-  - Partitioned bucket (Silver): silver/{dataset}/year=YYYY/sorteo=NNNN/{dataset}.parquet
-  - Simple bucket (optional, flat files):
-    <SIMPLE_PREFIX>/sorteos_<NNNN>.parquet, premios_<NNNN>.parquet
+- Write Parquet to ONE place — the partitioned bucket's Silver layer:
+  silver/{dataset}/year=YYYY/sorteo=NNNN/{dataset}.parquet
+
+  Until PR-041.2 every draw was also written flat to a second bucket. That copy had no
+  reader (docs/inventory/2026-09-20-simple-bucket-readers.md); Silver is the source of
+  truth and now the only write target.
 
 Important:
 - NEVER mix schemas in the same S3 prefix.
@@ -24,7 +26,6 @@ import pandas as pd
 from awsglue.utils import getResolvedOptions
 
 from loteria.common.aws_secrets import get_secrets
-from loteria.common.config import FLAG_SIMPLE_BUCKET_WRITES, parse_flag
 from loteria.common.logging_setup import configure_logging
 from loteria.common.s3_utils import (
     download_file_from_s3,
@@ -46,7 +47,6 @@ logger = logging.getLogger(__name__)
 # -----------------------
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
-simple_bucket = buckets["simple"]
 
 SILVER_PREFIX_DEFAULT = "silver/"  # The new Source of Truth for clean Parquet
 SILVER_SORTEOS_PREFIX = f"{SILVER_PREFIX_DEFAULT}sorteos/"
@@ -81,9 +81,7 @@ def _to_string(series: pd.Series) -> pd.Series:
 def transform(
     bucket_name: str,
     raw_prefix: str,
-    simple_prefix: str,
     silver_prefix: str = SILVER_PREFIX_DEFAULT,
-    write_simple_copies: bool = True,
 ) -> None:
     """
     Transforms raw lottery .txt files stored in S3 and uploads clean Silver Parquet
@@ -251,25 +249,7 @@ def transform(
         premios_df.to_parquet(premios_local_path, index=False)
 
         # -----------------------
-        # Upload to simple bucket (flat files) — fault A, being retired (PR-041.1)
-        # -----------------------
-        # These two put_objects are the second half of a dual write whose reader does not
-        # exist: Athena reads all three layers of the partitioned bucket, and nothing in the
-        # repo, the Glue catalog or the Gold SQL points at this bucket. See
-        # docs/inventory/2026-09-20-simple-bucket-readers.md for the evidence.
-        #
-        # Gated rather than deleted, and the flag ships ON, so this PR is a no-op until the
-        # value is flipped in Terraform — which makes the rollback one line and keeps the
-        # deletion of the bytes a separate, deliberate step (PR-041.3).
-        if write_simple_copies:
-            sorteos_key_simple = f"{simple_prefix}sorteos_{numero_sorteo}.parquet"
-            premios_key_simple = f"{simple_prefix}premios_{numero_sorteo}.parquet"
-
-            upload_file_to_s3(sorteos_local_path, simple_bucket, sorteos_key_simple)
-            upload_file_to_s3(premios_local_path, simple_bucket, premios_key_simple)
-
-        # -----------------------
-        # Upload to partitioned bucket (Silver - canonical)
+        # Upload to partitioned bucket (Silver — the only write target, PR-041.2)
         # -----------------------
         partitioned_sorteos_key = (
             f"{silver_prefix}sorteos/year={year}/sorteo={numero_sorteo}/sorteos.parquet"
@@ -291,10 +271,14 @@ def main() -> None:
     """
     Entry point when running as a Glue Job.
     Parameters:
-      - SIMPLE_BUCKET
       - PARTITIONED_BUCKET
       - RAW_PREFIX
-      - PROCESSED_PREFIX (we will treat this as the *simple bucket prefix*)
+
+    PR-041.2 removed three more: ``SIMPLE_BUCKET``, ``PROCESSED_PREFIX`` (which named a
+    prefix in the *simple* bucket, not the legacy ``processed/`` its name suggests) and
+    ``ENABLE_SIMPLE_BUCKET_WRITES``. ``getResolvedOptions`` ignores arguments it was not
+    asked for, so a job still carrying them in its default_arguments starts fine — which
+    is what makes the code deploy and the ``terraform apply`` independent of each other.
     """
     # Configure JSON logging here (not in transformer/__main__.py) because the REAL Glue
     # entry point is the zip-root __main__.py from scripts/glue_zip_main.py, which imports
@@ -303,58 +287,35 @@ def main() -> None:
     # already bridged from the --CORRELATION_ID job argument.
     configure_logging("transformer")
 
-    # PR-041.1: asked for only when Glue is actually passing it. getResolvedOptions raises
-    # on a name it cannot find, and this job's code ships to S3 separately from the
-    # `terraform apply` that adds the argument — so listing it unconditionally would turn
-    # any partial deploy into a job that dies at startup, before a line of transform logic.
-    # Absent means "write the flat copies", which is what the job did before this PR.
-    optional = [name for name in (FLAG_SIMPLE_BUCKET_WRITES,) if f"--{name}" in sys.argv]
-
     args = getResolvedOptions(
         sys.argv,
         [
-            "SIMPLE_BUCKET",
             "PARTITIONED_BUCKET",
             "RAW_PREFIX",
-            "PROCESSED_PREFIX",
-            *optional,
         ],
     )
 
     # Allow runtime overrides
-    global partitioned_bucket, simple_bucket
+    global partitioned_bucket
 
     if args.get("PARTITIONED_BUCKET"):
         partitioned_bucket = args["PARTITIONED_BUCKET"]
 
-    if args.get("SIMPLE_BUCKET"):
-        simple_bucket = args["SIMPLE_BUCKET"]
-
     raw_prefix = args["RAW_PREFIX"]
-    simple_prefix = args["PROCESSED_PREFIX"]  # treat as simple prefix
-    write_simple_copies = parse_flag(
-        args.get(FLAG_SIMPLE_BUCKET_WRITES), name=FLAG_SIMPLE_BUCKET_WRITES
-    )
 
     logger.info(
         "Starting Glue Job",
         extra={
             "partitioned_bucket": partitioned_bucket,
             "raw_prefix": raw_prefix,
-            "simple_prefix": simple_prefix,
             "silver_prefix": SILVER_PREFIX_DEFAULT,
-            # Logged because the flat copies stopping is the ONE observable difference this
-            # PR can make, and a run is the only place to see which way the flag was read.
-            "write_simple_copies": write_simple_copies,
         },
     )
 
     transform(
         bucket_name=partitioned_bucket,
         raw_prefix=raw_prefix,
-        simple_prefix=simple_prefix,
         silver_prefix=SILVER_PREFIX_DEFAULT,
-        write_simple_copies=write_simple_copies,
     )
 
     logger.info("Glue Job finished")

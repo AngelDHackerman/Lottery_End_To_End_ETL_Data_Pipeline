@@ -32,10 +32,15 @@ from moto import mock_aws  # noqa: E402
 
 REGION = "us-east-1"
 PARTITIONED = "test-partitioned-bucket"
-SIMPLE = "test-simple-bucket"
 RAW_PREFIX = "raw/"
-SIMPLE_PREFIX = "processed/"
 SILVER_PREFIX = "silver/"
+
+# PR-041.2 deleted the transformer's second write target. The bucket is still created by
+# the `s3` fixture below and is still named here, because "writes to exactly one bucket" is
+# only checkable against a second bucket that exists and stays empty. A test that just
+# asserted the Silver keys would pass identically whether or not the flat copies came back.
+OTHER_BUCKET = "test-simple-bucket"
+OTHER_BUCKET_PREFIX = "processed/"
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "sorteos"
 
@@ -134,7 +139,7 @@ def transformer(monkeypatch):
     monkeypatch.setattr(
         aws_secrets,
         "get_secrets",
-        lambda: {"partitioned": PARTITIONED, "simple": SIMPLE},
+        lambda: {"partitioned": PARTITIONED},
     )
     sys.modules.pop("loteria.transformer.transformer", None)
 
@@ -144,7 +149,6 @@ def transformer(monkeypatch):
     # Set them explicitly: a test that only passed bucket_name would silently write to
     # whatever the import-time secret returned.
     monkeypatch.setattr(mod, "partitioned_bucket", PARTITIONED)
-    monkeypatch.setattr(mod, "simple_bucket", SIMPLE)
 
     yield mod
 
@@ -153,11 +157,14 @@ def transformer(monkeypatch):
 
 @pytest.fixture
 def s3():
-    """Both buckets, empty, in an in-process fake S3."""
+    """Both buckets, empty, in an in-process fake S3.
+
+    The second one is only ever asserted to stay empty — see OTHER_BUCKET.
+    """
     with mock_aws():
         client = boto3.client("s3", region_name=REGION)
         client.create_bucket(Bucket=PARTITIONED)
-        client.create_bucket(Bucket=SIMPLE)
+        client.create_bucket(Bucket=OTHER_BUCKET)
         yield client
 
 
@@ -191,13 +198,11 @@ def keys_under(s3, bucket: str, prefix: str) -> list[str]:
     return sorted(o["Key"] for o in resp.get("Contents", []))
 
 
-def run(transformer, write_simple_copies: bool = True):
+def run(transformer):
     transformer.transform(
         bucket_name=PARTITIONED,
         raw_prefix=RAW_PREFIX,
-        simple_prefix=SIMPLE_PREFIX,
         silver_prefix=SILVER_PREFIX,
-        write_simple_copies=write_simple_copies,
     )
 
 
@@ -214,68 +219,65 @@ class TestSilverOutput:
             "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
         ]
 
-    def test_also_writes_flat_copies_to_the_simple_bucket(self, s3, transformer):
-        """Fault A, still on by default. This is what PR-041.1 gates and PR-041.3 deletes;
-        until the flag flips, the dual write is the behaviour and this pins it."""
+
+class TestSilverIsTheOnlyWriteTarget:
+    """PR-041.2 — fault A, finished.
+
+    PR-041.1 turned the duplicate write off with a flag and kept every byte. This is where
+    the write path itself goes, and these tests are the acceptance criterion the roadmap's
+    PR-041 prompt asked for: the transformer writes to exactly one bucket. Still nothing
+    here deletes anything — the bytes are PR-041.3's business.
+    """
+
+    def test_nothing_is_written_to_the_second_bucket(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024)
         run(transformer)
 
-        assert keys_under(s3, SIMPLE, SIMPLE_PREFIX) == [
-            "processed/premios_3046.parquet",
-            "processed/sorteos_3046.parquet",
-        ]
+        assert s3.list_objects_v2(Bucket=OTHER_BUCKET).get("KeyCount") == 0
 
-
-class TestSimpleBucketWritesFlag:
-    """PR-041.1 — fault A, gated rather than deleted.
-
-    The flag exists so that stopping the writes and deleting the bytes are two separate,
-    separately reversible decisions. Flipping it is a Terraform value; the rollback is the
-    same line. Nothing here deletes anything, and neither does the PR.
-    """
-
-    def test_the_flat_copies_stop(self, s3, transformer):
+    def test_a_full_run_touches_exactly_one_bucket(self, s3, transformer):
+        """The general form of the test above: whatever keys a run produces, all of them
+        live under the partitioned bucket's Silver prefix. Written against the whole
+        bucket rather than a prefix so that a stray write to raw/ or gold/ fails it too."""
         put_raw(s3, sorteo=3046, year=2024)
-        run(transformer, write_simple_copies=False)
+        run(transformer)
 
-        assert keys_under(s3, SIMPLE, SIMPLE_PREFIX) == []
+        written = {
+            o["Key"]
+            for o in s3.list_objects_v2(Bucket=PARTITIONED).get("Contents", [])
+            if not o["Key"].startswith(RAW_PREFIX)
+        }
+
+        assert written == {
+            "silver/premios/year=2024/sorteo=3046/premios.parquet",
+            "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
+        }
+        assert s3.list_objects_v2(Bucket=OTHER_BUCKET).get("KeyCount") == 0
 
     def test_silver_is_written_exactly_as_before(self, s3, transformer):
-        """The point of the flag is that it changes ONE thing. Silver is the canonical
-        layer and the only input Gold has; if disabling the duplicate touched it at all,
-        this PR would be a data change wearing a cleanup's clothes."""
+        """Removing the duplicate must change ONE thing. Silver is the canonical layer and
+        the only input Gold has; if dropping the second write touched it at all, this PR
+        would be a data change wearing a cleanup's clothes."""
         put_raw(s3, sorteo=3046, year=2024)
-        run(transformer, write_simple_copies=False)
+        run(transformer)
 
         assert keys_under(s3, PARTITIONED, SILVER_PREFIX) == [
             "silver/premios/year=2024/sorteo=3046/premios.parquet",
             "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
         ]
 
-    def test_existing_flat_copies_are_left_untouched(self, s3, transformer):
-        """ "Stop the writes, keep every byte." A draw captured before the flip keeps its
-        copy: this PR removes a write path, not data. PR-041.3 is where bytes go, after a
-        stated grace period and its own runbook."""
-        s3.put_object(Bucket=SIMPLE, Key="processed/sorteos_3045.parquet", Body=b"older run")
+    def test_flat_copies_from_before_the_retirement_are_left_untouched(self, s3, transformer):
+        """ "Stop the writes, keep every byte" survives into this PR. A draw captured
+        before PR-041.1's flip keeps its copy: this removes a write path, not data.
+        PR-041.3 is where bytes go, after a stated grace period and its own runbook."""
+        s3.put_object(Bucket=OTHER_BUCKET, Key="processed/sorteos_3045.parquet", Body=b"older")
         put_raw(s3, sorteo=3046, year=2024)
 
-        run(transformer, write_simple_copies=False)
+        run(transformer)
 
-        assert keys_under(s3, SIMPLE, SIMPLE_PREFIX) == ["processed/sorteos_3045.parquet"]
-
-    def test_writing_is_the_default(self, s3, transformer):
-        """The flag ships ON, so merging this PR changes nothing in production until the
-        value is flipped — which is what makes the flip a one-line, reviewable event
-        instead of a side effect of a deploy."""
-        put_raw(s3, sorteo=3046, year=2024)
-        transformer.transform(
-            bucket_name=PARTITIONED,
-            raw_prefix=RAW_PREFIX,
-            simple_prefix=SIMPLE_PREFIX,
-            silver_prefix=SILVER_PREFIX,
-        )
-
-        assert len(keys_under(s3, SIMPLE, SIMPLE_PREFIX)) == 2
+        assert keys_under(s3, OTHER_BUCKET, OTHER_BUCKET_PREFIX) == [
+            "processed/sorteos_3045.parquet"
+        ]
 
     def test_row_counts_match_the_source_file(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024)
@@ -600,7 +602,7 @@ class TestFailureModes:
         # The guard sits before the Parquet write, so a half-transformed sorteo never
         # reaches Silver — the crawlers can't register a partition that isn't there.
         assert keys_under(s3, PARTITIONED, SILVER_PREFIX) == []
-        assert keys_under(s3, SIMPLE, SIMPLE_PREFIX) == []
+        assert keys_under(s3, OTHER_BUCKET, OTHER_BUCKET_PREFIX) == []
 
     def test_malformed_file_without_header_raises(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024, body="just some text\nwith no markers\n")
@@ -642,30 +644,21 @@ class TestGlueEntryPoint:
         return _run
 
     ARGS = {
-        "SIMPLE_BUCKET": "arg-simple-bucket",
         "PARTITIONED_BUCKET": "arg-partitioned-bucket",
         "RAW_PREFIX": "raw/",
-        "PROCESSED_PREFIX": "processed/",
     }
 
     def test_it_transforms_the_partitioned_bucket(self, glue_main):
         assert glue_main(self.ARGS)["bucket_name"] == "arg-partitioned-bucket"
 
-    def test_prefixes_are_passed_through(self, glue_main):
-        captured = glue_main(self.ARGS)
+    def test_the_raw_prefix_is_passed_through(self, glue_main):
+        assert glue_main(self.ARGS)["raw_prefix"] == "raw/"
 
-        assert captured["raw_prefix"] == "raw/"
-        assert captured["simple_prefix"] == "processed/"
-
-    def test_processed_prefix_is_treated_as_the_SIMPLE_bucket_prefix(self, glue_main):
-        """Naming trap kept for backwards compatibility: the argument is called
-        PROCESSED_PREFIX but it addresses the *simple* bucket's flat copies, not the legacy
-        `processed/` layer that Silver replaced. Anyone reading only Terraform would expect
-        it to control the Silver path — it does not."""
-        captured = glue_main({**self.ARGS, "PROCESSED_PREFIX": "flat/"})
-
-        assert captured["simple_prefix"] == "flat/"
-        assert captured["silver_prefix"] == "silver/"
+    def test_transform_is_called_with_exactly_the_surviving_parameters(self, glue_main):
+        """PR-041.2 removed `simple_prefix` and `write_simple_copies` from transform()'s
+        signature. Pinning the whole keyword set — not just the ones that matter — is what
+        makes a re-added parameter fail here instead of quietly coming back."""
+        assert set(glue_main(self.ARGS)) == {"bucket_name", "raw_prefix", "silver_prefix"}
 
     def test_silver_prefix_is_not_an_argument(self, glue_main):
         """Silver is the canonical layer and its location is a code constant, not a knob.
@@ -673,35 +666,36 @@ class TestGlueEntryPoint:
         the one thing the module docstring forbids."""
         assert glue_main(self.ARGS)["silver_prefix"] == transformer_module_silver_prefix()
 
-    def test_bucket_arguments_override_the_import_time_secret(self, glue_main, transformer):
-        """`transform()` READS its bucket from an argument but WRITES to module globals. If
-        main() failed to override them, the job would read from the argument bucket and write
+    def test_the_bucket_argument_overrides_the_import_time_secret(self, glue_main, transformer):
+        """`transform()` READS its bucket from an argument but WRITES to a module global. If
+        main() failed to override it, the job would read from the argument bucket and write
         to whatever the Secrets Manager payload said at import — a split-brain that only
         shows up in production."""
         glue_main(self.ARGS)
 
         assert transformer.partitioned_bucket == "arg-partitioned-bucket"
-        assert transformer.simple_bucket == "arg-simple-bucket"
 
-    def test_empty_bucket_arguments_leave_the_globals_alone(self, glue_main, transformer):
-        """The overrides are guarded by a truthiness check, so an empty value falls back to
+    def test_an_empty_bucket_argument_leaves_the_global_alone(self, glue_main, transformer):
+        """The override is guarded by a truthiness check, so an empty value falls back to
         the secret rather than pointing the job at a bucket named ""."""
-        glue_main({**self.ARGS, "PARTITIONED_BUCKET": "", "SIMPLE_BUCKET": ""})
+        glue_main({**self.ARGS, "PARTITIONED_BUCKET": ""})
 
         assert transformer.partitioned_bucket == PARTITIONED
-        assert transformer.simple_bucket == SIMPLE
 
-    def test_it_asks_glue_for_exactly_the_four_documented_arguments(self, transformer, monkeypatch):
+    def test_it_asks_glue_for_exactly_the_two_documented_arguments(self, transformer, monkeypatch):
         """These names are the contract with terraform/modules/etl-glue's
         `default_arguments`. Adding one here without adding it there fails the job at
-        startup."""
+        startup.
+
+        PR-041.2 took this set from four to two. The three it dropped can still be sitting
+        in a not-yet-applied job definition and the job starts anyway, because
+        getResolvedOptions ignores arguments that were not asked for — it only raises the
+        other way round, on a name it is asked for and cannot find."""
         requested = self._requested_names(transformer, monkeypatch, argv=["transformer.py"])
 
         assert set(requested) == {
-            "SIMPLE_BUCKET",
             "PARTITIONED_BUCKET",
             "RAW_PREFIX",
-            "PROCESSED_PREFIX",
         }
 
     def _requested_names(self, transformer, monkeypatch, argv):
@@ -717,46 +711,6 @@ class TestGlueEntryPoint:
 
         transformer.main()
         return requested["names"]
-
-    # ---- PR-041.1: the optional flag -------------------------------------------------
-    def test_the_simple_writes_flag_is_asked_for_only_when_glue_passes_it(
-        self, transformer, monkeypatch
-    ):
-        """getResolvedOptions RAISES on a name it cannot find, and this job's zip is
-        uploaded to S3 separately from the `terraform apply` that adds the argument. Asking
-        unconditionally would turn any partial deploy into a job that dies at startup,
-        before a line of transform logic — a self-inflicted weekly outage, to avoid writing
-        two files nobody reads."""
-        argv = ["transformer.py", "--ENABLE_SIMPLE_BUCKET_WRITES", "false"]
-
-        assert "ENABLE_SIMPLE_BUCKET_WRITES" in self._requested_names(
-            transformer, monkeypatch, argv
-        )
-
-    def test_an_absent_flag_keeps_writing(self, glue_main):
-        """Old code, new Terraform, or the other way round: the behaviour with no flag at
-        all is exactly what the job did before this PR."""
-        assert glue_main(self.ARGS)["write_simple_copies"] is True
-
-    @pytest.mark.parametrize("value", ["false", "False", "FALSE", "0", "no", "off"])
-    def test_the_flag_is_read_from_the_job_argument(self, glue_main, value):
-        captured = glue_main(
-            {**self.ARGS, "ENABLE_SIMPLE_BUCKET_WRITES": value},
-            argv=["transformer.py", "--ENABLE_SIMPLE_BUCKET_WRITES", value],
-        )
-
-        assert captured["write_simple_copies"] is False
-
-    def test_a_typo_keeps_writing_rather_than_silently_stopping(self, glue_main):
-        """Direction matters. "Stop the writes, keep every byte" is checkable on the next
-        run — the object count stops moving — whereas a typo that quietly disabled the
-        writes would be an unannounced data change. So an unrecognised value stays ON."""
-        captured = glue_main(
-            {**self.ARGS, "ENABLE_SIMPLE_BUCKET_WRITES": "flase"},
-            argv=["transformer.py", "--ENABLE_SIMPLE_BUCKET_WRITES", "flase"],
-        )
-
-        assert captured["write_simple_copies"] is True
 
 
 def transformer_module_silver_prefix() -> str:

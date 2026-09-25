@@ -2185,6 +2185,54 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 **Acceptance:** the plan shows IAM/Glue-job updates only. **If it shows a destroy on any
 `aws_s3_bucket`, stop.**
 
+> **PR-041.2 built 2026-09-23.** Everything the prompt lists, plus two things it does not.
+>
+> **The prompt's list, done:** `--PROCESSED_PREFIX`, `--SIMPLE_BUCKET` and the
+> `SIMPLE_BUCKET` Lambda env var; the `simple_bucket_arn` write grants in `modules/iam`
+> (Glue transform role + extractor Lambda role); the `"simple"` key in `get_secrets()`; the
+> `simple_bucket_name` / `simple_bucket_arn` inputs on three modules and the root wiring
+> that fed them; `README.md`'s dual-bucket claim, in all seven places it appears rather
+> than the three the prompt cites.
+>
+> **`--PROCESSED_PREFIX` was worse than dead — it was mislabelled.** Terraform set it to
+> `"processed/"`, the legacy prefix PR-016 moved the idempotency check off, but the code
+> read it as the *simple bucket's* key prefix (`simple_prefix = args["PROCESSED_PREFIX"]`).
+> Anyone auditing the job's arguments for "is `processed/` still being written?" would have
+> been looking at the wrong bucket.
+>
+> **The SageMaker grant is repointed, not deleted.** `lottery-sagemaker-s3-read-policy-prod`
+> now grants `GetObject` on `silver/*` and `gold/*` of the partitioned bucket, plus
+> `ListBucket` narrowed by an `s3:prefix` condition to those two. Deleting it outright would
+> have been simpler and wrong: the role would keep existing with no data permission at all,
+> and the next person to open a notebook would debug an `AccessDenied` instead of reading
+> Silver. A list with no prefix is denied on purpose — `raw/` is the transformer's input,
+> not an analysis surface.
+>
+> **Two deviations from the prompt, both deliberate.**
+> 1. **The write code went too, not just the configuration.** The prompt scopes 041.2 to
+>    "the configuration surface", but removing the `"simple"` key from `get_secrets()` while
+>    `transformer.py` and `scraping.py` still open with `simple_bucket = buckets["simple"]`
+>    is a `KeyError` at import — in the extractor's case, the weekly run dying before it
+>    starts. The two halves cannot be separated, so 041.1's one-line rollback becomes a
+>    `git revert` of this PR plus `make deploy`. That is still a rollback; it is recorded in
+>    the runbook so nobody goes looking for a flag that is gone.
+> 2. **`loteria/common/config.py` and its test module are deleted.** The module was born in
+>    041.1 to make `"false"` mean the same thing as a Glue argument and as a Lambda env var.
+>    `parse_flag` / `env_flag` are generic enough to keep, but its entire docstring argues
+>    for a flag that no longer exists — keeping it would mean rewriting the justification
+>    for code with no caller, which is the same defect in a new place. Git has it if PR-044
+>    or 045 wants a flag.
+>
+> **A test-organisation bug fixed on the way through.** 041.1 inserted
+> `class TestSimpleBucketWritesFlag` into the middle of `TestExtractLotteryData`, which
+> silently adopted the eleven tests that followed it. They still ran, under the wrong class
+> name. Removing the flag class puts them back where they belong.
+>
+> **Acceptance, local:** 354 passed, coverage 98.86% (gate 98), `ruff check` + `ruff format
+> --check` clean, `terraform validate` Success. **Not yet applied** — the plan is the
+> owner's, and its shape is the acceptance criterion above: IAM + Glue-job + Lambda updates,
+> and **zero** `aws_s3_bucket` destroys.
+
 > **PR-041.1 outcome (2026-09-20).** Evidence in
 > `docs/inventory/2026-09-20-simple-bucket-readers.md`: 347 current objects (232
 > `processed/` + 115 `raw/`), 540 versions + 2 delete markers, newest written 2026-09-17 by
@@ -2843,7 +2891,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` todo · `.3` blocked until 2026-10-20 | [PR #53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **open, awaiting apply** (2026-09-23) · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + verified** (2026-09-21) · `.2` todo | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |

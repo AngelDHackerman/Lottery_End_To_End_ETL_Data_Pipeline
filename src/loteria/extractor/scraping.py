@@ -8,7 +8,6 @@ import requests
 from bs4 import BeautifulSoup
 
 from loteria.common.aws_secrets import get_secrets
-from loteria.common.config import FLAG_SIMPLE_BUCKET_WRITES, env_flag
 from loteria.common.metrics import record_scraper_no_response, record_scraper_status
 from loteria.common.s3_utils import check_if_sorteo_exists, upload_to_s3
 
@@ -21,7 +20,6 @@ from loteria.common.s3_utils import check_if_sorteo_exists, upload_to_s3
 logger = logging.getLogger(__name__)
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
-simple_bucket = buckets["simple"]
 SCRAPE_DO_TOKEN = buckets["scrape_do_token"]
 BASE_PROXY_URL = "http://api.scrape.do/"
 
@@ -241,7 +239,7 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):  # nosec B1
 
     # Verificar si ya fue procesado. Note this runs AFTER both proxied fetches (the number
     # and the date only exist on the detail page), so skipping saves no scrape.do credits:
-    # it saves the raw/ rewrite, its new object version, and the simple-bucket copy.
+    # it saves the raw/ rewrite and its new object version on a versioned bucket.
     if check_if_sorteo_exists(partitioned_bucket, year, numero_sorteo_real):
         logger.warning(
             f"⚠️ Sorteo {numero_sorteo_real} has already been processed. Canceling extraction."
@@ -267,26 +265,18 @@ def extract_lottery_data(lottery_number=None, output_folder="/tmp"):  # nosec B1
     logger.info(f"💾 Data extracted and saved to: {output_path}")
 
     # 7. Upload to S3
-    # Hive-style path — the canonical one, and the only input the transformer reads.
+    # Hive-style path — the canonical one, the only input the transformer reads, and since
+    # PR-041.2 the only one written. The flat `raw/sorteo_<N>.txt` copy to the simple
+    # bucket lived here until then; it was the third write the roadmap's PR-041 prompt
+    # missed, because nobody looks for a duplicated path in the extractor.
     s3_key_hive = f"raw/year={year}/sorteo={numero_sorteo_real}/{file_name}"
     upload_to_s3(output_path, partitioned_bucket, s3_key_hive)
-
-    # Simple path — fault A, being retired (PR-041.1). The roadmap's own prompt for PR-041
-    # lists only the transformer's two Parquet copies; this third write is the one that is
-    # easy to miss, because the extractor is not where anyone looks for a duplicated
-    # *Parquet* path. Read at call time from the Lambda's environment, so flipping it is a
-    # Terraform value rather than a rebuild of the zip.
-    write_simple_copy = env_flag(FLAG_SIMPLE_BUCKET_WRITES)
-    if write_simple_copy:
-        s3_key_simple = f"raw/sorteo_{numero_sorteo_real}.txt"
-        upload_to_s3(output_path, simple_bucket, s3_key_simple)
 
     logger.info(
         "Sorteo uploaded",
         extra={
             "sorteo": numero_sorteo_real,
             "partitioned_key": s3_key_hive,
-            "wrote_simple_copy": write_simple_copy,
         },
     )
     return output_path

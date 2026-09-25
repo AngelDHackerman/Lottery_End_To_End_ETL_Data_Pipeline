@@ -5,17 +5,22 @@
 # by name (`data "aws_secretsmanager_secret"`) to scope the Lambda and Glue grants to its
 # ARN, so a plan in an account without it fails at that lookup.
 #
-# Its shape is whatever src/loteria/common/aws_secrets.py:get_secrets() reads — three
-# keys, nothing else:
+# Its shape is whatever src/loteria/common/aws_secrets.py:get_secrets() reads — two keys,
+# nothing else:
 #
-#   s3_bucket_simple_data_storage_prod_arn        the simple bucket
 #   s3_bucket_partitioned_data_storage_prod_arn   the partitioned bucket (the lake)
 #   scrape_do_token                               the scrape.do API token
 #
-# The two bucket keys are named *_arn and are stored as ARNs, to match the secret that
-# runs in prod today. get_secrets() also accepts a bare bucket name (see _bucket_name).
-# Terraform creates the buckets; the defaults below are the names module.storage gives
-# them, so this can run before they exist.
+# PR-041.2 dropped the third, `s3_bucket_simple_data_storage_prod_arn`. A fresh account
+# gets a secret without it; the LIVE prod payload still carries it, because Terraform does
+# not own a secret's contents and removing it there is a manual owner edit — filed in
+# docs/runbooks/PR-041-retire-simple-bucket.md. get_secrets() ignores the extra key either
+# way, so the two shapes are interchangeable to the code.
+#
+# The bucket key is named *_arn and is stored as an ARN, to match the secret that runs in
+# prod today. get_secrets() also accepts a bare bucket name (see _bucket_name). Terraform
+# creates the bucket; the default below is the name module.storage gives it, so this can
+# run before it exists.
 #
 # ⚠️ CREATE-ONLY. If a secret with this name already exists the script stops and changes
 # nothing — `make secrets` must never be the way the prod token gets overwritten. To
@@ -49,9 +54,7 @@ elif [[ "$err" != *ResourceNotFoundException* ]]; then
   exit 1
 fi
 
-read -rp "Simple bucket name      [lottery-data-simple-${ENVIRONMENT}]: " simple
 read -rp "Partitioned bucket name [lottery-partitioned-storage-${ENVIRONMENT}]: " partitioned
-simple="${simple:-lottery-data-simple-${ENVIRONMENT}}"
 partitioned="${partitioned:-lottery-partitioned-storage-${ENVIRONMENT}}"
 
 token="${SCRAPE_DO_TOKEN:-}"
@@ -67,10 +70,9 @@ fi
 # json.dumps, not string interpolation: a token with a quote or backslash in it must not
 # produce a secret that get_secrets() then fails to parse inside the Lambda.
 payload="$(
-  SIMPLE="$simple" PARTITIONED="$partitioned" TOKEN="$token" python3 -c '
+  PARTITIONED="$partitioned" TOKEN="$token" python3 -c '
 import json, os
 print(json.dumps({
-    "s3_bucket_simple_data_storage_prod_arn": "arn:aws:s3:::" + os.environ["SIMPLE"],
     "s3_bucket_partitioned_data_storage_prod_arn": "arn:aws:s3:::" + os.environ["PARTITIONED"],
     "scrape_do_token": os.environ["TOKEN"],
 }))'
@@ -84,7 +86,7 @@ printf '%s' "$payload" >"$tmp"
 
 aws secretsmanager create-secret \
   --name "$SECRET_NAME" \
-  --description "Loteria pipeline: bucket ARNs + scrape.do token (read by loteria.common.aws_secrets)" \
+  --description "Loteria pipeline: lake bucket ARN + scrape.do token (read by loteria.common.aws_secrets)" \
   --secret-string "file://$tmp" \
   --region "$REGION" \
   --query ARN --output text

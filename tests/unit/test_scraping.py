@@ -34,7 +34,6 @@ FIXTURE = Path(__file__).parents[1] / "fixtures" / "sorteo_page_2026_08.html"
 
 FAKE_SECRETS = {
     "partitioned": "test-partitioned-bucket",
-    "simple": "test-simple-bucket",
     "scrape_do_token": "test-token-123",
 }
 

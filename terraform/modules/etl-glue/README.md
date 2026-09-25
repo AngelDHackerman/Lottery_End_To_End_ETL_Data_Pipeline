@@ -40,7 +40,7 @@ the zip after this change.
 ## Inputs / outputs
 
 - Inputs: `code_bucket`, `script_key` (default `lottery_transformer.zip`),
-  `partitioned_bucket_name`, `simple_bucket_name`, `glue_job_role_arn`, `secret_name`,
+  `partitioned_bucket_name`, `glue_job_role_arn`, `secret_name`,
   `glue_version` (inert — see below), `python_version` (default `"3.9"`), `environment`.
 - Outputs: `glue_job_name`, `glue_job_arn`.
 
@@ -123,3 +123,20 @@ Extra inputs: `enable_silver_dq`, `dq_job_role_arn`, `dq_script_key`, `dq_lib_ke
 `great_expectations_version` (**must match `requirements/dq.txt`**), `silver_prefix`,
 `dq_timeout_minutes`.
 Extra outputs: `dq_job_name`, `dq_job_arn`, `dq_log_group_name`.
+
+## PR-041.2: three job arguments removed
+
+`--SIMPLE_BUCKET`, `--PROCESSED_PREFIX` and `--ENABLE_SIMPLE_BUCKET_WRITES` are gone, along
+with the `simple_bucket_name` and `enable_simple_bucket_writes` inputs that fed them. The
+transform job writes Silver and nothing else.
+
+`--PROCESSED_PREFIX` deserves its own line, because its name lied: it was set to
+`"processed/"`, the legacy prefix the idempotency check moved off in PR-016, but the code
+used it as the *simple bucket's* key prefix (`simple_prefix = args["PROCESSED_PREFIX"]`).
+Anyone reading the job's arguments to find out where `processed/` was still being written
+would have found the wrong bucket.
+
+Deploy order does not matter here. `getResolvedOptions` reads only the names the job asks
+for and ignores the rest, so an old zip against the new arguments and a new zip against the
+old ones both start. That is the opposite of PR-041.1, where the two halves had to land
+together or the flip would have been half-applied.

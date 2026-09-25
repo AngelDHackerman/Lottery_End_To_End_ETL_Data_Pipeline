@@ -18,7 +18,6 @@ import sys
 import pytest
 
 PARTITIONED = "test-partitioned-bucket"
-SIMPLE = "test-simple-bucket"
 TOKEN = "test-token"
 
 
@@ -34,7 +33,7 @@ def handler(monkeypatch):
     monkeypatch.setattr(
         aws_secrets,
         "get_secrets",
-        lambda: {"partitioned": PARTITIONED, "simple": SIMPLE, "scrape_do_token": TOKEN},
+        lambda: {"partitioned": PARTITIONED, "scrape_do_token": TOKEN},
     )
     sys.modules.pop("loteria.extractor.scraping", None)
     sys.modules.pop("loteria.extractor.lambda_handler", None)

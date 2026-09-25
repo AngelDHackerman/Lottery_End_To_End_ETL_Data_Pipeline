@@ -42,8 +42,13 @@ def get_secrets():
     try:
         response = client.get_secret_value(SecretId=secret_name)
         secret = json.loads(response["SecretString"])
+        # PR-041.2: `s3_bucket_simple_data_storage_prod_arn` is still IN the secret payload
+        # and is deliberately not read. Terraform does not own the payload — removing the
+        # key there is a manual owner edit, filed as a follow-up in
+        # docs/runbooks/PR-041-retire-simple-bucket.md. Dropping it here first is the half
+        # that can be code-reviewed, and it is what makes `get_secrets()` stop handing every
+        # caller a bucket name nothing may write to any more.
         return {
-            "simple": _bucket_name(secret["s3_bucket_simple_data_storage_prod_arn"]),
             "partitioned": _bucket_name(secret["s3_bucket_partitioned_data_storage_prod_arn"]),
             "scrape_do_token": secret["scrape_do_token"],
         }

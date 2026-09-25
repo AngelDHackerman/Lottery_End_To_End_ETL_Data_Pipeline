@@ -55,8 +55,6 @@ module "iam" {
   # Bucket references from the storage module.
   partitioned_bucket_name    = module.storage.partitioned_bucket_name
   partitioned_bucket_arn     = module.storage.partitioned_bucket_arn
-  simple_bucket_name         = module.storage.simple_bucket_name
-  simple_bucket_arn          = module.storage.simple_bucket_arn
   athena_results_bucket_name = module.storage.athena_results_bucket_name
   lambda_code_bucket_name    = module.storage.lambda_code_bucket_name
 
@@ -99,12 +97,7 @@ module "etl_lambda" {
   lambda_exec_role_arn = module.iam.lambda_exec_role_arn
 
   partitioned_bucket_name = module.storage.partitioned_bucket_name
-  simple_bucket_name      = module.storage.simple_bucket_name
   secret_name             = var.lottery_secret_name
-
-  # PR-041.1: the extractor writes the raw .txt to the simple bucket too. One variable
-  # drives both writers so they can never disagree about whether the copy exists.
-  enable_simple_bucket_writes = var.enable_simple_bucket_writes
 
   # PR-023: own the function's log group so it has a retention policy.
   log_retention_days = var.log_retention_days
@@ -121,11 +114,7 @@ module "etl_glue" {
   glue_job_role_arn = module.iam.glue_job_role_arn
 
   partitioned_bucket_name = module.storage.partitioned_bucket_name
-  simple_bucket_name      = module.storage.simple_bucket_name
   secret_name             = var.lottery_secret_name
-
-  # PR-041.1: the transformer's two flat Parquet copies. Same variable as the extractor.
-  enable_simple_bucket_writes = var.enable_simple_bucket_writes
 
   # PR-023: retention on the ACCOUNT-WIDE Python Shell log groups (Glue has no per-job
   # group for pythonshell — see the module note).
