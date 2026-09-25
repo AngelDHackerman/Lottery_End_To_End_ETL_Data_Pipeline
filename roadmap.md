@@ -2536,6 +2536,54 @@ The repo's own code was correct in all three. The actionable version: **a change
 DOES is a change to what it must be PERMITTED to do** — grants belong in a change's blast
 radius alongside the modules it edits.
 
+## PR-042.4 — `BatchUpdatePartition` is authorised against `UpdatePartition` (unplanned; 2026-09-24)
+
+PR-042.1's third defect, one run after PR-042.3. Runbook:
+`docs/runbooks/PR-042.4-partition-iam-actions.md`.
+
+```
+not authorized to perform: glue:UpdatePartition on resource: ...:catalog
+because no identity-based policy allows the glue:UpdatePartition action
+```
+
+The policy already listed `glue:BatchUpdatePartition`, and the code calls
+`batch_update_partition`. **Glue authorises the Batch APIs per item, against the SINGULAR
+action.** The SFN role has carried `glue:CreatePartition` + `glue:UpdatePartition` since
+PR-009 — a working example fifteen lines away in the same file, which is part of why the gap
+survived review.
+
+**Two permission systems, two separate failures, one operation.** PR-042.3's note said its
+Lake Formation `ALTER` "also covers the partition moves" — true of Lake Formation, and only
+of Lake Formation. IAM is an independent gate on the same call and was never checked. When an
+`AccessDenied` names an action, read *which system* said it: `Insufficient Lake Formation
+permission(s)` and `no identity-based policy allows` come from different services, and fixing
+one tells you nothing about the other.
+
+### The first failure that mutated state
+
+The two before it died before touching anything; this one died *between* the halves of the
+swap. Three unpartitioned tables (`draw_summary`, `terminations`,
+`winning_number_frequency`) swapped cleanly because `_move_partitions` is a no-op for them.
+**`gold_geo_winnings` is half-swapped** — table repointed at the new `run=` prefix, its three
+`year=` partitions still on the old one. Not corrupt and not unreadable: Athena resolves a
+partitioned table through its partitions, so it serves the 2026-09-17 generation, stale but
+internally consistent, with the data intact on disk. The real defect is across tables —
+`gold_draw_summary` has sorteo 415 and `gold_geo_winnings` does not. **The next successful
+run repairs it**; no hand-editing of the catalog.
+
+### What PR-042.1 actually needed
+
+| | Gate | Fix |
+|---|---|---|
+| PR-031.3 | botocore request validation | allowlist `TableInput`'s fields |
+| PR-042.3 | Lake Formation | `ALTER` on the tables |
+| PR-042.4 | IAM | the singular partition actions |
+
+The swap's *code* has been right since 2026-09-20. Everything that broke sat in what the code
+was **permitted** to do, and none of it was visible without executing the path. **A feature
+that changes which AWS APIs get called is not reviewable from its own diff.** It needs one
+real run — and `.1` was marked "applied + verified" without ever getting one.
+
 ## PR-043 — Incremental Gold instead of a full weekly rebuild
 **Fault C.**
 
@@ -2983,7 +3031,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **merged** (2026-09-24), not applied · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied** (2026-09-21) — *not* verified: its first production run was 2026-09-24 and it failed twice (→ `.3`) · `.2` todo · `.3` **PR open, not applied** | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied** (2026-09-21) — *not* verified: its first production run was 2026-09-24 and it failed twice (→ `.3`) · `.2` todo · `.3` **applied + merged** (2026-09-24) · `.4` **PR open, not applied** | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |

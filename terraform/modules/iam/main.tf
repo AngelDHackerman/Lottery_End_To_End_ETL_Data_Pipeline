@@ -645,9 +645,24 @@ resource "aws_iam_policy" "gold_purge_lambda_policy" {
           "glue:DeleteTable",
           "glue:GetPartition",
           "glue:GetPartitions",
+          # PR-042.4: the Batch* actions are NOT what Glue authorises the Batch* APIs
+          # against. batch_update_partition is checked per item, against the SINGULAR
+          # glue:UpdatePartition — the denial said so in as many words:
+          #
+          #   not authorized to perform: glue:UpdatePartition on resource:
+          #   arn:aws:glue:us-east-1:913524903233:catalog
+          #
+          # while the policy already listed glue:BatchUpdatePartition. The singular form is
+          # the one that grants; the Batch* names are kept because Glue's own docs list
+          # them and removing them on this evidence would be guessing in the other
+          # direction. The SFN policy below has carried the singular pair since PR-009,
+          # which is why the CTAS path never hit this.
           "glue:BatchCreatePartition",
           "glue:BatchUpdatePartition",
-          "glue:BatchDeletePartition"
+          "glue:BatchDeletePartition",
+          "glue:CreatePartition",
+          "glue:UpdatePartition",
+          "glue:DeletePartition"
         ],
         Resource = [
           local.glue_catalog_arn,
