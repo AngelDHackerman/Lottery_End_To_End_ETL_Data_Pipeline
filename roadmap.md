@@ -1206,6 +1206,43 @@ scrape.do's country pools: datacenter covers a limited set (the published list o
 > vendor, already structured. Parsing that instead of the DOM would make the extractor immune
 > to this whole class of redesign. Worth a PR of its own.
 
+## PR-031.3 — The gold swap sent Glue a field Glue does not accept (unplanned; 2026-09-24)
+
+Not a roadmap item — found inside PR-031.2's recovery run, and unrelated to it. Runbook:
+`docs/runbooks/PR-031.3-glue-tableinput-allowlist.md`.
+
+The recovery run passed extraction, transform, both crawlers, the Silver DQ gate and the
+gold CTAS, then failed on the last state:
+
+```
+ParamValidationError: Unknown parameter in TableInput: "IsMaterializedView"
+```
+
+`_table_input` built its payload by **subtraction** — take the GetTable response, remove the
+keys known to be read-only, send the rest — and its own comment argued for it: *"a field
+added to a future Glue API version keeps flowing through instead of being dropped."* That is
+the bug stated as the feature. Between 2026-09-17 and 2026-09-24 Glue's response grew
+`IsMaterializedView`, nothing knew to remove it, and `update_table` rejected the call. With a
+denylist, **every field AWS adds is an outage scheduled on AWS's release calendar.**
+`_partition_input` had the same shape on the path that runs immediately after.
+
+Both are allowlists now, held to botocore's own `TableInput` / `PartitionInput` shapes by a
+test that reads the bundled service model — no credentials, no network. A *subset* check, not
+an equality: a field AWS adds that we never send cannot break anything and should not turn CI
+red.
+
+**Nothing was corrupt.** `promote` is the last state and it failed on its first call, before
+`_move_partitions`: all 7 published `gold_*` tables stayed on the 2026-09-17 generation,
+consistent and one generation stale, with 3 disposable `__stg_` entries left behind for
+inspection — which is exactly what the swap's ordering was written to guarantee.
+
+### The evening's pattern, twice
+
+PR-031.2 and PR-031.3 are the same mistake in different systems: a **response** from someone
+else — Cloudflare's tolerance for headless rendering, Glue's table schema — treated as fixed
+because it had been tested once. Where this repo reads someone else's payload, name what it
+wants rather than subtract what it knows about today.
+
 ## PR-032 — Great Expectations suite for Silver
 **Prompt:**
 ```
@@ -2784,6 +2821,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
+| 031.3 | **Gold swap sent Glue a field Glue rejects** (found 2026-09-24 recovering 031.2's stranded sorteo): `_table_input` was a denylist, Glue's GetTable grew `IsMaterializedView`, `PromoteGold` died with `ParamValidationError`. Both inputs are allowlists now, guarded against botocore's own shapes | **PR open, not applied** | [PR #66](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/66) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
