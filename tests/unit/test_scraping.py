@@ -3,9 +3,10 @@
 Two things broke the pipeline on 2026-08-20, and both were invisible to the existing suite:
 
 1. **The proxy profile.** loteria.org.gt tightened Cloudflare and the old scrape.do request
-   (``geoCode=MX``, no render, no super) stopped connecting entirely. The working profile
-   needs three parameters together; dropping any one of them is a full outage, so the URL
-   builder is worth asserting on.
+   (``geoCode=MX``, no render, no super) stopped connecting entirely. PR-031.1 answered with
+   render+super+GT — and PR-031.2 had to drop render again on 2026-09-24, when it became the
+   parameter that failed. The profile is a moving target, which is exactly why the URL
+   builder is asserted on parameter by parameter.
 2. **The prize-list locator.** The site moved the prizes into a new container and left three
    unrelated rows behind, so the old positional selector kept "working" and would have
    written prize-less files. Nothing failed — that is what makes it dangerous.
@@ -18,6 +19,7 @@ which is the same trick ``tests/conftest.py`` uses for the ``awsglue`` stub.
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -74,10 +76,33 @@ class TestBuildProxyUrl:
         url = scraping_module.build_proxy_url("https://loteria.org.gt/site/award")
         assert "geoCode=GT" in url
 
-    def test_requests_headless_rendering(self, scraping_module):
-        """Without render=true the request fails Cloudflare's browser check."""
+    def test_does_not_request_headless_rendering(self, scraping_module):
+        """PR-031.2 inverted this assertion, deliberately.
+
+        It used to read ``assert "render=true" in url`` — rendering was PR-031.1's fix. On
+        2026-09-24 render became the parameter that FAILED: eight straight 502
+        ROTATION_FAILED, while GT+super alone answered 200 first try. Asserting its absence
+        is not cosmetic — sending it is a full outage, the same way omitting it was in
+        August.
+        """
         url = scraping_module.build_proxy_url("https://loteria.org.gt/site/award")
-        assert "render=true" in url
+        assert "render" not in url
+
+    def test_rendering_can_be_restored_from_the_environment(self):
+        """SCRAPE_RENDER is the lever an incident gets to pull without a deploy.
+
+        The profile has now flipped twice in five weeks, so the override matters more than
+        either default. Imported fresh here because the module reads its environment once,
+        at import time.
+        """
+        with patch.dict(os.environ, {"SCRAPE_RENDER": "true"}):
+            sys.modules.pop("loteria.extractor.scraping", None)
+            with patch("loteria.common.aws_secrets.get_secrets", return_value=FAKE_SECRETS):
+                module = importlib.import_module("loteria.extractor.scraping")
+            try:
+                assert "render=true" in module.build_proxy_url("https://loteria.org.gt/x")
+            finally:
+                sys.modules.pop("loteria.extractor.scraping", None)
 
     def test_requests_residential_ips(self, scraping_module):
         """Without super=true, geoCode=GT is not even available — GT is residential-only."""

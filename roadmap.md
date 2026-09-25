@@ -1206,6 +1206,51 @@ scrape.do's country pools: datacenter covers a limited set (the published list o
 > vendor, already structured. Parsing that instead of the DOM would make the extractor immune
 > to this whole class of redesign. Worth a PR of its own.
 
+## PR-031.2 — Drop `render=true` (unplanned; outage 2026-09-24)
+
+Not a roadmap item — an incident fix, like PR-031.1 and PR-026.1 before it. Runbook:
+`docs/runbooks/PR-031.2-drop-headless-render.md`.
+
+**The August fix became the September outage.** PR-031.1 concluded that
+`render=true&super=true&geoCode=GT` was the only combination that passed Cloudflare, and
+tested every proper subset to prove it. Five weeks later the 2026-09-24 run failed with a
+byte-identical `502 / ErrorCode 90 / ROTATION_FAILED` — and this time `render` was the
+cause. Eight consecutive failures on the PR-031.1 profile (2 in production, 6 by hand, all
+at 57.5 s), then `geoCode=GT&super=true` with render dropped: **HTTP 200 in 9.7 s, first
+attempt**. Verified against the live Extraordinario 415 page — 1608 prize lines, header and
+all six locators intact.
+
+The lesson is not "render is wrong". It is that **the proxy profile is a live negotiation,
+not a constant**, and a runbook that says "every subset was tested and failed" is a
+statement about one afternoon. What held across both incidents is `geoCode=GT` +
+`super=true`; treat those as the floor and `render` as the dial.
+
+| | PR-031.1 profile | PR-031.2 profile |
+|---|---|---|
+| Credits per request | 25 | **10** |
+| Per pipeline run (2 calls) | 50 | **20** |
+| Per month (runs + weekly canary) | ~430 / 1000 | **~175 / 1000** |
+
+### What this found on the way
+
+- **The canary duplicated the proxy profile by hand**, guarded only by a comment asking the
+  next reader to keep two files in sync. It cannot import `scraping.py` (module-scope
+  `get_secrets()`, and the canary runs in Actions without AWS), so the duplication is
+  structural — the missing piece was a check. `test_proxy_profile_matches_the_extractor`
+  now reads the defaults out of the source and fails on drift, mirroring what
+  `test_selectors_match_the_extractor` already did for the six locators. Without it this PR
+  would have left the canary testing a request production no longer makes.
+- **`RunExtractorLambda`'s `Retry` never engaged.** PR-031.1 added one, but its
+  `ErrorEquals` covers only transport faults (`ReadTimeout`, `ConnectionError`, four
+  `Lambda.*`). A proxy 502 arrives as the `ValueError` from `fetch_via_proxy`, so the run
+  got a single attempt. Not fixed here — it would not have saved an eight-failure outage —
+  but filed.
+- **The `loteria-sfn-execution-failed-prod` alarm description still says "the machine has no
+  Retry/Catch"**, stale since PR-031.1 and the first thing the alert email shows.
+- **Failed scrape.do requests are not charged**, so variant-probing a broken profile is
+  free until it works. That is the diagnosis technique to reach for next time, ahead of any
+  reasoning from the documentation.
+
 ## PR-032 — Great Expectations suite for Silver
 **Prompt:**
 ```
@@ -2784,6 +2829,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
+| 031.2 | **Drop `render=true`** (outage 2026-09-24: the parameter PR-031.1 added became the one Cloudflare rejects — 8 × `502 ROTATION_FAILED` at 57.5 s, while `GT`+`super` alone answered 200 in 9.7 s). Also halves the credit cost and puts a drift guard on the canary's proxy profile | env applied to prod 2026-09-24 · **PR open, terraform not yet applied** | [PR #TBD](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
