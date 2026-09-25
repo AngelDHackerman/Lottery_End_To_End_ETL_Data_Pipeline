@@ -1251,6 +1251,52 @@ statement about one afternoon. What held across both incidents is `geoCode=GT` +
   free until it works. That is the diagnosis technique to reach for next time, ahead of any
   reasoning from the documentation.
 
+## PR-031.3 — The gold swap sent Glue a field Glue does not accept (unplanned; 2026-09-24)
+
+> **This section was lost once and restored.** #65 and #66 both inserted a tracker row and a
+> section at the same anchor, so they conflicted in `roadmap.md` — additively, the resolution
+> being "keep both". Resolving it with *accept incoming changes* took one side whole and
+> dropped the other: the code, tests and runbook of #66 merged fine, and only its roadmap
+> entries vanished. Restored in #67. **A conflict where both sides are new content has no
+> "incoming" answer** — accept-one-side is for when the two sides say the same thing
+> differently.
+
+
+Not a roadmap item — found inside PR-031.2's recovery run, and unrelated to it. Runbook:
+`docs/runbooks/PR-031.3-glue-tableinput-allowlist.md`.
+
+The recovery run passed extraction, transform, both crawlers, the Silver DQ gate and the
+gold CTAS, then failed on the last state:
+
+```
+ParamValidationError: Unknown parameter in TableInput: "IsMaterializedView"
+```
+
+`_table_input` built its payload by **subtraction** — take the GetTable response, remove the
+keys known to be read-only, send the rest — and its own comment argued for it: *"a field
+added to a future Glue API version keeps flowing through instead of being dropped."* That is
+the bug stated as the feature. Between 2026-09-17 and 2026-09-24 Glue's response grew
+`IsMaterializedView`, nothing knew to remove it, and `update_table` rejected the call. With a
+denylist, **every field AWS adds is an outage scheduled on AWS's release calendar.**
+`_partition_input` had the same shape on the path that runs immediately after.
+
+Both are allowlists now, held to botocore's own `TableInput` / `PartitionInput` shapes by a
+test that reads the bundled service model — no credentials, no network. A *subset* check, not
+an equality: a field AWS adds that we never send cannot break anything and should not turn CI
+red.
+
+**Nothing was corrupt.** `promote` is the last state and it failed on its first call, before
+`_move_partitions`: all 7 published `gold_*` tables stayed on the 2026-09-17 generation,
+consistent and one generation stale, with 3 disposable `__stg_` entries left behind for
+inspection — which is exactly what the swap's ordering was written to guarantee.
+
+### The evening's pattern, twice
+
+PR-031.2 and PR-031.3 are the same mistake in different systems: a **response** from someone
+else — Cloudflare's tolerance for headless rendering, Glue's table schema — treated as fixed
+because it had been tested once. Where this repo reads someone else's payload, name what it
+wants rather than subtract what it knows about today.
+
 ## PR-032 — Great Expectations suite for Silver
 **Prompt:**
 ```
@@ -2877,7 +2923,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
-| 031.2 | **Drop `render=true`** (outage 2026-09-24: the parameter PR-031.1 added became the one Cloudflare rejects — 8 × `502 ROTATION_FAILED` at 57.5 s, while `GT`+`super` alone answered 200 in 9.7 s). Also halves the credit cost and puts a drift guard on the canary's proxy profile | env applied to prod 2026-09-24 · **PR open, terraform not yet applied** | [PR #65](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/65) |
+| 031.2 | **Drop `render=true`** (outage 2026-09-24: the parameter PR-031.1 added became the one Cloudflare rejects — 8 × `502 ROTATION_FAILED` at 57.5 s, while `GT`+`super` alone answered 200 in 9.7 s). Also halves the credit cost and puts a drift guard on the canary's proxy profile | **merged** 2026-09-24 (env applied to prod by hand the same evening) · **terraform not yet applied** | [PR #65](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/65) |
+| 031.3 | **Gold swap sent Glue a field Glue rejects** (found 2026-09-24 recovering 031.2's stranded sorteo): `_table_input` was a denylist, Glue's GetTable grew `IsMaterializedView`, `PromoteGold` died with `ParamValidationError`. Both inputs are allowlists now, guarded against botocore's own shapes | **merged** 2026-09-24 · **not applied** | [PR #66](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/66) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
@@ -2891,7 +2938,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **open, awaiting apply** (2026-09-23) · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **merged** (2026-09-24), not applied · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + verified** (2026-09-21) · `.2` todo | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
