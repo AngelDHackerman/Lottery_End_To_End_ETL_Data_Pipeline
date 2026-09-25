@@ -2492,6 +2492,50 @@ before the swap is precisely the defect 8B exists to remove. Alarm on repeated f
 instead of blocking.
 
 
+## PR-042.3 — The swap could not alter the table it was built to alter (unplanned; 2026-09-24)
+
+Not a roadmap item — PR-042.1's missing grant, found on the first run that ever reached its
+swap. Numbered `.3` because `.2` is a planned item (retire generations), not because it comes
+after it. Runbook: `docs/runbooks/PR-042.3-gold-purge-alter-grant.md`.
+
+```
+AccessDeniedException: Insufficient Lake Formation permission(s):
+Required Alter on gold_winning_number_frequency
+```
+
+**PR-042.1 changed the Lambda's job and left its grant describing the old one.** Before it,
+the gold-purge Lambda dropped each published table so a CTAS could rebuild it in place, and
+`DESCRIBE` + `DROP` was exactly right. PR-042.1 replaced that with a blue-green swap that
+repoints the published table with `glue.update_table` — which Lake Formation governs with
+**`ALTER`, on the table**. The PR touched `modules/iam` and `modules/orchestration` and
+stopped there.
+
+**The permission that looked like it was already there.** The role does hold `ALTER`, at the
+*database* level — which authorises altering the database, not the tables inside it. Two
+grants, same word, different resource. That database grant is also **not in Terraform
+state**: it was made out of band, so no plan would ever have shown the gap.
+
+### Why five weeks of green runs hid it
+
+The 2026-09-17 run was the last under the old design — the `gold_*` tables carry
+`CreateTime == UpdateTime` and `CreatedBy = sfn-lottery-execution-role`, i.e. created, never
+altered. PR-042.1 applied on 09-21; the 09-24 scheduled run died at the extractor in the
+scrape.do outage and never reached gold. **The swap has never completed a production run**,
+and both of its defects — PR-031.3's `ParamValidationError` and this one — sat in that same
+unexercised path. They surfaced an hour apart only because the scraper outage forced two
+manual runs in one evening.
+
+**`.1`'s tracker row said "applied + verified".** It was applied. Nothing had verified it.
+Corrected above, because that word is what made the gap invisible.
+
+### The pattern, three times in one evening
+
+PR-031.2 (Cloudflare's tolerance for headless rendering), PR-031.3 (Glue's table schema) and
+this one are the same shape: a contract with something outside this repo, treated as settled.
+The repo's own code was correct in all three. The actionable version: **a change to what code
+DOES is a change to what it must be PERMITTED to do** — grants belong in a change's blast
+radius alongside the modules it edits.
+
 ## PR-043 — Incremental Gold instead of a full weekly rebuild
 **Fault C.**
 
@@ -2939,7 +2983,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **merged** (2026-09-24), not applied · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + verified** (2026-09-21) · `.2` todo | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied** (2026-09-21) — *not* verified: its first production run was 2026-09-24 and it failed twice (→ `.3`) · `.2` todo · `.3` **PR open, not applied** | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |

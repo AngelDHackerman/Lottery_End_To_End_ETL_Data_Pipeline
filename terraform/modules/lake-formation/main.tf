@@ -64,10 +64,29 @@ resource "aws_lakeformation_permissions" "crawler_silver_location" {
 # have no LF rights on them until granted here. Same pattern as the crawler grants above;
 # ["ALL"] is avoided for the same never-settles read-back reason (see the note above).
 
-# Gold-purge Lambda: drop each gold table before its CTAS. DROP needs DESCRIBE alongside.
+# Gold-purge Lambda: DESCRIBE + DROP were enough while its whole job was "drop each gold
+# table before its CTAS". PR-042.1 changed the job and this grant did not follow it.
+#
+# The swap builds `<table>__stg_<run>` beside the live table and then repoints the published
+# one at it with glue.update_table, which Lake Formation governs with ALTER — on the TABLE.
+# The role does hold ALTER at the DATABASE level, granted outside Terraform, and that is a
+# different permission: it authorises altering the database, not its tables. The first run
+# to reach the swap died with
+#
+#     AccessDeniedException: Insufficient Lake Formation permission(s):
+#     Required Alter on gold_winning_number_frequency
+#
+# and it took until 2026-09-24 to surface only because PR-042.1 applied on 09-21, the 09-24
+# scheduled run died at the extractor (the scrape.do outage, PR-031.2), and the run before
+# it predated the swap entirely. **Infrastructure permissions are part of a code change's
+# blast radius**: PR-042.1 touched modules/iam and modules/orchestration and stopped there.
+#
+# ALTER also covers the partition moves the swap makes (batch_create/update/delete_partition
+# are catalog metadata on the table, not row-level DELETE/INSERT), so those three are the
+# whole set. Still not ["ALL"] — see the never-settles read-back note above.
 resource "aws_lakeformation_permissions" "gold_purge_tables" {
   principal   = var.gold_purge_lambda_role_arn
-  permissions = ["DESCRIBE", "DROP"]
+  permissions = ["ALTER", "DESCRIBE", "DROP"]
 
   table {
     database_name = var.database_name

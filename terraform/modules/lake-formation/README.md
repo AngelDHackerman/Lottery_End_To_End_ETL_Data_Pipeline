@@ -15,7 +15,16 @@ not imports — the equivalent setup existed only as console clicks (documented 
 | database | `glue-crawler-role` | `CREATE_TABLE, ALTER, DROP, DESCRIBE` |
 | all tables in db | `glue-crawler-role` | `ALTER, DELETE, DESCRIBE, DROP, INSERT, SELECT` |
 | silver data location | `glue-crawler-role` | `DATA_LOCATION_ACCESS` |
+| all tables in db | `lottery-gold-purge-role` | `ALTER, DESCRIBE, DROP` |
+| database | `sfn-lottery-execution-role` | `CREATE_TABLE, ALTER, DROP, DESCRIBE` |
+| all tables in db | `sfn-lottery-execution-role` | `ALTER, DELETE, DESCRIBE, DROP, INSERT, SELECT` |
 | database | `IAM_ALLOWED_PRINCIPALS` | `CREATE_TABLE, ALTER, DROP, DESCRIBE` (gated) |
+
+The gold-purge role's `ALTER` is what lets PR-042.1's swap repoint a published table at
+the generation built beside it (`glue.update_table`, plus the partition moves that follow).
+It is a **table** permission: the same role also holds `ALTER` on the *database*, granted
+outside Terraform, and that one authorises altering the database itself — it does not reach
+the tables. PR-042.3 exists because those two were mistaken for each other.
 
 The `IAM_ALLOWED_PRINCIPALS` grant is gated behind
 `enable_iam_allowed_principals_compat` (default **true**). It is required while the
