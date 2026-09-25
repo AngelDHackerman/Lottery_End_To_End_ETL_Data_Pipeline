@@ -87,9 +87,20 @@ variable "scrape_geo_code" {
 }
 
 variable "scrape_render" {
-  description = "Route through scrape.do's headless browser. Required to pass Cloudflare."
+  description = <<-EOT
+    Route through scrape.do's headless browser.
+
+    PR-031.1 turned this ON to pass Cloudflare; PR-031.2 turned it back OFF on 2026-09-24,
+    when render=true became the parameter that FAILED (eight straight 502 ROTATION_FAILED at
+    ~57.5 s, while geoCode=GT + super=true alone answered 200 in 9.7 s). Rendering also costs
+    25 credits per request against a 1000/month plan versus 10 without it.
+
+    Flip it back to true if the site starts requiring a real browser again — the extractor
+    reads it from SCRAPE_RENDER, so a live incident can be handled with an env change and
+    this variable brought back in line afterwards.
+  EOT
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "scrape_super" {
