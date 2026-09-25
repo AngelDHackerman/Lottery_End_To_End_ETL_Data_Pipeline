@@ -201,38 +201,58 @@ _BATCH_UPDATE = 100
 _BATCH_CREATE = 100
 _BATCH_DELETE = 25
 
-#: Keys GetTable returns that TableInput does not accept. Passing any of them back is an
-#: InvalidInputException, which is why the input is built by subtraction rather than by hand:
-#: a field added to a future Glue API version keeps flowing through instead of being dropped.
-_READ_ONLY_TABLE_KEYS = frozenset(
+#: The fields ``TableInput`` accepts. Anything else GetTable returns is dropped.
+#:
+#: PR-031.3: this was a DENYLIST, and its own comment argued for it — "a field added to a
+#: future Glue API version keeps flowing through instead of being dropped" was written as
+#: the feature. It is the bug. On 2026-09-24 Glue's GetTable response began carrying
+#: ``IsMaterializedView``; nothing here knew to remove it, ``update_table`` rejected it with
+#: ``ParamValidationError``, and PromoteGold failed on a run whose extraction, transform,
+#: crawlers, DQ gate and CTAS had all succeeded. Every field AWS adds from here on was
+#: another scheduled outage.
+#:
+#: Written by hand rather than read from ``glue.meta.service_model`` so the accepted set is
+#: reviewable in the diff and identical in every runtime. ``test_table_input_fields_are_all_
+#: accepted_by_glue`` asserts it stays a subset of botocore's TableInput shape, which is the
+#: property that actually prevents the outage: a field we never send cannot be rejected.
+#:
+#: This is the full shape, so the swap carries exactly what it carried before — the change
+#: is only that unknown fields no longer ride along.
+_TABLE_INPUT_FIELDS = frozenset(
     {
-        "DatabaseName",
-        "CreateTime",
-        "UpdateTime",
-        "CreatedBy",
-        "IsRegisteredWithLakeFormation",
-        "CatalogId",
-        "VersionId",
-        "FederatedTable",
-        "IsMultiDialectView",
-        "Status",
+        "Name",
+        "Description",
+        "Owner",
+        "LastAccessTime",
+        "LastAnalyzedTime",
+        "Retention",
+        "StorageDescriptor",
+        "PartitionKeys",
+        "ViewOriginalText",
+        "ViewExpandedText",
+        "TableType",
+        "Parameters",
+        "TargetTable",
+        "ViewDefinition",
     }
 )
 
-_READ_ONLY_PARTITION_KEYS = frozenset(
-    {"DatabaseName", "TableName", "CreationTime", "LastAccessTime", "LastAnalyzedTime", "CatalogId"}
-)
+#: The subset of ``PartitionInput`` the swap carries. Deliberately narrower than the shape:
+#: ``LastAccessTime`` and ``LastAnalyzedTime`` are accepted by Glue but were dropped by the
+#: old denylist, and a fix for an outage is the wrong place to start publishing timestamps
+#: that nothing has ever read.
+_PARTITION_INPUT_FIELDS = frozenset({"Values", "StorageDescriptor", "Parameters"})
 
 
 def _table_input(table: dict, name: str) -> dict:
     """Turn a GetTable response into a TableInput published under ``name``."""
-    payload = {k: v for k, v in table.items() if k not in _READ_ONLY_TABLE_KEYS}
+    payload = {k: v for k, v in table.items() if k in _TABLE_INPUT_FIELDS}
     payload["Name"] = name
     return payload
 
 
 def _partition_input(partition: dict) -> dict:
-    return {k: v for k, v in partition.items() if k not in _READ_ONLY_PARTITION_KEYS}
+    return {k: v for k, v in partition.items() if k in _PARTITION_INPUT_FIELDS}
 
 
 def _all_partitions(database: str, table: str) -> list[dict]:

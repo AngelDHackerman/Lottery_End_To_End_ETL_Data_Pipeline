@@ -663,3 +663,111 @@ class TestTheGuardsInside:
         future caller — which is exactly when a silent wrong-location write would hurt."""
         with pytest.raises(ValueError, match="external_location"):
             gold._rewrite_for_staging("CREATE TABLE db.t AS SELECT 1", "db", "t__stg_x", "s3://b/")
+
+
+class TestTheInputsSentToGlue:
+    """PR-031.3 — the swap must send Glue only fields Glue accepts.
+
+    `_table_input` used to be a DENYLIST: take the whole GetTable response, subtract the
+    keys known to be read-only, send the rest. That inverts the safety property. On
+    2026-09-24 Glue started returning `IsMaterializedView`, it was on no list, and
+    `update_table` rejected the call with `ParamValidationError` — PromoteGold failed on a
+    run whose extraction, transform, crawlers, DQ gate and CTAS had all passed, and every
+    future field AWS adds would have done the same.
+
+    The regression test is `test_an_unknown_field_is_dropped`; the other two are the
+    contract that keeps it true.
+    """
+
+    def test_an_unknown_field_is_dropped(self, gold):
+        """The 2026-09-24 outage, reproduced by name.
+
+        Not parameterised on the real field alone: any unrecognised key must be dropped,
+        because the next one will have a different name and no warning.
+        """
+        staged = {
+            "Name": "gold_draw_summary__stg_run",
+            "StorageDescriptor": {"Location": "s3://b/p/"},
+            "IsMaterializedView": False,
+            "SomeFieldAwsHasNotInventedYet": {"nested": True},
+        }
+
+        payload = gold._table_input(staged, "gold_draw_summary")
+
+        assert "IsMaterializedView" not in payload
+        assert "SomeFieldAwsHasNotInventedYet" not in payload
+        assert payload["Name"] == "gold_draw_summary"
+        assert payload["StorageDescriptor"] == {"Location": "s3://b/p/"}
+
+    def test_the_read_only_fields_are_still_dropped(self, gold):
+        """The denylist's actual job, which the allowlist has to keep doing.
+
+        `DatabaseName`, `CatalogId` and friends come back on every GetTable and are rejected
+        by TableInput — the allowlist excludes them by not naming them, but that is worth an
+        assertion rather than an inference.
+        """
+        staged = {
+            "Name": "t__stg_run",
+            "DatabaseName": "lottery_santalucia_db",
+            "CatalogId": "913524903233",
+            "CreateTime": "2026-09-24",
+            "UpdateTime": "2026-09-24",
+            "CreatedBy": "arn:aws:sts::913524903233:assumed-role/x",
+            "IsRegisteredWithLakeFormation": True,
+            "VersionId": "4",
+            "Parameters": {"generation": "new"},
+        }
+
+        payload = gold._table_input(staged, "t")
+
+        assert set(payload) == {"Name", "Parameters"}
+
+    def test_every_field_we_send_is_one_glue_accepts(self, gold):
+        """The guard that makes the fix self-maintaining.
+
+        Checked against botocore's own service model — the same source that produced the
+        error message in the outage — so this fails in CI if either allowlist ever names a
+        field the API does not take. A subset, not an equality: a field AWS adds that we
+        simply do not send cannot break anything, and should not turn CI red.
+
+        `botocore.session` reads a bundled JSON model. No credentials, no network.
+        """
+        import botocore.session
+
+        glue_model = botocore.session.get_session().get_service_model("glue")
+
+        table_fields = set(glue_model.shape_for("TableInput").members)
+        partition_fields = set(glue_model.shape_for("PartitionInput").members)
+
+        assert gold._TABLE_INPUT_FIELDS <= table_fields, (
+            "TableInput fields Glue does not accept: "
+            f"{sorted(gold._TABLE_INPUT_FIELDS - table_fields)}"
+        )
+        assert gold._PARTITION_INPUT_FIELDS <= partition_fields, (
+            "PartitionInput fields Glue does not accept: "
+            f"{sorted(gold._PARTITION_INPUT_FIELDS - partition_fields)}"
+        )
+
+    def test_partition_input_keeps_carrying_what_it_carried(self, gold):
+        """The partition path had the same denylist shape and the same latent bug.
+
+        Narrowing it changed nothing that ships: `Values`, `StorageDescriptor` and
+        `Parameters` are what the old subtraction left behind, and they are what it leaves
+        behind now. The response keys around them are the ones that must not survive.
+        """
+        partition = {
+            "Values": ["2026"],
+            "StorageDescriptor": {"Location": "s3://b/p/year=2026/"},
+            "Parameters": {"k": "v"},
+            "DatabaseName": "lottery_santalucia_db",
+            "TableName": "gold_draw_summary",
+            "CreationTime": "2026-09-24",
+            "CatalogId": "913524903233",
+            "IsSomethingNew": True,
+        }
+
+        assert gold._partition_input(partition) == {
+            "Values": ["2026"],
+            "StorageDescriptor": {"Location": "s3://b/p/year=2026/"},
+            "Parameters": {"k": "v"},
+        }
