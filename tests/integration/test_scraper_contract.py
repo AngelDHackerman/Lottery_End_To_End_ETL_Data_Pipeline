@@ -40,12 +40,24 @@ from bs4 import BeautifulSoup  # noqa: E402
 AWARD_URL = "https://loteria.org.gt/site/award"
 BASE_PROXY_URL = "http://api.scrape.do/"
 
-# PR-031.1: the canary must take the SAME proxy path as the extractor or it stops being a
-# canary. All three parameters are required together to get past Cloudflare — see the long
-# note in scraping.py. Keep in sync with GEO_CODE / PROXY_RENDER / PROXY_SUPER there.
+# The canary must take the SAME proxy path as the extractor or it stops being a canary: a
+# profile that works here and not in production tells you nothing. These are re-declared
+# rather than imported because importing scraping.py reaches Secrets Manager (see the module
+# docstring) — test_proxy_profile_matches_the_extractor reads the defaults straight out of
+# that file and fails if these three drift from it.
+#
+# PR-031.2 (2026-09-24): render flipped back to "false". It was PR-031.1's fix in August and
+# became the cause of an identical outage five weeks later. See the long note in scraping.py.
 GEO_CODE = "GT"  # Guatemala; only available on residential (super=true)
-PROXY_RENDER = "true"
+PROXY_RENDER = "false"
 PROXY_SUPER = "true"
+
+# The env var behind each constant above, for the drift guard.
+PROXY_PROFILE_DEFAULTS = {
+    "SCRAPE_GEO_CODE": GEO_CODE,
+    "SCRAPE_RENDER": PROXY_RENDER,
+    "SCRAPE_SUPER": PROXY_SUPER,
+}
 
 SCRAPING_SRC = Path(__file__).parents[2] / "src" / "loteria" / "extractor" / "scraping.py"
 
@@ -109,13 +121,19 @@ def fetch(url: str, token: str) -> requests.Response:
     ReadTimeout — and an anonymous timeout is also the exception shape most likely to be
     dumped straight into an issue body. A clearer error and a scrubbed one are the same fix.
     """
+    # Built to match build_proxy_url(): a parameter that is off is OMITTED, not sent as
+    # "false". scrape.do treats `render=false` as an unrecognised value on some paths, and a
+    # canary that sends a request production never sends is not testing production.
     proxy_url = (
         f"{BASE_PROXY_URL}?url={urllib.parse.quote(url, safe='')}"
         f"&token={token}&geoCode={GEO_CODE}"
-        f"&render={PROXY_RENDER}&super={PROXY_SUPER}"
     )
-    # 60 s, matching scraping.py: a rendered success returns in ~5-6 s but scrape.do itself
-    # takes ~57 s to give up, and cutting below that hides the real error behind a timeout.
+    if PROXY_RENDER == "true":
+        proxy_url += "&render=true"
+    if PROXY_SUPER == "true":
+        proxy_url += "&super=true"
+    # 60 s, matching scraping.py: a success returns in ~10 s but scrape.do itself takes
+    # ~57 s to give up, and cutting below that hides the real error behind a timeout.
     # Do NOT lower this to make the canary faster — PR-031.1 exists because it was 25 s.
     try:
         return requests.get(proxy_url, timeout=60)
@@ -148,6 +166,35 @@ def test_selectors_match_the_extractor():
     assert not missing, (
         "These locators are asserted by the canary but no longer appear in "
         f"{SCRAPING_SRC.name} — update both together:\n  " + "\n  ".join(missing)
+    )
+
+
+def test_proxy_profile_matches_the_extractor():
+    """The canary's proxy parameters must equal the extractor's defaults.
+
+    The same silent-drift trap as the selectors above, on the part of the request that has
+    actually broken twice. The August outage left GEO_CODE written out in two files with a
+    comment asking the next reader to keep them in sync by hand; on 2026-09-24 the profile
+    changed again, and a comment is not a mechanism. If these diverge, the canary runs a
+    request production never makes and its green is meaningless.
+
+    Reads the defaults out of the source text rather than importing: scraping.py calls
+    get_secrets() at module scope, and this test has to run in GitHub Actions with no AWS
+    credentials at all.
+    """
+    source = SCRAPING_SRC.read_text(encoding="utf-8")
+
+    drift = []
+    for env_name, expected in PROXY_PROFILE_DEFAULTS.items():
+        match = re.search(rf'os\.environ\.get\("{env_name}", "([^"]*)"\)', source)
+        if match is None:
+            drift.append(f"{env_name}: no default found in {SCRAPING_SRC.name}")
+        elif match.group(1) != expected:
+            drift.append(f"{env_name}: canary says {expected!r}, extractor says {match.group(1)!r}")
+
+    assert not drift, (
+        "The canary is no longer taking the extractor's proxy path — it would be testing a "
+        "request production does not make:\n  " + "\n  ".join(drift)
     )
 
 
@@ -281,9 +328,12 @@ def award_page(token) -> BeautifulSoup:
     lowered = resp.text.lower()
     if any(marker in lowered for marker in BLOCKED_MARKERS):
         pytest.fail(
-            "Cloudflare served a hard block page for loteria.org.gt. The render+super+GT "
-            "proxy profile has stopped working — this needs a new profile, not a retry. "
-            "See docs/runbooks/PR-031.1-scraper-restore.md."
+            f"Cloudflare served a hard block page for loteria.org.gt. The current proxy "
+            f"profile (geoCode={GEO_CODE}, render={PROXY_RENDER}, super={PROXY_SUPER}) has "
+            "stopped working — this needs a new profile, not a retry. It has changed twice "
+            "already; both times the winning combination was found by trying variants until "
+            "one returned 200, and failed requests are not charged. "
+            "See docs/runbooks/PR-031.2-drop-headless-render.md."
         )
 
     if any(marker in lowered for marker in WAITING_ROOM_MARKERS):

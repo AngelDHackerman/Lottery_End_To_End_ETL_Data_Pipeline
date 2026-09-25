@@ -1206,42 +1206,50 @@ scrape.do's country pools: datacenter covers a limited set (the published list o
 > vendor, already structured. Parsing that instead of the DOM would make the extractor immune
 > to this whole class of redesign. Worth a PR of its own.
 
-## PR-031.3 — The gold swap sent Glue a field Glue does not accept (unplanned; 2026-09-24)
+## PR-031.2 — Drop `render=true` (unplanned; outage 2026-09-24)
 
-Not a roadmap item — found inside PR-031.2's recovery run, and unrelated to it. Runbook:
-`docs/runbooks/PR-031.3-glue-tableinput-allowlist.md`.
+Not a roadmap item — an incident fix, like PR-031.1 and PR-026.1 before it. Runbook:
+`docs/runbooks/PR-031.2-drop-headless-render.md`.
 
-The recovery run passed extraction, transform, both crawlers, the Silver DQ gate and the
-gold CTAS, then failed on the last state:
+**The August fix became the September outage.** PR-031.1 concluded that
+`render=true&super=true&geoCode=GT` was the only combination that passed Cloudflare, and
+tested every proper subset to prove it. Five weeks later the 2026-09-24 run failed with a
+byte-identical `502 / ErrorCode 90 / ROTATION_FAILED` — and this time `render` was the
+cause. Eight consecutive failures on the PR-031.1 profile (2 in production, 6 by hand, all
+at 57.5 s), then `geoCode=GT&super=true` with render dropped: **HTTP 200 in 9.7 s, first
+attempt**. Verified against the live Extraordinario 415 page — 1608 prize lines, header and
+all six locators intact.
 
-```
-ParamValidationError: Unknown parameter in TableInput: "IsMaterializedView"
-```
+The lesson is not "render is wrong". It is that **the proxy profile is a live negotiation,
+not a constant**, and a runbook that says "every subset was tested and failed" is a
+statement about one afternoon. What held across both incidents is `geoCode=GT` +
+`super=true`; treat those as the floor and `render` as the dial.
 
-`_table_input` built its payload by **subtraction** — take the GetTable response, remove the
-keys known to be read-only, send the rest — and its own comment argued for it: *"a field
-added to a future Glue API version keeps flowing through instead of being dropped."* That is
-the bug stated as the feature. Between 2026-09-17 and 2026-09-24 Glue's response grew
-`IsMaterializedView`, nothing knew to remove it, and `update_table` rejected the call. With a
-denylist, **every field AWS adds is an outage scheduled on AWS's release calendar.**
-`_partition_input` had the same shape on the path that runs immediately after.
+| | PR-031.1 profile | PR-031.2 profile |
+|---|---|---|
+| Credits per request | 25 | **10** |
+| Per pipeline run (2 calls) | 50 | **20** |
+| Per month (runs + weekly canary) | ~430 / 1000 | **~175 / 1000** |
 
-Both are allowlists now, held to botocore's own `TableInput` / `PartitionInput` shapes by a
-test that reads the bundled service model — no credentials, no network. A *subset* check, not
-an equality: a field AWS adds that we never send cannot break anything and should not turn CI
-red.
+### What this found on the way
 
-**Nothing was corrupt.** `promote` is the last state and it failed on its first call, before
-`_move_partitions`: all 7 published `gold_*` tables stayed on the 2026-09-17 generation,
-consistent and one generation stale, with 3 disposable `__stg_` entries left behind for
-inspection — which is exactly what the swap's ordering was written to guarantee.
-
-### The evening's pattern, twice
-
-PR-031.2 and PR-031.3 are the same mistake in different systems: a **response** from someone
-else — Cloudflare's tolerance for headless rendering, Glue's table schema — treated as fixed
-because it had been tested once. Where this repo reads someone else's payload, name what it
-wants rather than subtract what it knows about today.
+- **The canary duplicated the proxy profile by hand**, guarded only by a comment asking the
+  next reader to keep two files in sync. It cannot import `scraping.py` (module-scope
+  `get_secrets()`, and the canary runs in Actions without AWS), so the duplication is
+  structural — the missing piece was a check. `test_proxy_profile_matches_the_extractor`
+  now reads the defaults out of the source and fails on drift, mirroring what
+  `test_selectors_match_the_extractor` already did for the six locators. Without it this PR
+  would have left the canary testing a request production no longer makes.
+- **`RunExtractorLambda`'s `Retry` never engaged.** PR-031.1 added one, but its
+  `ErrorEquals` covers only transport faults (`ReadTimeout`, `ConnectionError`, four
+  `Lambda.*`). A proxy 502 arrives as the `ValueError` from `fetch_via_proxy`, so the run
+  got a single attempt. Not fixed here — it would not have saved an eight-failure outage —
+  but filed.
+- **The `loteria-sfn-execution-failed-prod` alarm description still says "the machine has no
+  Retry/Catch"**, stale since PR-031.1 and the first thing the alert email shows.
+- **Failed scrape.do requests are not charged**, so variant-probing a broken profile is
+  free until it works. That is the diagnosis technique to reach for next time, ahead of any
+  reasoning from the documentation.
 
 ## PR-032 — Great Expectations suite for Silver
 **Prompt:**
@@ -2821,7 +2829,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
-| 031.3 | **Gold swap sent Glue a field Glue rejects** (found 2026-09-24 recovering 031.2's stranded sorteo): `_table_input` was a denylist, Glue's GetTable grew `IsMaterializedView`, `PromoteGold` died with `ParamValidationError`. Both inputs are allowlists now, guarded against botocore's own shapes | **PR open, not applied** | [PR #66](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/66) |
+| 031.2 | **Drop `render=true`** (outage 2026-09-24: the parameter PR-031.1 added became the one Cloudflare rejects — 8 × `502 ROTATION_FAILED` at 57.5 s, while `GT`+`super` alone answered 200 in 9.7 s). Also halves the credit cost and puts a drift guard on the canary's proxy profile | env applied to prod 2026-09-24 · **PR open, terraform not yet applied** | [PR #65](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/65) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |

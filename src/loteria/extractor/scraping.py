@@ -25,32 +25,49 @@ simple_bucket = buckets["simple"]
 SCRAPE_DO_TOKEN = buckets["scrape_do_token"]
 BASE_PROXY_URL = "http://api.scrape.do/"
 
-# PR-031.1 — the proxy profile that still gets through Cloudflare.
+# PR-031.2 — the proxy profile that still gets through Cloudflare.
 #
-# On 2026-08-20 loteria.org.gt tightened its protection and every plain request started
-# coming back as `502 ROTATION_FAILED / "cannot connect target url"` after ~57 s. That
-# message is misleading: it is not an unreachable host, it is scrape.do's simple HTTP
-# client failing Cloudflare's browser check.
+# This block has now been rewritten twice by the same class of outage, in opposite
+# directions, which is the point worth remembering: the profile is a live negotiation with
+# someone else's bot defence, not a constant. Do not treat any line here as settled.
 #
-# All THREE parameters below are required together. Each was tested in isolation against
-# the live site on 2026-08-27 and every proper subset still failed — render alone,
-# super alone, render+super without a geo, render+GT without super, and plain geoCode in
-# AR/BR/CL/CR/US/MX/CO/SV. Only Guatemalan residential + headless rendering answers 200.
-# Do not "simplify" this by dropping one: the failure is a hard outage, not a slowdown.
+# 2026-08-20: plain requests started coming back `502 ROTATION_FAILED / "cannot connect
+# target url"` after ~57 s. PR-031.1 fixed it by adding render + super + GT together; every
+# proper subset was tested and failed, render included.
 #
-# Cost: 25 credits per successful request (measured against RemainingMonthlyRequest),
-# versus 1 before, on a 1000/month plan. extract_lottery_data() makes two proxied calls,
-# so a run costs ~50. Failed requests are NOT charged — a full quota counter therefore
-# proves nothing about whether the pipeline ran.
+# 2026-09-24: the exact same 502, at the exact same ~57.5 s — and this time `render=true`
+# was the CAUSE. Eight consecutive failures with the PR-031.1 profile (2 in production,
+# 6 probing by hand, byte-identical bodies), then `geoCode=GT&super=true` with render
+# DROPPED answered 200 in 9.7 s on the first attempt. The site stopped needing the headless
+# browser and Cloudflare stopped letting it through; scrape.do's own error text
+# ("You're already using super=true and render=true") confirms it had nothing left to
+# escalate to. Verified against the live sorteo 415 page: 1608 prize lines, header and all
+# six locators intact, so this is a proxy-path change only.
+#
+# What has held across BOTH incidents: geoCode=GT and super=true. GT is residential-only,
+# so super is not optional, and no other country has ever worked. Those two are the floor.
+#
+# Cost: 10 credits per request without render, 25 with it, on a 1000/month plan.
+# extract_lottery_data() makes two proxied calls, so a run went from ~50 to ~20 credits.
+# Failed requests are NOT charged — a full quota counter therefore proves nothing about
+# whether the pipeline ran.
+#
+# All three are environment-overridable precisely because this keeps moving: if the site
+# swings back, SCRAPE_RENDER=true restores the PR-031.1 profile without a deploy. Change
+# the default here and in terraform/modules/etl-lambda/variables.tf together — and in
+# tests/integration/test_scraper_contract.py, which re-declares them and is guarded by
+# test_proxy_profile_matches_the_extractor.
 GEO_CODE = os.environ.get("SCRAPE_GEO_CODE", "GT")  # Guatemala; residential only
-PROXY_RENDER = os.environ.get("SCRAPE_RENDER", "true").lower() == "true"
+# Default flipped to false on 2026-09-24 — see above. This is the parameter that broke.
+PROXY_RENDER = os.environ.get("SCRAPE_RENDER", "false").lower() == "true"
 PROXY_SUPER = os.environ.get("SCRAPE_SUPER", "true").lower() == "true"
 
 # Was 25 s, which sat BELOW scrape.do's own ~57 s give-up. Production therefore never saw
 # the real 502 — only a requests.ReadTimeout — which is why the logs named the wrong cause
-# for two weeks. 60 s lets the actual proxy error surface. A rendered success takes ~5-6 s,
-# so this ceiling is only ever reached on failure, and one failure still fits inside the
-# Lambda's 120 s timeout with room for the second call.
+# for two weeks. 60 s lets the actual proxy error surface. A success takes ~10 s on the
+# PR-031.2 profile (~5-6 s on the rendered one), so this ceiling is only ever reached on
+# failure, and one failure still fits inside the Lambda's 120 s timeout with room for the
+# second call.
 PROXY_TIMEOUT = int(os.environ.get("SCRAPE_TIMEOUT", "60"))
 
 # The prize list moved (see extract_lottery_data). Named here so the PR-031 canary can
