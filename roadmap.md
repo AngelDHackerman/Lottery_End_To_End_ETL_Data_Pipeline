@@ -2574,6 +2574,36 @@ instead of blocking.
 > once two healthy `run=` generations exist — i.e. after the second successful run following
 > the apply, when the rollback target is one the new mechanism built.
 
+> **Verified in prod, 2026-09-27.** Execution `verify-042-2-1790534766`, SUCCEEDED in
+> 8m31s — and unlike 042.1, this one got its run *before* the row was flipped.
+>
+> **The prediction was written down first, which is the only reason the result means
+> anything.** Before launching: 19 `run=` prefixes across the 7 tables, 12 to be retired,
+> 14 to remain, 2 per table, flat layout untouched. After: **14, two per table, and the
+> flat-layout counts (1,1,1,1,3,3,3) byte-identical to the baseline.** The three dead
+> generations of 09-24 — the ones no principal could delete by hand — are gone.
+>
+> **The kept generation is `verify_partitions_1790301220` on all seven tables**, which is
+> the last *known-good* one rather than one of the failures. That is the mtime ranking doing
+> the job the slug ordering could not have: the three dead generations sort by name in an
+> order that has nothing to do with time, and a name-ranked retention could have kept a
+> failed run's output as the sole rollback target.
+>
+> **`gold_geo_winnings`' three partitions stayed aligned with its table** on the new
+> generation — the exact failure mode PR-042.4 produced on 09-24 (table repointed,
+> partitions behind) did not recur. All seven tables non-empty: 1 object each for the
+> unpartitioned, 3 for the partitioned.
+>
+> **`GOLD_RETENTION_FAILED` absent from the log, alarm `OK`.** This is the check that is easy
+> to skip and is the whole point: `RetireGold` is designed never to fail the run, so a green
+> execution says nothing about whether it worked.
+>
+> `gold/` went from 42 objects / 1.61 MB to **39 / 1.01 MB**, and the shape is now
+> explainable in one line: 13 live + 13 rollback + 13 pre-042 flat layout.
+>
+> **8B is closed.** Fault B — both halves, each verified by a real production run rather
+> than by a green plan.
+
 
 ## PR-042.3 — The swap could not alter the table it was built to alter (unplanned; 2026-09-24)
 
@@ -3122,7 +3152,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **PR open, not applied** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — the retention state, its alarm, and the arrears it collects · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
