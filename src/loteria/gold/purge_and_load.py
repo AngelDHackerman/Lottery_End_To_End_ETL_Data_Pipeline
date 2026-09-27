@@ -20,8 +20,14 @@ inconsistent with no single state to reason about.
     Called only after the CTAS succeeded. Point the published table at what was just built,
     through ``UpdateTable`` — one API call, atomic — and move its partitions across. The
     previous generation stays in S3, serving reads until the instant of the swap and
-    available as a rollback afterwards. Retiring old generations is PR-042.2, deliberately
-    separate: a delete that runs before the swap is the defect this PR exists to remove.
+    available as a rollback afterwards.
+
+``retire`` (PR-042.2)
+    Called after the swap, in a state allowed to fail without failing the run. Deletes the
+    generations behind the live one, keeping it plus ``keepPrevious`` more so the rollback
+    in the runbook always has a target. It re-reads the live generation from the catalog
+    rather than trusting the payload it was handed — see its docstring for why that is not
+    paranoia — and it cannot see the pre-042 flat layout at all, which is deliberate.
 
 **The purge did not disappear, it moved.** ``_empty_prefix`` still runs in ``prepare``, but
 against the staging location only — a prefix this execution owns and that has never been
@@ -449,7 +455,192 @@ def promote(event: dict, correlation_id: str) -> dict:
     }
 
 
-ACTIONS = {"prepare": prepare, "promote": promote}
+# ==========================================================================================
+# retire — PR-042.2
+# ==========================================================================================
+#: How many NON-live generations to keep behind the live one. 1 means "live plus one", which
+#: is what makes the rollback in the runbook possible: re-point the catalog at the previous
+#: generation. 0 would leave nothing to roll back to and is rejected rather than honoured —
+#: a retention mechanism that can delete its own rollback target is not a retention
+#: mechanism.
+DEFAULT_KEEP_PREVIOUS = 1
+
+_RUN_PREFIX_RE = re.compile(r"/run=(?P<slug>[^/]+)/?$")
+
+
+def _generation_prefixes(bucket: str, parent_prefix: str) -> list[str]:
+    """Every ``<parent>/run=<slug>/`` prefix that exists under a table's prefix.
+
+    Uses ``Delimiter='/'`` so this is one cheap LIST per table rather than a full walk, and
+    so it can only ever see the table's OWN children. Anything that is not a ``run=``
+    directory is invisible here by construction — see ``retire``'s note on the flat layout.
+    """
+    parent = parent_prefix.rstrip("/") + "/"
+    paginator = s3.get_paginator("list_objects_v2")
+    found = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=parent, Delimiter="/"):
+        for cp in page.get("CommonPrefixes", []):
+            if _RUN_PREFIX_RE.search("/" + cp["Prefix"].rstrip("/")):
+                found.append(cp["Prefix"])
+    return found
+
+
+def _generation_age_key(bucket: str, prefix: str) -> float:
+    """Newest object mtime under a generation, as the sort key for "which is oldest".
+
+    **Why not sort the slugs.** A scheduled execution is named by two UUIDs, so run slugs
+    have no chronological order at all; sorting them would retire generations in essentially
+    random order and could keep three dead ones while deleting the only good rollback
+    target. S3 mtimes are the only ordering that reflects when a generation was actually
+    built. An empty prefix sorts oldest (``0.0``) — it holds nothing worth rolling back to.
+    """
+    newest = 0.0
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            newest = max(newest, obj["LastModified"].timestamp())
+    return newest
+
+
+def retire(event: dict, correlation_id: str) -> dict:
+    """Delete the generations behind the live one, keeping it and ``keepPrevious`` more.
+
+    Runs **after** ``promote``, in a state that is allowed to fail without failing the run:
+    a leaked generation costs cents, while a delete that runs before the swap is precisely
+    the defect PR-042.1 exists to remove. Ordering is the entire safety argument here, and
+    it is enforced by the state machine, not assumed by this function.
+
+    **The live generation is read from the catalog, never from the event.** ``promote``
+    already returned it, and trusting that value would be one plausible refactor away from
+    deleting live data — if a future change reorders the states, or a retry replays a stale
+    payload, the event's idea of "live" could be a generation that is no longer published.
+    ``glue:GetTable`` is the only source that cannot be stale, so it is the only one used,
+    and the live prefix is then excluded by identity as well as by rank.
+
+    **The pre-042 flat layout is deliberately out of scope.** Under each table there is also
+    the generation from before blue/green existed: a bare Parquet at the table root for the
+    unpartitioned tables, ``year=*/`` prefixes for the partitioned ones. It does not match
+    ``run=``, so ``_generation_prefixes`` cannot see it and this function will never delete
+    it. That is a decision, not an oversight: it is the last generation that was published
+    and good before the swap existed, and while every other non-live generation on disk came
+    from a run that *failed*, it is the only real rollback target. It is reported in the
+    return value under ``flatLayoutPresent`` so it stays visible instead of becoming a
+    prefix nobody mentions. Retire it by hand once two healthy ``run=`` generations exist.
+    """
+    database = event["database"]
+    table = event["table"]
+    keep_previous = int(event.get("keepPrevious", DEFAULT_KEEP_PREVIOUS))
+    if keep_previous < 1:
+        raise ValueError(
+            f"keepPrevious must be at least 1 (got {keep_previous!r}): keeping zero previous "
+            "generations leaves the swap with no rollback target."
+        )
+
+    published = glue.get_table(DatabaseName=database, Name=table)["Table"]
+    live_location = published.get("StorageDescriptor", {}).get("Location") or ""
+    if not live_location.startswith("s3://"):
+        raise ValueError(f"{database}.{table} has no usable S3 location: {live_location!r}")
+
+    bucket, _, live_prefix = live_location[len("s3://") :].partition("/")
+    live_prefix = live_prefix.rstrip("/") + "/"
+    if not _RUN_PREFIX_RE.search("/" + live_prefix.rstrip("/")):
+        # The table is still on the pre-042 flat layout, so there is no generation to be
+        # "behind" and nothing here is safe to reason about. Do nothing, loudly.
+        logger.info(
+            "[%s] retire skipped table=%s.%s reason=not_on_a_run_generation location=%s",
+            correlation_id,
+            database,
+            table,
+            live_location,
+        )
+        return {
+            "database": database,
+            "table": table,
+            "liveLocation": live_location,
+            "skipped": "table is not on a run= generation",
+            "retired": [],
+            "objectsDeleted": 0,
+        }
+
+    parent_prefix = live_prefix[: live_prefix.rindex("/run=")]
+    candidates = [p for p in _generation_prefixes(bucket, parent_prefix) if p != live_prefix]
+
+    # Newest first, so the survivors are the most recent ones behind live. The prefix name
+    # is a secondary key purely to make ties deterministic: two generations can share a
+    # second (the four manual runs of 2026-09-24 were minutes apart, and nothing stops two
+    # from landing closer), and an unstable sort would then retire a different generation
+    # on every invocation for the same input. The choice between two same-second
+    # generations is arbitrary — what must not be arbitrary is that it is the SAME choice
+    # twice, because an operator reading the runbook's rollback step needs the previous
+    # generation to still be there when they get to it.
+    candidates.sort(key=lambda p: (_generation_age_key(bucket, p), p), reverse=True)
+    doomed = candidates[keep_previous:]
+
+    retired, objects_deleted, tables_dropped = [], 0, []
+    for prefix in doomed:
+        # Belt and braces. The live prefix was filtered out above and sorting cannot
+        # reintroduce it, but this is the line between "retires old copies" and "deletes
+        # production data", so it is asserted at the point of deletion too.
+        if prefix == live_prefix:  # pragma: no cover - unreachable by construction
+            raise RuntimeError(f"refusing to retire the live generation {prefix!r}")
+
+        objects_deleted += _empty_prefix(bucket, prefix)
+        retired.append(f"s3://{bucket}/{prefix}")
+
+        # A generation from a FAILED run still has its staging catalog entry, because the
+        # run died before promote could drop it. Retiring the bytes without the name would
+        # leave a table pointing at nothing — a worse artefact than either alone.
+        match = _RUN_PREFIX_RE.search("/" + prefix.rstrip("/"))
+        if match and _drop_table(database, f"{table}{STAGING_SUFFIX}{match.group('slug')}"):
+            tables_dropped.append(f"{table}{STAGING_SUFFIX}{match.group('slug')}")
+
+    # Both shapes of the pre-042 layout, because they live in different fields of the same
+    # response: an unpartitioned table left a bare Parquet at the table root (``Contents``),
+    # a partitioned one left ``year=*/`` directories (``CommonPrefixes``). Checking only the
+    # first would report "no flat layout" for exactly the three tables most likely to have
+    # one.
+    listing = s3.list_objects_v2(Bucket=bucket, Prefix=parent_prefix + "/", Delimiter="/")
+    flat_layout_present = bool(listing.get("Contents")) or any(
+        not _RUN_PREFIX_RE.search("/" + cp["Prefix"].rstrip("/"))
+        for cp in listing.get("CommonPrefixes", [])
+    )
+
+    logger.info(
+        "[%s] retired table=%s.%s live=%s kept_previous=%d retired=%d objects=%d "
+        "staging_tables_dropped=%s flat_layout_present=%s",
+        correlation_id,
+        database,
+        table,
+        live_prefix,
+        min(keep_previous, len(candidates)),
+        len(retired),
+        objects_deleted,
+        tables_dropped,
+        flat_layout_present,
+    )
+
+    return {
+        "database": database,
+        "table": table,
+        "liveLocation": live_location,
+        "keptPrevious": min(keep_previous, len(candidates)),
+        "retired": retired,
+        "objectsDeleted": objects_deleted,
+        "stagingTablesDropped": tables_dropped,
+        "flatLayoutPresent": flat_layout_present,
+    }
+
+
+ACTIONS = {"prepare": prepare, "promote": promote, "retire": retire}
+
+
+#: Grepped by a CloudWatch metric filter (PR-042.2) to raise the retention alarm. The state
+#: machine deliberately swallows a ``retire`` failure so it cannot cost a week of Gold, which
+#: means the execution goes green and nothing else in the system will ever mention it. This
+#: line is the only evidence that leaves the Lambda, so it is a literal, stable token rather
+#: than a formatted message: a metric filter matches text, and a reworded log line silently
+#: turns the alarm off.
+RETENTION_FAILURE_TOKEN = "GOLD_RETENTION_FAILED"
 
 
 def handler(event, context):  # noqa: ANN001 - Lambda signature
@@ -459,4 +650,22 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
     if action not in ACTIONS:
         raise ValueError(f"Unknown action {action!r}; expected one of {sorted(ACTIONS)}")
 
-    return ACTIONS[action](event, correlation_id)
+    if action != "retire":
+        return ACTIONS[action](event, correlation_id)
+
+    # Only `retire` is caught-and-reraised, because only `retire` has a caller that ignores
+    # the exception. `prepare` and `promote` failures fail the execution, which is already
+    # alarmed end to end; adding a token for them would double-count the same incident.
+    try:
+        return retire(event, correlation_id)
+    except Exception as exc:
+        logger.error(
+            "[%s] %s table=%s.%s error=%s: %s",
+            correlation_id,
+            RETENTION_FAILURE_TOKEN,
+            event.get("database"),
+            event.get("table"),
+            type(exc).__name__,
+            exc,
+        )
+        raise

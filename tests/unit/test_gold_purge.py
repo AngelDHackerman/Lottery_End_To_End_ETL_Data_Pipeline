@@ -771,3 +771,392 @@ class TestTheInputsSentToGlue:
             "StorageDescriptor": {"Location": "s3://b/p/year=2026/"},
             "Parameters": {"k": "v"},
         }
+
+
+# ==========================================================================================
+# retire — PR-042.2
+# ==========================================================================================
+def make_generation(s3, table, slug, keys=("part-0000",), body=b"x"):
+    """Write a generation's objects under gold/<table>/run=<slug>/ and return its prefix."""
+    prefix = f"gold/{table}/run={slug}/"
+    for key in keys:
+        s3.put_object(Bucket=BUCKET, Key=f"{prefix}{key}", Body=body)
+    return prefix
+
+
+def publish_at(gold, table, location, partition_keys=False):
+    """Publish `table` pointing at `location`, replacing any existing entry."""
+    sd = {
+        "Location": location,
+        "Columns": [{"Name": "col", "Type": "string"}],
+        "SerdeInfo": {"SerializationLibrary": "parquet"},
+    }
+    table_input = {"Name": table, "StorageDescriptor": sd}
+    if partition_keys:
+        table_input["PartitionKeys"] = [{"Name": "year", "Type": "string"}]
+    try:
+        gold.glue.create_table(DatabaseName="lottery_santalucia_db", TableInput=table_input)
+    except gold.glue.exceptions.AlreadyExistsException:
+        gold.glue.update_table(DatabaseName="lottery_santalucia_db", TableInput=table_input)
+    return location
+
+
+def retire(gold, table="gold_draw_summary", **extra):
+    return gold.handler(
+        {
+            "action": "retire",
+            "database": "lottery_santalucia_db",
+            "table": table,
+            "correlation_id": RUN,
+            **extra,
+        },
+        None,
+    )
+
+
+class TestRetireNeverTouchesTheLiveGeneration:
+    """The one property worth breaking the build over.
+
+    Everything else in this class is cost control. This is the line between "retires old
+    copies" and "deletes production data", and it is checked from both directions: the live
+    generation survives, and it survives even when it is the OLDEST thing on disk.
+    """
+
+    def test_live_generation_survives(self, gold, s3):
+        for slug in ("gen_a", "gen_b", "gen_c"):
+            make_generation(s3, "draw_summary", slug)
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=gen_c/")
+
+        retire(gold)
+
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary/run=gen_c/").get(
+            "KeyCount"
+        )
+
+    def test_live_survives_even_when_it_is_the_oldest_on_disk(self, gold, s3):
+        """A re-publish of an older generation is a rollback, and a rollback must stick.
+
+        Retention is ranked by mtime, so the live generation can legitimately be the oldest
+        thing under the table — that is exactly what the state looks like after someone
+        rolls back. If rank were the only guard, the next run would delete the generation
+        the operator just chose. It is excluded by identity as well, and this is that test.
+        """
+        make_generation(s3, "draw_summary", "old")
+        make_generation(s3, "draw_summary", "newer")
+        make_generation(s3, "draw_summary", "newest")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=old/")
+
+        result = retire(gold, keepPrevious=1)
+
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary/run=old/")["KeyCount"]
+        assert f"s3://{BUCKET}/gold/draw_summary/run=old/" not in result["retired"]
+
+    def test_the_live_generation_is_read_from_the_catalog_not_the_event(self, gold, s3):
+        """A stale `location` in the payload must not be able to aim the delete.
+
+        `promote` returns the location it just published, and the obvious implementation
+        reuses it. Then one reordering of the states, or one retry replaying an old payload,
+        points the purge at whatever that payload says. The catalog is the only source that
+        cannot go stale, so it is the only one consulted — passing a contradicting location
+        changes nothing.
+        """
+        make_generation(s3, "draw_summary", "real_live")
+        make_generation(s3, "draw_summary", "stale")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=real_live/")
+
+        retire(gold, keepPrevious=0 + 1, liveLocation=f"s3://{BUCKET}/gold/draw_summary/run=stale/")
+
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary/run=real_live/")[
+            "KeyCount"
+        ]
+
+
+class TestRetireKeepsARollbackTarget:
+    def test_keeps_live_plus_one_by_default(self, gold, s3):
+        for slug in ("g1", "g2", "g3", "g4"):
+            make_generation(s3, "draw_summary", slug)
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=g4/")
+
+        result = retire(gold)
+
+        surviving = {
+            cp["Prefix"]
+            for cp in s3.list_objects_v2(
+                Bucket=BUCKET, Prefix="gold/draw_summary/", Delimiter="/"
+            ).get("CommonPrefixes", [])
+        }
+        assert surviving == {"gold/draw_summary/run=g4/", "gold/draw_summary/run=g3/"}
+        assert result["keptPrevious"] == 1
+        assert len(result["retired"]) == 2
+
+    def test_keep_previous_zero_is_refused(self, gold, s3):
+        """Not clamped, not honoured — refused.
+
+        Zero would delete the rollback target the runbook's recovery procedure depends on,
+        which turns this state from "retention" into "the fault 8B exists to remove, moved
+        one state later". Silently clamping it to 1 would be worse: the caller would believe
+        it had configured something it had not.
+        """
+        make_generation(s3, "draw_summary", "g1")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=g1/")
+
+        with pytest.raises(ValueError, match="at least 1"):
+            retire(gold, keepPrevious=0)
+
+    def test_nothing_to_retire_is_not_an_error(self, gold, s3):
+        make_generation(s3, "draw_summary", "only")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=only/")
+
+        result = retire(gold)
+
+        assert result["retired"] == []
+        assert result["objectsDeleted"] == 0
+
+
+class TestRetireStaysInsideItsOwnTable:
+    def test_another_tables_generations_are_untouched(self, gold, s3):
+        """`gold/draw_summary/` and `gold/draw_summary_extra/` share a string prefix.
+
+        A LIST without the trailing delimiter would match both, and the second table would
+        lose its generations to the first table's retention pass.
+        """
+        for slug in ("g1", "g2", "g3"):
+            make_generation(s3, "draw_summary", slug)
+        make_generation(s3, "draw_summary_extra", "g1")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=g3/")
+
+        retire(gold)
+
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary_extra/run=g1/")[
+            "KeyCount"
+        ]
+
+    def test_silver_is_untouched(self, gold, s3):
+        s3.put_object(Bucket=BUCKET, Key="silver/sorteos/year=2026/part-0000", Body=b"x")
+        for slug in ("g1", "g2", "g3"):
+            make_generation(s3, "draw_summary", slug)
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=g3/")
+
+        retire(gold)
+
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="silver/")["KeyCount"] == 1
+
+
+class TestRetireCollectsTheStagingEntries:
+    def test_a_failed_runs_staging_table_goes_with_its_bytes(self, gold, s3):
+        """The nine orphans of 2026-09-24 are this test.
+
+        A generation from a failed run still has its `__stg_` catalog entry, because the run
+        died before promote could drop it. Deleting the bytes and leaving the name behind
+        would swap one kind of litter for a worse one: a table that resolves to nothing.
+        """
+        for slug in ("dead", "prev", "live"):
+            make_generation(s3, "draw_summary", slug)
+        gold.glue.create_table(
+            DatabaseName="lottery_santalucia_db",
+            TableInput={
+                "Name": "gold_draw_summary__stg_dead",
+                "StorageDescriptor": {"Location": f"s3://{BUCKET}/gold/draw_summary/run=dead/"},
+            },
+        )
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=live/")
+
+        result = retire(gold)
+
+        assert "gold_draw_summary__stg_dead" in result["stagingTablesDropped"]
+        with pytest.raises(gold.glue.exceptions.EntityNotFoundException):
+            gold.glue.get_table(
+                DatabaseName="lottery_santalucia_db", Name="gold_draw_summary__stg_dead"
+            )
+
+
+class TestRetireAndTheFlatLayout:
+    """The generation from before blue/green existed, which this function cannot see."""
+
+    def test_the_flat_parquet_of_an_unpartitioned_table_is_never_deleted(self, gold, s3):
+        s3.put_object(Bucket=BUCKET, Key="gold/draw_summary/20260917_flat_file", Body=b"x")
+        for slug in ("g1", "g2", "g3"):
+            make_generation(s3, "draw_summary", slug)
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=g3/")
+
+        result = retire(gold)
+
+        assert s3.get_object(Bucket=BUCKET, Key="gold/draw_summary/20260917_flat_file")
+        assert result["flatLayoutPresent"] is True
+
+    def test_the_year_prefixes_of_a_partitioned_table_are_reported_too(self, gold, s3):
+        """The bug this test exists for shipped in the first draft of `retire`.
+
+        A partitioned table's flat layout is `year=*/` DIRECTORIES, which a LIST returns
+        under `CommonPrefixes` — not `Contents`. Checking only `Contents` reported "no flat
+        layout" for precisely the three tables most likely to have one, which is the silent
+        half of the failure: the data survives either way, but nobody is told it is there.
+        """
+        s3.put_object(Bucket=BUCKET, Key="gold/geo_winnings/year=2024/part-0000", Body=b"x")
+        make_generation(s3, "geo_winnings", "g1")
+        make_generation(s3, "geo_winnings", "g2")
+        publish_at(
+            gold,
+            "gold_geo_winnings",
+            f"s3://{BUCKET}/gold/geo_winnings/run=g2/",
+            partition_keys=True,
+        )
+
+        result = retire(gold, table="gold_geo_winnings")
+
+        assert result["flatLayoutPresent"] is True
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/geo_winnings/year=2024/")["KeyCount"]
+
+    def test_a_table_still_on_the_flat_layout_is_skipped_not_guessed_at(self, gold, s3):
+        """If the published table is not on a `run=` generation, there is no "behind"."""
+        s3.put_object(Bucket=BUCKET, Key="gold/draw_summary/flat_file", Body=b"x")
+        make_generation(s3, "draw_summary", "orphan")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/")
+
+        result = retire(gold)
+
+        assert result["skipped"]
+        assert result["retired"] == []
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary/run=orphan/")["KeyCount"]
+
+
+class TestRetireDeletesVersionsNotMarkers:
+    def test_every_version_of_a_retired_generation_goes(self, gold, s3):
+        """Same reason `prepare` hard-deletes: a delete-marker leaves the bytes billing.
+
+        The bucket is versioned, so a plain delete would report success, free nothing, and
+        leave a prefix that still costs money and still looks occupied to Athena.
+        """
+        write_versions(s3, "gold/draw_summary/run=dead/part-0000", n=3)
+        make_generation(s3, "draw_summary", "prev")
+        make_generation(s3, "draw_summary", "live")
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=live/")
+
+        retire(gold)
+
+        versions = s3.list_object_versions(Bucket=BUCKET, Prefix="gold/draw_summary/run=dead/")
+        assert not versions.get("Versions")
+        assert not versions.get("DeleteMarkers")
+
+
+class TestRetireRanksByMtimeNotByName:
+    """What decides "oldest", and why it is not the run slug.
+
+    A scheduled execution is named by two UUIDs, so run slugs carry no chronological order
+    whatsoever. Ranking by name would retire generations in effectively random order — and
+    could keep two dead ones while deleting the only good rollback target. These tests drive
+    `_generation_age_key` directly because moto stamps everything written in one test with
+    the same second, which is also why the sort needs a deterministic tie-break.
+    """
+
+    def test_the_oldest_by_mtime_is_retired_regardless_of_name(self, gold, s3, monkeypatch):
+        for slug in ("zzz_oldest", "aaa_newest", "mmm_middle"):
+            make_generation(s3, "draw_summary", slug)
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=live/")
+        make_generation(s3, "draw_summary", "live")
+
+        ages = {
+            "gold/draw_summary/run=zzz_oldest/": 100.0,
+            "gold/draw_summary/run=mmm_middle/": 200.0,
+            "gold/draw_summary/run=aaa_newest/": 300.0,
+            "gold/draw_summary/run=live/": 400.0,
+        }
+        monkeypatch.setattr(gold, "_generation_age_key", lambda bucket, prefix: ages[prefix])
+
+        result = retire(gold, keepPrevious=1)
+
+        assert result["retired"] == [
+            f"s3://{BUCKET}/gold/draw_summary/run=mmm_middle/",
+            f"s3://{BUCKET}/gold/draw_summary/run=zzz_oldest/",
+        ]
+        assert s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary/run=aaa_newest/")[
+            "KeyCount"
+        ]
+
+    def test_age_key_is_the_newest_object_under_the_generation(self, gold, s3):
+        """A generation is as new as its newest file, not its first.
+
+        Athena writes a generation's objects over the life of the query. Taking the oldest
+        would date a generation by when its CTAS started, which is the wrong end of a query
+        that can run for minutes.
+        """
+        make_generation(s3, "draw_summary", "g1", keys=("part-0000", "part-0001", "part-0002"))
+
+        key = gold._generation_age_key(BUCKET, "gold/draw_summary/run=g1/")
+
+        newest = max(
+            o["LastModified"].timestamp()
+            for o in s3.list_objects_v2(Bucket=BUCKET, Prefix="gold/draw_summary/run=g1/")[
+                "Contents"
+            ]
+        )
+        assert key == newest
+
+    def test_an_empty_generation_sorts_oldest(self, gold):
+        """Nothing to roll back to, so it is the first thing to go."""
+        assert gold._generation_age_key(BUCKET, "gold/draw_summary/run=nothing_here/") == 0.0
+
+
+class TestTheRetentionAlarmsInterface:
+    """The log token is a contract with Terraform, so it is tested like one.
+
+    `RetireGold` swallows its own failures by design, so no service metric ever records
+    one: the execution reports SUCCEEDED. The alarm is a CloudWatch metric filter grepping
+    the gold-purge log group for a literal token. Nothing fails if that token is reworded —
+    the alarm just silently stops firing forever, which is the exact failure mode PR-033.2
+    already cost this project once.
+    """
+
+    def test_a_retire_failure_emits_the_token_the_metric_filter_greps_for(
+        self, gold, s3, caplog, monkeypatch
+    ):
+        publish_at(gold, "gold_draw_summary", f"s3://{BUCKET}/gold/draw_summary/run=live/")
+
+        def boom(bucket, prefix):
+            raise RuntimeError("AccessDenied: the PR-002 bucket Deny")
+
+        monkeypatch.setattr(gold, "_empty_prefix", boom)
+        make_generation(s3, "draw_summary", "live")
+        make_generation(s3, "draw_summary", "prev")
+        make_generation(s3, "draw_summary", "dead")
+
+        with caplog.at_level("ERROR"), pytest.raises(RuntimeError):
+            retire(gold)
+
+        assert gold.RETENTION_FAILURE_TOKEN in caplog.text
+
+    def test_the_token_matches_the_pattern_terraform_greps_for(self):
+        """Read from the .tf file, so the two cannot drift apart silently."""
+        import pathlib
+
+        from loteria.gold.purge_and_load import RETENTION_FAILURE_TOKEN
+
+        alarms = pathlib.Path(__file__).parents[2] / "terraform/modules/observability/alarms.tf"
+        assert f'"\\"{RETENTION_FAILURE_TOKEN}\\""' in alarms.read_text()
+
+    def test_prepare_failures_do_not_emit_it(self, gold, s3, caplog):
+        """A failing prepare fails the execution, which alarm 1 already catches.
+
+        Emitting the retention token there too would make one incident arrive as two
+        unrelated-looking emails.
+        """
+        put_sql(s3)
+        with caplog.at_level("ERROR"), pytest.raises(gold.s3.exceptions.NoSuchKey):
+            gold.handler({"action": "prepare", "bucket": BUCKET, "sqlKey": "missing.sql"}, None)
+
+        assert gold.RETENTION_FAILURE_TOKEN not in caplog.text
+
+
+class TestRetireRefusesWhatItCannotReasonAbout:
+    def test_a_published_table_with_no_location_is_an_error_not_a_guess(self, gold):
+        gold.glue.create_table(
+            DatabaseName="lottery_santalucia_db",
+            TableInput={"Name": "gold_draw_summary", "StorageDescriptor": {"Columns": []}},
+        )
+
+        with pytest.raises(ValueError, match="no usable S3 location"):
+            retire(gold)
+
+    def test_an_unknown_action_is_refused(self, gold):
+        with pytest.raises(ValueError, match="Unknown action"):
+            gold.handler({"action": "retire_everything"}, None)

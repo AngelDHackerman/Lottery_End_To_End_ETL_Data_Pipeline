@@ -2491,6 +2491,64 @@ fail without failing the run: a leaked generation costs cents, while a delete th
 before the swap is precisely the defect 8B exists to remove. Alarm on repeated failure
 instead of blocking.
 
+> **PR-042.2 outcome (2026-09-27).** Built as scoped, plus one deviation, one thing the scope
+> never specified that turned out to be the whole safety argument, and a set of arrears.
+>
+> **The shape.** A third action, `retire`, and two states after the swap:
+> `PromoteGold → RetireGold → (Catch) GoldRetentionSkipped`. It deletes the generations
+> behind the live one, keeping `gold_keep_previous_generations` (default 1) more. **No IAM
+> change was needed** — the gold-purge role's `s3:DeleteObject*` on `gold/*` and its
+> `glue:DeleteTable` already cover it, because this action's blast radius is a strict subset
+> of what `prepare` has had since 042.1. Runbook
+> `docs/runbooks/PR-042.2-retire-generations.md`; rendered ASL validated `OK`.
+>
+> **What "oldest" means, which the scope never said.** Ranking is by the newest object mtime
+> under each `run=` prefix — **not** by the run slug. A scheduled execution is named by two
+> UUIDs, so slugs carry no chronological order at all; sorting them would retire generations
+> in effectively random order and could keep two dead ones while deleting the only good
+> rollback target. Ties break on the name, purely so the choice is reproducible.
+>
+> **The live generation is re-read from the catalog, never taken from the payload.**
+> `promote` returns that location one state earlier and the obvious implementation reuses it
+> — then one reordering of states, or one retry replaying a stale payload, aims the delete at
+> whatever the payload says. `glue:GetTable` is the only source that cannot go stale. The
+> test that carries this is the one where the live generation is the **oldest** thing on
+> disk, which is exactly what a table looks like after someone rolls back: a rank-only guard
+> would delete the generation the operator had just chosen.
+>
+> **Deviation: the alarm fires on the FIRST failure.** The scope above says "alarm on
+> repeated failure". With one run a week, "repeated" means a second Thursday with no signal,
+> and CloudWatch caps an alarm's evaluation window at seven days regardless — the same cap
+> that took alarm 2 from eight days to seven. "Instead of blocking" is kept exactly: the run
+> is not failed, an email is sent.
+>
+> **It could not be a service metric, and that is the interesting part.** Because
+> `RetireGold` swallows its own failures by design, the execution reports SUCCEEDED and
+> `ExecutionsFailed` stays at zero — the failure is invisible to every metric the
+> observability module had. The alarm greps a literal token in the Lambda's log instead,
+> which makes that log line an interface: reword it and the alarm silently stops firing
+> forever. A test asserts the constant and the `.tf` pattern match, because PR-033.2 already
+> cost this project one monitor that quietly disabled itself.
+>
+> **The arrears, and why they are evidence rather than a chore.** On 2026-09-27 the nine
+> orphaned `__stg_` catalog entries from the failed runs of 09-24 were swept by hand
+> (20 tables → 11). **Their bytes could not be**, and the reason is the argument for building
+> retention here rather than scripting a cleanup: PR-002's `Phase0DenyDeleteExceptRoot`
+> exempts exactly the account root and `lottery-gold-purge-role-prod` — an
+> `AdministratorAccess` user is denied, because an explicit bucket-policy `Deny` is not
+> something an IAM `Allow` can outvote — and the Lambda exposed only `prepare` and `promote`.
+> Three dead generations (16 objects) were therefore *not cleanable until this PR existed*.
+> The guardrail was working as designed and its exemption list was left alone.
+>
+> **The fourth thing on disk, decided rather than ignored.** Under each table sits the
+> pre-042 flat layout (a bare Parquet at the root for the unpartitioned tables, `year=*/`
+> for the partitioned ones, all dated 2026-09-17). It does not match `run=`, so `retire`
+> cannot see it — and a retention rule that neither keeps a thing deliberately nor collects
+> it is how a prefix lives forever. It is kept **on purpose** as the only real rollback
+> target, since every other non-live generation came from a run that failed, and it is
+> reported as `flatLayoutPresent` so it stays visible. Retire it by hand once two healthy
+> `run=` generations exist.
+
 
 ## PR-042.3 — The swap could not alter the table it was built to alter (unplanned; 2026-09-24)
 
@@ -3031,7 +3089,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **merged** (2026-09-24), not applied · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied** (2026-09-21) — *not* verified: its first production run was 2026-09-24 and it failed twice (→ `.3`) · `.2` todo · `.3` **applied + merged** (2026-09-24) · `.4` **PR open, not applied** | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied** (2026-09-21) — *not* verified: its first production run was 2026-09-24 and it failed twice (→ `.3`) · `.2` **PR open, not applied** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) · `.3` **applied + merged** (2026-09-24) · `.4` **PR open, not applied** | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |

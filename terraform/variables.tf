@@ -162,3 +162,15 @@ variable "enable_silver_dq" {
   default     = true
 }
 
+
+# --- PR-042.2: retention of old Gold generations ---
+variable "gold_keep_previous_generations" {
+  description = "Generations kept BEHIND the live one after each Gold swap (PR-042.2). 1 means 'live plus one' — the previous generation stays on disk purely so the rollback in docs/runbooks/PR-042.2-retire-generations.md has something to point the catalog back at. Values below 1 are rejected."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.gold_keep_previous_generations >= 1
+    error_message = "gold_keep_previous_generations must be at least 1: keeping zero previous generations leaves the swap with no rollback target."
+  }
+}
