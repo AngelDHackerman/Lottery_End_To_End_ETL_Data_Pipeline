@@ -168,6 +168,9 @@ module "orchestration" {
   dq_log_group_name = module.etl_glue.dq_log_group_name
   alerts_topic_arn  = local.alerts_topic_arn
 
+  # PR-042.2: how many generations survive behind the live one after each swap.
+  gold_keep_previous_generations = var.gold_keep_previous_generations
+
   # PR-023: gold-purge log group + NEW Step Functions execution logging.
   log_retention_days         = var.log_retention_days
   sfn_log_level              = var.sfn_log_level
@@ -211,6 +214,10 @@ module "observability" {
   extractor_lambda_name  = module.etl_lambda.extractor_lambda_name
   gold_purge_lambda_name = module.orchestration.gold_purge_lambda_name
   athena_workgroup_name  = module.catalog.athena_workgroup_name
+
+  # PR-042.2: the retention alarm reads this log group, because a RetireGold failure is
+  # caught by the state machine and never reaches any AWS/States metric.
+  gold_purge_log_group_name = module.orchestration.gold_purge_log_group_name
 
   # Glue publishes no per-job metrics for pythonshell, so the dashboard reads its logs.
   glue_output_log_group_name = module.etl_glue.output_log_group_name

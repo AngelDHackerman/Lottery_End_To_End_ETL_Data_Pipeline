@@ -1,10 +1,17 @@
 # PR-025: the alarm set. Every alarm notifies the SNS topic from PR-014.
 #
-# Design premise: the state machine has NO Retry and NO Catch (see the orchestration
-# module), so any failing stage fails the whole execution. `SFN_ExecutionFailed` is
-# therefore the one alarm that detects *everything*; the per-stage alarms below exist for
-# ATTRIBUTION — they answer "which stage broke?" in the notification itself instead of
-# making someone open the console. Expect 2–3 emails from a single bad run, by design.
+# Design premise: almost every stage of the state machine fails the whole execution, so
+# `SFN_ExecutionFailed` is the one alarm that detects *everything*; the per-stage alarms
+# below exist for ATTRIBUTION — they answer "which stage broke?" in the notification itself
+# instead of making someone open the console. Expect 2–3 emails from a single bad run, by
+# design.
+#
+# ⚠️ **Amended for PR-042.2.** That premise now has exactly one exception, and alarm 7 is it.
+# `RetireGold` carries a `Catch` that routes any error to a `Pass`, on purpose, so a failed
+# cleanup cannot cost a week of Gold. Its failures are therefore invisible to every metric
+# in this file — the execution reports SUCCEEDED — which is why alarm 7 reads a log line
+# instead. Any future state that is allowed to fail quietly needs the same treatment, or it
+# is not monitored at all.
 #
 # ⚠️ Two of the roadmap's six alarms could not be built as written. Both are documented at
 # their resource; short version:
@@ -332,6 +339,66 @@ resource "aws_cloudwatch_metric_alarm" "scrapedo_failed" {
   evaluation_periods  = 1
   threshold           = 1
   comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = local.alarm_actions
+}
+
+# ---------------------------------------------------------------------------------------
+# 7. Gold retention failed (PR-042.2).
+# ---------------------------------------------------------------------------------------
+# **Why this one is built on a log line instead of a metric.** Every other alarm in this
+# file hangs off a service metric, because every other failure fails the execution. This one
+# cannot: `RetireGold` carries a `Catch` that routes any error to a `Pass`, deliberately, so
+# that a failed cleanup can never cost a week of Gold. The consequence is that the execution
+# reports SUCCEEDED, `ExecutionsFailed` stays at zero, and the Lambda's own `Errors` metric
+# is the only trace — and that metric is shared with `prepare` and `promote`, whose failures
+# already fire alarm 1. Filtering the Lambda's log for a token it emits only on a retention
+# failure is what makes this alarm mean exactly one thing.
+#
+# **The marker is an interface.** `loteria.gold.purge_and_load.RETENTION_FAILURE_MARKER` and
+# the pattern below must stay in step; a reworded log line does not fail anything, it just
+# quietly stops the alarm from ever firing again. That is the failure mode this comment
+# exists to prevent.
+resource "aws_cloudwatch_log_metric_filter" "gold_retention_failed" {
+  name           = "${local.alarm_prefix}-gold-retention-failed-${var.environment}"
+  log_group_name = var.gold_purge_log_group_name
+
+  # Quoted, so it matches the literal token anywhere in the message rather than being parsed
+  # as a space-separated term list.
+  pattern = "\"GOLD_RETENTION_FAILED\""
+
+  metric_transformation {
+    name      = "GoldRetentionFailures"
+    namespace = var.metrics_namespace
+    value     = "1"
+    # Without this, a period with no failures publishes NOTHING rather than a zero, and the
+    # alarm would sit in INSUFFICIENT_DATA between weekly runs.
+    default_value = 0
+  }
+}
+
+# **Deviation from the roadmap, stated rather than hidden.** PR-042.2 asks to "alarm on
+# repeated failure instead of blocking". This alarm fires on the FIRST failure, and the
+# reason is the weekly cadence: with one run every Thursday, "repeated" means waiting a
+# second week with no signal at all, and CloudWatch caps an alarm's total evaluation window
+# at seven days anyway (the same cap that forced alarm 2 down from eight days). The spirit
+# of "instead of blocking" is preserved exactly — the run is not failed, an email is sent —
+# and one email a week for a state nobody would otherwise inspect is the cheap side of this
+# trade. If retention starts failing every week for a known reason, silence it here rather
+# than letting it train anyone to ignore the topic.
+resource "aws_cloudwatch_metric_alarm" "gold_retention_failed" {
+  alarm_name        = "${local.alarm_prefix}-gold-retention-failed-${var.environment}"
+  alarm_description = "RetireGold failed to delete old Gold generations. The run itself SUCCEEDED and the published tables are correct — this is cost and clutter, not data loss. Check the gold-purge log group for GOLD_RETENTION_FAILED; the usual causes are the PR-002 bucket Deny (which exempts only root and the gold-purge role) and Lake Formation on the staging table."
+
+  namespace   = var.metrics_namespace
+  metric_name = aws_cloudwatch_log_metric_filter.gold_retention_failed.metric_transformation[0].name
+
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
 
   alarm_actions = local.alarm_actions

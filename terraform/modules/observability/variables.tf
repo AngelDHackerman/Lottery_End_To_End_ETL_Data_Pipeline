@@ -121,3 +121,9 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+# --- PR-042.2: the Gold retention alarm ---
+variable "gold_purge_log_group_name" {
+  description = "Log group of the gold-purge Lambda. The retention alarm is built on a metric filter over this group rather than on an AWS/States metric, because RetireGold's Catch swallows the failure by design — the execution succeeds and no service metric ever records it."
+  type        = string
+}

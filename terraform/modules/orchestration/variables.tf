@@ -131,3 +131,15 @@ variable "alerts_topic_arn" {
   description = "ARN of the SNS alerts topic the DQ failure is published to. Passed in as a STRING built by the root module, not as module.observability's output: observability already consumes this module (dashboard + alarms name the state machine, the gold-purge Lambda and the weekly rule), so taking its output here would be a module cycle."
   type        = string
 }
+
+# --- PR-042.2: retention of old Gold generations ---
+variable "gold_keep_previous_generations" {
+  description = "How many generations to keep BEHIND the live one when RetireGold runs. 1 gives 'live plus one', which is what makes the runbook's rollback possible: re-point the catalog at the previous generation. The Lambda REFUSES 0 rather than honouring it — retention that can delete its own rollback target is not retention — so this is validated here too, where the error costs a plan instead of a run. Raise it to keep more history; each extra generation is a full copy of Gold (~1.6 MB today)."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.gold_keep_previous_generations >= 1
+    error_message = "gold_keep_previous_generations must be at least 1: keeping zero previous generations leaves the swap with no rollback target."
+  }
+}

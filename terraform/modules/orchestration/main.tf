@@ -634,11 +634,62 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
                 }
               },
               ResultSelector = {
+                "database.$"   = "$.Payload.database",
                 "table.$"      = "$.Payload.table",
                 "location.$"   = "$.Payload.location",
                 "partitions.$" = "$.Payload.partitions"
               },
+              Next = "RetireGold"
+            },
+            # PR-042.2. Deletes the generations behind the live one, keeping it plus
+            # `gold_keep_previous_generations` more so the runbook's rollback always has a
+            # target.
+            #
+            # ⚠️ TWO THINGS ABOUT THIS STATE ARE LOAD-BEARING, AND BOTH ARE ABOUT ORDER AND
+            # BLAST RADIUS.
+            #
+            # It runs AFTER PromoteGold. A delete that runs before the swap is precisely the
+            # defect PR-042.1 exists to remove, and putting retention anywhere earlier would
+            # reintroduce fault B one state later. The position is the safety argument.
+            #
+            # It CANNOT fail the run. The Catch swallows everything into a Pass, because a
+            # leaked generation costs cents while a failed execution costs a week of Gold:
+            # the tables are already published and correct by the time this runs, so there
+            # is nothing left worth aborting for. That is also why it is alarmed separately
+            # — a state designed never to fail is a state whose failures nobody would
+            # otherwise see.
+            RetireGold = {
+              Type     = "Task",
+              Resource = "arn:aws:states:::lambda:invoke",
+              Parameters = {
+                FunctionName = aws_lambda_function.gold_purge.arn,
+                Payload = {
+                  "action"           = "retire",
+                  "database.$"       = "$.database",
+                  "table.$"          = "$.table",
+                  "keepPrevious"     = var.gold_keep_previous_generations,
+                  "correlation_id.$" = "$$.Execution.Name"
+                }
+              },
+              # ResultPath, not ResultSelector: the promote output stays the iteration's
+              # result, so the Map's output keeps meaning "what was published" rather than
+              # "what was cleaned up".
+              ResultPath = "$.retire",
+              Catch = [
+                {
+                  ErrorEquals = ["States.ALL"],
+                  ResultPath  = "$.retireError",
+                  Next        = "GoldRetentionSkipped"
+                }
+              ],
               End = true
+            },
+            # Reached only by the Catch above. A Pass, so the iteration succeeds with the
+            # promote already done and the failure recorded in `$.retireError` for the
+            # execution history — which is what the metric filter reads the log for.
+            GoldRetentionSkipped = {
+              Type = "Pass",
+              End  = true
             }
           }
         },
