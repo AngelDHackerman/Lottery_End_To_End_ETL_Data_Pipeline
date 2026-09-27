@@ -2491,6 +2491,40 @@ fail without failing the run: a leaked generation costs cents, while a delete th
 before the swap is precisely the defect 8B exists to remove. Alarm on repeated failure
 instead of blocking.
 
+> **Amended 2026-09-27 — this sub-PR starts with arrears, and one of them is a design
+> input, not a chore.** Cleaning up after 042.1's four attempts of 2026-09-24 established
+> three things the scope above did not anticipate:
+>
+> **1. The failed runs leaked on both sides, and only one side could be swept by hand.**
+> Nine orphaned `<table>__stg_<run>` entries were left in `lottery_santalucia_db` by the
+> three failures — none of them pointing at the live prefix. They were deleted on
+> 2026-09-27 with `aws glue delete-table`. Their **S3 prefixes could not be**: three dead
+> generations (`recovery_415_norender_1790294279`, `post_apply_1790298383`,
+> `verify_alter_1790300025`, 16 objects) are still on disk. Which brings us to:
+>
+> **2. Only two principals on earth can delete them, and the Lambda has no action that
+> will.** PR-002's `Phase0DenyDeleteExceptRoot` exempts exactly account root and
+> `lottery-gold-purge-role-prod`; an `AdministratorAccess` user is denied, because an
+> explicit bucket-policy `Deny` is not something an IAM allow can outvote. And
+> `purge_and_load.py` exposes only `prepare` and `promote` — `_empty_prefix` survives as a
+> helper that nothing calls. **So the leaked bytes are not cleanable until 042.2 exists.**
+> That is not an argument for a manual workaround; it is the confirmation that the retention
+> mechanism is the fix, and 042.2's first job is to collect the mess 042.1 made. Do not
+> widen the Deny's exemption list to sweep it by hand — the guardrail is working exactly as
+> designed, and the exempted role is the one the new state will run as.
+>
+> **3. "Keep live plus one" has no second generation to keep, and a fourth thing on disk
+> the rule cannot see.** Under each table there is also the **pre-042 flat layout** — a
+> bare Parquet at the table root for the four unpartitioned tables, `year=*/` prefixes for
+> the three partitioned ones, all dated 2026-09-17. That is the last generation that was
+> *published and good* before blue/green existed, and it is the only real rollback target
+> today, since every other non-live generation came from a run that failed. It does not
+> match `run=*`, so a retention rule written against that pattern will neither keep it
+> deliberately nor collect it — it will simply never mention it. **Decide explicitly and
+> write the decision down:** either adopt it as generation zero, or retire it once the
+> first two `run=` generations exist to rollback between. Silently ignoring it is how a
+> prefix lives forever.
+
 > **PR-042.2 outcome (2026-09-27).** Built as scoped, plus one deviation, one thing the scope
 > never specified that turned out to be the whole safety argument, and a set of arrears.
 >
@@ -2530,24 +2564,15 @@ instead of blocking.
 > forever. A test asserts the constant and the `.tf` pattern match, because PR-033.2 already
 > cost this project one monitor that quietly disabled itself.
 >
-> **The arrears, and why they are evidence rather than a chore.** On 2026-09-27 the nine
-> orphaned `__stg_` catalog entries from the failed runs of 09-24 were swept by hand
-> (20 tables → 11). **Their bytes could not be**, and the reason is the argument for building
-> retention here rather than scripting a cleanup: PR-002's `Phase0DenyDeleteExceptRoot`
-> exempts exactly the account root and `lottery-gold-purge-role-prod` — an
-> `AdministratorAccess` user is denied, because an explicit bucket-policy `Deny` is not
-> something an IAM `Allow` can outvote — and the Lambda exposed only `prepare` and `promote`.
-> Three dead generations (16 objects) were therefore *not cleanable until this PR existed*.
-> The guardrail was working as designed and its exemption list was left alone.
->
-> **The fourth thing on disk, decided rather than ignored.** Under each table sits the
-> pre-042 flat layout (a bare Parquet at the root for the unpartitioned tables, `year=*/`
-> for the partitioned ones, all dated 2026-09-17). It does not match `run=`, so `retire`
-> cannot see it — and a retention rule that neither keeps a thing deliberately nor collects
-> it is how a prefix lives forever. It is kept **on purpose** as the only real rollback
-> target, since every other non-live generation came from a run that failed, and it is
-> reported as `flatLayoutPresent` so it stays visible. Retire it by hand once two healthy
-> `run=` generations exist.
+> **The arrears, and the flat layout: both decided as the note above asked.** The nine
+> orphaned `__stg_` entries were swept on 2026-09-27 (20 tables → 11); the three dead
+> generations they belonged to were *not cleanable by hand at all*, for the reasons that
+> note sets out, and they are collected by this PR's first run instead. On the pre-042 flat
+> layout the decision is **keep it, for now**: it is the only rollback target that did not
+> come from a failed run, `retire` cannot see it by construction, and it is surfaced in the
+> action's return value as `flatLayoutPresent` so it stays mentioned. Retire it by hand
+> once two healthy `run=` generations exist — i.e. after the second successful run following
+> the apply, when the rollback target is one the new mechanism built.
 
 
 ## PR-042.3 — The swap could not alter the table it was built to alter (unplanned; 2026-09-24)
@@ -2628,6 +2653,14 @@ partitioned table through its partitions, so it serves the 2026-09-17 generation
 internally consistent, with the data intact on disk. The real defect is across tables —
 `gold_draw_summary` has sorteo 415 and `gold_geo_winnings` does not. **The next successful
 run repairs it**; no hand-editing of the catalog.
+
+> **Confirmed 2026-09-27.** It did, and nobody touched the catalog to make it happen. The
+> run after the IAM fix (`verify-partitions-1790301220`, SUCCEEDED 2026-09-24 22:53 -03)
+> put all seven tables on one generation and left `gold_geo_winnings`' three `year=`
+> partitions on the same `run=` prefix as its table. Re-read three days later: still
+> aligned, all seven non-empty. **This is the run PR-042.1 was always missing** — the
+> prediction that a half-swap self-heals is now a measurement, and the "applied, not
+> verified" row it was marked with for three days is finally true in the other direction.
 
 ### What PR-042.1 actually needed
 
@@ -3073,23 +3106,23 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 030 | Transformer tests with moto | merged | [PR #35](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/35) |
 | 031 | Scraper contract canary | merged | [PR #36](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/36) |
 | 031.1 | **Restore the scraper** (outage 2026-08-20 → 2026-08-27: Cloudflare profile + site redesign moved the prize list + no retries) | applied + merged | [PR #42](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/42) |
-| 031.2 | **Drop `render=true`** (outage 2026-09-24: the parameter PR-031.1 added became the one Cloudflare rejects — 8 × `502 ROTATION_FAILED` at 57.5 s, while `GT`+`super` alone answered 200 in 9.7 s). Also halves the credit cost and puts a drift guard on the canary's proxy profile | **merged** 2026-09-24 (env applied to prod by hand the same evening) · **terraform not yet applied** | [PR #65](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/65) |
-| 031.3 | **Gold swap sent Glue a field Glue rejects** (found 2026-09-24 recovering 031.2's stranded sorteo): `_table_input` was a denylist, Glue's GetTable grew `IsMaterializedView`, `PromoteGold` died with `ParamValidationError`. Both inputs are allowlists now, guarded against botocore's own shapes | **merged** 2026-09-24 · **not applied** | [PR #66](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/66) |
+| 031.2 | **Drop `render=true`** (outage 2026-09-24: the parameter PR-031.1 added became the one Cloudflare rejects — 8 × `502 ROTATION_FAILED` at 57.5 s, while `GT`+`super` alone answered 200 in 9.7 s). Also halves the credit cost and puts a drift guard on the canary's proxy profile | **applied + verified** — merged 2026-09-24 (env set by hand that evening), terraform caught up by the 041.2 deploy; live Lambda reads `SCRAPE_RENDER=false`, `GT`, `super=true` (verified 2026-09-27) | [PR #65](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/65) |
+| 031.3 | **Gold swap sent Glue a field Glue rejects** (found 2026-09-24 recovering 031.2's stranded sorteo): `_table_input` was a denylist, Glue's GetTable grew `IsMaterializedView`, `PromoteGold` died with `ParamValidationError`. Both inputs are allowlists now, guarded against botocore's own shapes | **applied + verified** (2026-09-27) — the allowlist is what let `PromoteGold` succeed on the `verify-partitions` run | [PR #66](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/66) |
 | 032 | GE Silver suite | merged | [PR #37](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/37) |
 | 033 | DQ gate in Step Function | **applied + verified** (2026-09-16 apply; both directions exercised 2026-09-16/20) | [PR #46](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/46) |
 | 033.1 | **Fix what the first real runs exposed** — 22-min startup vs a 30-min timeout, and a per-job log group that stayed empty | applied + merged (2026-09-20) | [PR #49](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/49) |
 | 033.2 | **The fix for 033.1's defect B did not work in prod** — the CloudWatch handler fed its own boto3 chatter back into itself and disabled itself; group had a stream and zero events | **applied + verified** (2026-09-20) | [PR #50](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/50) |
 | 034 | GitHub Actions CI | merged | [PR #45](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/45) |
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
-| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` in review · `C` → PR-044 | [PR #62](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/62) |
+| 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` **merged + deployed** (2026-09-23) · `C` → PR-044 | [PR #62](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/62) |
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **merged** (2026-09-24), not applied · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
-| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied** (2026-09-21) — *not* verified: its first production run was 2026-09-24 and it failed twice (→ `.3`) · `.2` **PR open, not applied** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) · `.3` **applied + merged** (2026-09-24) · `.4` **PR open, not applied** | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
+| 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **PR open, not applied** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — the retention state, its alarm, and the arrears it collects · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
