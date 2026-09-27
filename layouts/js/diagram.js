@@ -94,10 +94,19 @@
   }
 
   /* Cada ruta esquiva las cajas que tiene en medio: 386 y 412 son los dos carriles
-     verticales del hueco entre zonas, y 232 el carril horizontal entre la fila del
-     disparador y la del pipeline. */
+     verticales del hueco entre zonas, 232 el carril horizontal entre la fila del
+     disparador y la del pipeline, y 1362 el canal de 28 px que queda entre el borde
+     derecho de las cajas y el marco de la cuenta — el único paso libre desde la fila
+     del pipeline hasta la del catálogo. */
   function pathFor(e) {
     const A = byId[e.a], B = byId[e.b];
+    /* ci y owner están apilados en la misma columna, así que el trazado recto los
+       une atravesando la caja del canary que tienen en medio. Baja por el canal de
+       20 px entre el borde de la zona y las cajas. */
+    if (e.route === "downleft")
+      return `M ${A.x} ${cy(A)} L 34 ${cy(A)} L 34 ${cy(B)} L ${B.x} ${cy(B)}`;
+    if (e.route === "promote")
+      return `M ${A.x + A.w} ${cy(A)} L 1362 ${cy(A)} L 1362 522 L ${e.tx} 522 L ${e.tx} ${B.y}`;
     if (e.route === "up")
       return `M ${A.x + A.w} ${cy(A)} L 386 ${cy(A)} L 386 104 L ${B.x + 40} 104 L ${B.x + 40} ${B.y + B.h}`;
     if (e.route === "up2")

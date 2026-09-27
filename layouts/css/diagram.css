@@ -135,6 +135,11 @@ th{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:
    color:var(--muted);font-weight:500}
 tr:last-child td{border-bottom:none}
 td.pr{font-family:var(--mono);color:var(--breach);font-weight:700;white-space:nowrap}
+/* Un defecto cerrado se lee distinto de uno abierto: las dos tablas mezclan ambos,
+   y el color de la columna PR es lo único que los separa de un vistazo. */
+td.pr.done{color:var(--flow)}
+.dbody table + .hint{margin:14px 0 0}
+.dbody i{font-style:italic;color:var(--ink)}
 code{font-family:var(--mono);font-size:.87em;background:var(--surface2);
      padding:.08em .32em;border-radius:2px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

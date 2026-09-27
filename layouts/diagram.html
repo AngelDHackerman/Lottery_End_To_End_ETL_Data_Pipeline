@@ -10,16 +10,17 @@
 <div class="wrap">
   <header>
     <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
-      <span>lago al día hasta el sorteo 3136</span><span>·</span><span>21 sep 2026</span></p>
+      <span>lago al día hasta el Extraordinario 415</span><span>·</span><span>27 sep 2026</span></p>
     <h1>Arquitectura Lotería Santa Lucía</h1>
-    <p>Lo que está desplegado hoy. Hacé clic en cualquier pieza para ver sus nombres reales y su
-      estado, o reproducí la corrida semanal para seguir el dato de punta a punta.</p>
+    <p>Lo que está desplegado hoy, comprobado contra la cuenta y no contra la documentación.
+      Hacé clic en cualquier pieza para ver sus nombres reales y su estado, o reproducí la
+      corrida semanal para seguir el dato de punta a punta.</p>
   </header>
 
   <div class="bar">
     <button id="play" class="primary">▶ Reproducir la corrida semanal</button>
     <div class="sep"></div>
-    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: el gate</button>
+    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: el swap de Gold</button>
     <button id="tgl-bad" aria-pressed="false">Resaltar defectos</button>
     <div class="keys">
       <span class="key"><span class="sw ok"></span>Desplegado</span>
@@ -37,7 +38,7 @@
   <div class="stage">
     <div class="canvas">
       <svg id="map" viewBox="0 0 1400 880" role="img"
-           aria-label="Diagrama de arquitectura: el plano de control en GitHub Actions no toca la cuenta de AWS; ambos golpean el sitio de la lotería en días distintos. En AWS, EventBridge dispara Step Functions, que encadena el Lambda extractor, el job de Glue transformador, dos crawlers, el gate de calidad —desplegado desde el 16 de septiembre de 2026, con su propio camino de fallo hacia una alerta— y la construcción de siete tablas gold en Athena. Debajo, los buckets de S3, el catálogo de Glue, Athena, Lake Formation, la observabilidad y una VPC sin consumidores."></svg>
+           aria-label="Diagrama de arquitectura: el plano de control en GitHub Actions no toca la cuenta de AWS; ambos golpean el sitio de la lotería en días distintos. En AWS, EventBridge dispara Step Functions, que encadena el Lambda extractor, el job de Glue transformador, dos crawlers, el gate de calidad —con su propio camino de fallo hacia una alerta— y la construcción de siete tablas gold: Athena las escribe al lado de las publicadas y una sola llamada al catálogo de Glue las publica, swap verificado en producción el 25 de septiembre de 2026. Debajo, los buckets de S3, el catálogo, Athena, las dos puertas de permisos —Lake Formation e IAM—, la observabilidad y una VPC sin consumidores."></svg>
     </div>
 
     <aside class="panel" id="panel">
@@ -52,65 +53,139 @@
   </div>
 
   <details>
-    <summary>Los defectos anotados: cinco de la auditoría, dos que solo aparecieron al correrlo</summary>
+    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado, uno a medio cerrar, tres abiertos</summary>
     <div class="dbody">
-      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El primero ya está
-        cerrado</b>: 042 se aplicó y se verificó en prod el 21 sep. De los cuatro restantes,
-        041 dejó de escribir el 20 sep pero sus bytes siguen ahí.</p>
+      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042 ya está
+        cerrado</b>, pero no el 21 de septiembre como decía este diagrama: ese día se aplicó,
+        y lo que lo cerró fue una corrida de producción cuatro días después. El 041 va por su
+        tercer paso de tres.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras detenidas
-          el 20 sep</b>, bucket en pie</td>
+        <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras
+          detenidas, configuración retirada, bytes en pie</b></td>
           <td>Cada Parquet se escribía dos veces — tres escrituras en realidad, contando el
             <code>.txt</code> crudo del extractor. La segunda copia no la leía nadie: pagaba
-            almacenamiento e invitaba a deriva, porque nada verificaba que coincidieran. Desde
-            el 20 sep a las 22:31 UTC las tres están apagadas por bandera y el bucket quedó
-            congelado en 347 objetos. Sigue abierto porque los bytes siguen ahí: falta que
-            041.2 quite la configuración muerta —incluido el grant de lectura de SageMaker,
-            hoy su único permiso de datos— y 041.3 no puede borrar nada antes del 20 oct.</td></tr>
-        <tr><td class="pr">042</td><td>Gold no es atómica — <b>cerrado el 21 sep</b></td>
-          <td>Borraba la tabla y vaciaba su prefijo <b>antes</b> del CTAS. Si el CTAS fallaba, se
-            perdía también la copia buena — durante 7 días, hasta la siguiente corrida. Desde el
-            21 sep cada tabla se construye en <code>run=&lt;ejecución&gt;</code> al lado de la
-            publicada, y el catálogo se mueve con un solo <code>UpdateTable</code> cuando Athena
-            ya terminó bien. Verificado como se verifica esto: dejando una tabla en el estado
-            exacto que deja un CTAS fallido —<code>prepare</code> y ningún CTAS— y comprobando
-            que la publicada seguía devolviendo sus 116 filas, su Parquet intacto y
-            <code>objectsDeleted: 0</code>.</td></tr>
+            almacenamiento e invitaba a deriva, porque nada verificaba que coincidieran.
+            Desde el 20 sep las tres están apagadas por bandera; desde el 25, 041.2 borró
+            toda la configuración que las nombraba y repuntó el grant de lectura de SageMaker
+            —su único permiso de datos— a <code>silver/</code> y <code>gold/</code>. Queda
+            abierto porque los bytes siguen ahí: 347 objetos congelados, y 041.3 no puede
+            borrar nada antes del 20 oct. Esa espera no es burocracia — CloudTrail de datos
+            está apagado para este bucket, así que compra con tiempo la prueba que la
+            evidencia no puede dar.</td></tr>
+        <tr><td class="pr done">042</td><td>Gold no es atómica — <b>cerrado el 25 sep</b></td>
+          <td>Borraba la tabla y vaciaba su prefijo <b>antes</b> del CTAS. Si el CTAS fallaba,
+            se perdía también la copia buena — durante 7 días, hasta la siguiente corrida.
+            Desde el 21 sep cada tabla se construye en <code>run=&lt;ejecución&gt;</code> al
+            lado de la publicada, y el catálogo se mueve con un solo
+            <code>UpdateTable</code> cuando Athena ya terminó bien. <b>Pero estuvo cuatro
+            días marcado «applied + verified» sin que nada lo hubiera verificado</b>: su
+            primera corrida real fue el 24 sep y falló tres veces seguidas, cada una por un
+            permiso distinto. Lo cerró la corrida del 25 sep a las 02:03 UTC, la primera que
+            llegó entera al swap.</td></tr>
+        <tr><td class="pr">042.2</td><td>El swap no limpia lo que deja atrás — <b>el catálogo
+          ya sí, los bytes no</b></td>
+          <td>Publicar una generación nueva no retira la vieja. El <b>27 sep se barrieron a
+            mano las 9 tablas <code>__stg_</code></b> que dejaron las corridas fallidas: la
+            base pasó de 20 tablas a 11 —7 gold, 2 silver y 2 restos de los crawlers
+            legacy— y ya no hay entrada de staging alguna. Los <b>bytes no se pudieron
+            barrer</b>, y el motivo es la parte interesante: el <code>Deny</code> de PR-002
+            exime exactamente a la raíz de la cuenta y al rol
+            <code>lottery-gold-purge-role-prod</code>, así que un usuario con
+            <code>AdministratorAccess</code> tiene el borrado denegado —un
+            <code>Deny</code> explícito de política de bucket no lo gana ningún
+            <code>Allow</code> de IAM— y el Lambda solo expone <code>prepare</code> y
+            <code>promote</code>. Siguen en disco tres generaciones muertas (16 objetos) más
+            la disposición anterior al swap. <b>No son limpiables hasta que 042.2 exista</b>:
+            la barrera funciona como se diseñó, y el rol que exime es justamente el que
+            correrá el estado nuevo.</td></tr>
         <tr><td class="pr">043</td><td>Reconstrucción total semanal</td>
-          <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo escala
-            con el pasado, no con lo que llega.</td></tr>
+          <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo
+            escala con el pasado, no con lo que llega. A 123 553 filas es una minucia, y ese
+            es exactamente el problema: nada va a avisar del día en que deje de serlo.</td></tr>
         <tr><td class="pr">044</td><td>Sin cuarentena</td>
-          <td>Las filas que el parser descarta se pierden sin registro. Pérdida silenciosa: los
-            números de abajo siguen pareciendo plausibles.</td></tr>
+          <td>Las filas que el parser descarta se pierden sin registro. Pérdida silenciosa:
+            los números de abajo siguen pareciendo plausibles — y el gate de calidad no lo
+            ve, porque valida lo que llegó a Silver, no lo que nunca llegó. Peor: una
+            cabecera sin <code>REINTEGROS</code> aborta el lote entero antes de escribir
+            nada.</td></tr>
         <tr><td class="pr">045</td><td>Silver sin trazabilidad</td>
-          <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se puede decir qué corrida
-            produjo una fila sin cruzar timestamps de S3 con logs a mano.</td></tr>
+          <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se puede decir qué
+            corrida produjo una fila sin cruzar timestamps de S3 con logs a mano.</td></tr>
       </table>
+    </div>
+  </details>
 
-      <p class="hint">Y lo que ninguna auditoría podía ver, porque hizo falta que el gate
-        corriera de verdad en la cuenta. Ninguno de los dos era visible en el código, en un
-        <code>plan</code>, ni en una suite de tests en verde. Los dos ya están cerrados — se
-        quedan aquí porque cómo aparecieron vale más que el arreglo.</p>
+  <details>
+    <summary>Y lo que ninguna auditoría podía ver: seis defectos que solo aparecieron al correrlo</summary>
+    <div class="dbody">
+      <p class="hint">Ninguno de los seis era visible en el código, en un <code>plan</code>,
+        ni en una suite de tests en verde. Los seis están cerrados — se quedan aquí porque
+        cómo aparecieron vale más que el arreglo. Los cuatro de abajo cayeron <b>la misma
+        noche</b>, el 24 de septiembre, cuando una caída del scraper obligó a correr el
+        pipeline a mano cuatro veces y cada corrida llegó un estado más lejos que la
+        anterior.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr">033.1</td><td>Arranque de 22 min contra un timeout de 30 — cerrado el 16 sep</td>
+        <tr><td class="pr done">033.1</td><td>Arranque de 22 min contra un timeout de 30 — cerrado el 16 sep</td>
           <td>Las dos primeras corridas tardaron 21m47s y 20m08s en arrancar —
             <code>--additional-python-modules</code> instala Great Expectations al empezar —
             y solo 90 s en trabajar. Con el timeout en 30 quedaban ~8 minutos de margen: un
             día lento de PyPI se convertía en un correo falso de «Silver falló calidad» que
-            además dejaba Gold sin construir. Subido a 60. <b>Corregido</b>: no pasa en cada
-            corrida — desde el 17 sep arranca en 8 s, probablemente porque Glue cachea el
-            entorno, aunque eso es inferencia y no medición.</td></tr>
-        <tr><td class="pr">033.2</td><td>El log group del gate se quedó vacío — cerrado el 20 sep</td>
+            además dejaba Gold sin construir. Subido a 60. No pasa en cada corrida — desde el
+            17 sep arranca en segundos, probablemente porque Glue cachea el entorno, aunque
+            eso es inferencia y no medición.</td></tr>
+        <tr><td class="pr done">033.2</td><td>El log group del gate se quedó vacío — cerrado el 20 sep</td>
           <td>El handler que escribe el veredicto en el grupo propio se alimentaba con los
             logs de boto3 de sus propias llamadas, vaciaba su buffer a mitad de envío y
             llamaba a PutLogEvents con una lista vacía — así que se auto-deshabilitaba. El job
             quedaba verde y el grupo con un stream y cero eventos: un respaldo que funciona
-            es indistinguible de un arreglo que no. Desde el 20 sep a las 20:55 UTC el grupo
-            lleva las seis líneas del job, veredicto incluido, y ni una de las ~180 líneas de
-            credenciales que antes lo habrían enterrado.</td></tr>
+            es indistinguible de un arreglo que no.</td></tr>
+        <tr><td class="pr done">031.2</td><td>El arreglo de agosto fue la caída de septiembre — cerrado el 24 sep</td>
+          <td>En agosto hizo falta <b>añadir</b> <code>render=true</code> para pasar
+            Cloudflare, y se probó cada subconjunto para demostrarlo. Cinco semanas después,
+            el mismo <code>502 ROTATION_FAILED</code> byte a byte — y esta vez la causa era
+            <code>render</code>. Ocho fallos consecutivos a los 57,5 s; <code>geoCode=GT&amp;super=true</code>
+            sin render: <b>200 en 9,7 s al primer intento</b>. La lección no es que render
+            esté mal, es que <b>el perfil del proxy es una negociación viva</b> y un runbook
+            que dice «se probó todo» habla de una tarde concreta. De regalo, el costo cayó de
+            25 a 10 créditos por request.</td></tr>
+        <tr><td class="pr done">031.3</td><td>El swap le mandó a Glue un campo que Glue no acepta — cerrado el 24 sep</td>
+          <td><code>_table_input</code> construía su payload <b>por resta</b>: tomar la
+            respuesta de <code>GetTable</code>, quitar lo que se sabe de solo lectura, mandar
+            el resto — y su propio comentario lo defendía como virtud, «así un campo nuevo de
+            una versión futura sigue fluyendo». Eso es el defecto enunciado como función.
+            Entre el 17 y el 24 de sep la respuesta de Glue creció
+            <code>IsMaterializedView</code>, nadie sabía quitarlo, y
+            <code>PromoteGold</code> murió. Con una denylist, <b>cada campo que AWS agrega es
+            una caída agendada en el calendario de releases de AWS</b>. Ahora son allowlists,
+            sujetas a las formas que trae el propio botocore.</td></tr>
+        <tr><td class="pr done">042.3</td><td>El swap no podía alterar la tabla que existía para alterar — cerrado el 24 sep</td>
+          <td>042.1 cambió el trabajo del Lambda y dejó su grant describiendo el anterior:
+            antes borraba tablas (<code>DROP</code>), ahora las repunta
+            (<code>UpdateTable</code>), que Lake Formation gobierna con <b><code>ALTER</code>,
+            sobre la tabla</b>. El rol <i>sí</i> tenía <code>ALTER</code>… a nivel de
+            <b>base de datos</b>, que autoriza alterar la base y no las tablas de dentro. Dos
+            grants, la misma palabra, distinto recurso — y ese grant ni siquiera estaba en el
+            estado de Terraform, así que ningún <code>plan</code> podía enseñar el hueco.</td></tr>
+        <tr><td class="pr done">042.4</td><td><code>BatchUpdatePartition</code> se autoriza contra <code>UpdatePartition</code> — cerrado el 25 sep</td>
+          <td>La política listaba <code>glue:BatchUpdatePartition</code> y el código llama a
+            <code>batch_update_partition</code>. Pero <b>Glue autoriza las APIs Batch por
+            ítem, contra la acción singular</b>. Fue el primer fallo que dejó estado a medias:
+            <code>gold_geo_winnings</code> quedó con la tabla repuntada y sus particiones en
+            la generación vieja — no corrupto, solo una generación atrasado, y lo reparó la
+            siguiente corrida buena. Los tres juntos dicen lo mismo: <b>una función que cambia
+            qué APIs de AWS se llaman no es revisable desde su propio diff</b>. Necesita una
+            corrida real.</td></tr>
       </table>
+
+      <p class="hint">Dos cosas que esa misma noche dejó <b>anotadas y sin arreglar</b>, y que
+        el diagrama marca en rojo sobre sus piezas: el <code>Retry</code> de
+        <code>RunExtractorLambda</code> cubre solo faltas de transporte, así que un 502 del
+        proxy —que llega como <code>ValueError</code>— no reintenta nada; y la descripción de
+        la alarma <code>loteria-sfn-execution-failed-prod</code> todavía dice «la máquina no
+        tiene Retry ni Catch», que es lo primero que se lee en el correo de alerta y lleva
+        semanas siendo falso.</p>
     </div>
   </details>
 </div>
