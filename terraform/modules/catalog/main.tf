@@ -112,3 +112,102 @@ resource "aws_athena_workgroup" "lottery_wg" {
     }
   }
 }
+
+# ---------------------------------------------------------------------------------------
+# PR-044.2 — the quarantine table, defined here rather than crawled.
+# ---------------------------------------------------------------------------------------
+# **Why not a crawler, when every other table in this database is crawled.** PR-045.1
+# established, against the live account, that the two Silver crawlers cannot evolve a
+# schema: `SchemaChangePolicy.UpdateBehavior = "LOG"` detects a change and only writes a log
+# line, `CRAWL_NEW_FOLDERS_ONLY` never revisits existing partitions, and
+# `Partitions.AddOrUpdateBehavior = "InheritFromTable"` gives a new partition the table's
+# schema rather than its files'. A column added to the Parquet never reaches Athena.
+#
+# Quarantine is the one table in this project whose schema we *define* rather than discover —
+# `loteria.common.quarantine.QUARANTINE_COLUMNS` is the source of truth. Inferring it would
+# be strictly worse: extra moving parts, a crawler run per week, and a known inability to
+# follow the very changes this table exists to record.
+#
+# ⚠️ The column list below and QUARANTINE_COLUMNS must stay in step. A test asserts it, by
+# reading this file — the same technique PR-042.2 used for its alarm pattern, and for the
+# same reason: nothing else would notice them drifting apart.
+resource "aws_glue_catalog_table" "quarantine" {
+  name          = "quarantine_rejects"
+  database_name = aws_glue_catalog_database.lottery_db.name
+  table_type    = "EXTERNAL_TABLE"
+
+  parameters = {
+    classification        = "parquet"
+    EXTERNAL              = "TRUE"
+    "parquet.compression" = "SNAPPY"
+  }
+
+  # Hive partition keys. These are carried by the S3 path and are deliberately NOT columns in
+  # the Parquet — Glue rejects a table whose columns and partition keys overlap.
+  #
+  # All three are `string`, including `year` and `sorteo`, which look numeric. A file that
+  # fails before its header parses has no year and no sorteo to report, and the writer emits
+  # the literal `unknown` rather than inventing one; a typed partition could not hold that.
+  # The partition that says "we could not even tell which draw this was" is precisely the one
+  # worth keeping.
+  partition_keys {
+    name = "dataset"
+    type = "string"
+  }
+  partition_keys {
+    name = "year"
+    type = "string"
+  }
+  partition_keys {
+    name = "sorteo"
+    type = "string"
+  }
+
+  storage_descriptor {
+    location      = "s3://${var.partitioned_bucket_name}/quarantine/"
+    input_format  = "org.apache.hadoop.mapred.TextInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
+
+    ser_de_info {
+      name                  = "parquet"
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+      parameters            = { "serialization.format" = "1" }
+    }
+
+    columns {
+      name    = "reason"
+      type    = "string"
+      comment = "Closed vocabulary: section_header (never stored), orphan_vendor_line, unrecognised, malformed_header, unexpected_key"
+    }
+    columns {
+      name    = "line"
+      type    = "string"
+      comment = "The rejected input, truncated to 120 characters"
+    }
+    columns {
+      name    = "position"
+      type    = "int"
+      comment = "1-based line number within the BODY; 0 for file-level rejects"
+    }
+    columns {
+      name    = "source_key"
+      type    = "string"
+      comment = "The raw/ S3 key the reject came from"
+    }
+    columns {
+      name    = "run_id"
+      type    = "string"
+      comment = "Step Functions execution name (PR-018 correlation id)"
+    }
+    columns {
+      name    = "parser_version"
+      type    = "int"
+      comment = "Which parsing behaviour rejected it (PR-045.1)"
+    }
+    columns {
+      name    = "quarantined_at"
+      type    = "timestamp"
+      comment = "UTC, timezone-naive, as PR-045.1's ingested_at"
+    }
+  }
+}

@@ -25,6 +25,7 @@ import sys
 import pandas as pd
 from awsglue.utils import getResolvedOptions
 
+from loteria.common import quarantine
 from loteria.common.aws_secrets import get_secrets
 from loteria.common.lineage import (
     INGESTED_AT,
@@ -43,6 +44,7 @@ from loteria.common.s3_utils import (
     upload_file_to_s3,
 )
 from loteria.parser.parser import (
+    REJECT_LINE_MAX,
     REJECT_UNRECOGNISED,
     process_body,
     process_header,
@@ -125,11 +127,34 @@ def transform(
         extra={"run_id": run_id, "parser_version": PARSER_VERSION},
     )
 
+    quarantined_total = 0
+    unrecognised_total = 0
+
     for raw_file in raw_files:
         # Expect: raw/year=YYYY/sorteo=NNNN/<file>.txt
         match = re.search(r"sorteo=(\d+)/", raw_file)
         if not match:
+            # PR-044.2: was a warning and a `continue` — the same silent-loss shape as the
+            # per-line skips, one level up. The file is still skipped; it is now also kept.
             logger.warning("Skipping file with unexpected structure", extra={"raw_file": raw_file})
+            quarantined_total += quarantine.write(
+                bucket_name,
+                quarantine.build_rows(
+                    [
+                        {
+                            "reason": quarantine.REJECT_UNEXPECTED_KEY,
+                            "line": raw_file[:REJECT_LINE_MAX],
+                            "position": 0,
+                        }
+                    ],
+                    source_key=raw_file,
+                    run_id=run_id,
+                ),
+                dataset="sorteos",
+                year="unknown",
+                numero_sorteo="unknown",
+                run_id=run_id,
+            )
             continue
 
         numero_sorteo = int(match.group(1))
@@ -153,15 +178,55 @@ def transform(
         with open(local_path, encoding="utf-8") as f:
             file_content = f.read()
 
-        header_lines, body_lines = split_header_body(file_content.splitlines())
-
-        # Parse into python objects
-        sorteos = [process_header(header_lines)]
-        # PR-044.1: `rejects` is what used to disappear into a DEBUG log Glue never
-        # emitted. It is carried, counted and logged here; PERSISTING it is PR-044.2, and
-        # the split is deliberate — the number comes first, because the alarm PR-044.2 adds
-        # has to be built on a measured baseline rather than a guess.
-        premios, premios_rejects = process_body(body_lines)
+        # PR-044.2 — PR-035.1's defect C. `process_header` raises ValueError on a header
+        # missing REINTEGROS, and until now NOTHING caught it: the exception aborted the run
+        # for every OTHER raw file in the batch, before anything was written. One draw with
+        # an odd header was a full weekly outage rather than one skipped record.
+        #
+        # ⚠️ ValueError ONLY, deliberately narrow. A ValueError here means "this input is not
+        # what the parser expects", which is precisely what quarantine is for. A broad
+        # `except Exception` would also swallow an S3 failure, an out-of-memory, a bug in
+        # this module — infrastructure problems that SHOULD fail the run loudly, and that
+        # would otherwise be silently reclassified as bad data. Quarantining a genuine bug
+        # is how a pipeline learns to lie about its own health.
+        try:
+            header_lines, body_lines = split_header_body(file_content.splitlines())
+            sorteos = [process_header(header_lines)]
+            # PR-044.1: `rejects` is what used to disappear into a DEBUG log Glue never
+            # emitted — counted and logged there, persisted here.
+            premios, premios_rejects = process_body(body_lines)
+        except ValueError as exc:
+            logger.warning(
+                "Sorteo quarantined: the file did not parse",
+                extra={
+                    "sorteo_number": numero_sorteo,
+                    "raw_file": raw_file,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            rows = quarantine.build_rows(
+                [
+                    {
+                        "reason": quarantine.REJECT_MALFORMED_HEADER,
+                        "line": str(exc)[:REJECT_LINE_MAX],
+                        "position": 0,
+                    }
+                ],
+                source_key=raw_file,
+                run_id=run_id,
+            )
+            # `year` comes from fecha_sorteo, which is exactly what failed to parse. The raw
+            # key carries one, so use it and fall back to "unknown" rather than inventing.
+            year_match = re.search(r"year=(\d{4})/", raw_file)
+            quarantined_total += quarantine.write(
+                bucket_name,
+                rows,
+                dataset="sorteos",
+                year=year_match.group(1) if year_match else "unknown",
+                numero_sorteo=numero_sorteo,
+                run_id=run_id,
+            )
+            continue
 
         # Attach numero_sorteo to each premio row
         for premio in premios:
@@ -303,6 +368,34 @@ def transform(
         upload_file_to_s3(sorteos_local_path, partitioned_bucket, partitioned_sorteos_key)
         upload_file_to_s3(premios_local_path, partitioned_bucket, partitioned_premios_key)
 
+        # PR-044.2: persist what PR-044.1 only counted. `build_rows` drops `section_header`
+        # — 6.5% of every body is millar headings, and storing them would write ~9,500 rows
+        # of structure per draw and make `SELECT reason, count(*)` useless.
+        unrecognised = sum(1 for r in premios_rejects if r["reason"] == REJECT_UNRECOGNISED)
+        quarantined = quarantine.write(
+            bucket_name,
+            quarantine.build_rows(
+                premios_rejects,
+                source_key=raw_file,
+                run_id=run_id,
+            ),
+            dataset="premios",
+            year=year,
+            numero_sorteo=numero_sorteo,
+            run_id=run_id,
+        )
+        quarantined_total += quarantined
+        unrecognised_total += unrecognised
+        if unrecognised:
+            # The signal the alarm greps for. Measured baseline across the whole archive:
+            # ONE occurrence in 145,680 lines, so this is worth an email when it happens.
+            logger.warning(
+                "%s sorteo=%s count=%d",
+                quarantine.QUARANTINED_UNRECOGNISED,
+                numero_sorteo,
+                unrecognised,
+            )
+
         logger.info(
             "Sorteo processed successfully into Silver",
             extra={
@@ -313,9 +406,8 @@ def transform(
                 # `unrecognised` is the one that matters — baseline across the whole
                 # archive is 1 line in 145,680.
                 "rejected_total": len(premios_rejects),
-                "rejected_unrecognised": sum(
-                    1 for r in premios_rejects if r["reason"] == REJECT_UNRECOGNISED
-                ),
+                "rejected_unrecognised": unrecognised,
+                "quarantined": quarantined,
             },
         )
 
