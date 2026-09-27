@@ -138,6 +138,10 @@ td.pr{font-family:var(--mono);color:var(--breach);font-weight:700;white-space:no
 /* Un defecto cerrado se lee distinto de uno abierto: las dos tablas mezclan ambos,
    y el color de la columna PR es lo único que los separa de un vistazo. */
 td.pr.done{color:var(--flow)}
+/* PR-044.2: un tercer estado. `done` y el rojo por defecto no alcanzaban para
+   "desplegado pero sin verificar", que es precisamente la distinción que a 042.1 le
+   costó tres días de decir lo contrario. */
+td.pr.pend{color:var(--pending)}
 .dbody table + .hint{margin:14px 0 0}
 .dbody i{font-style:italic;color:var(--ink)}
 code{font-family:var(--mono);font-size:.87em;background:var(--surface2);

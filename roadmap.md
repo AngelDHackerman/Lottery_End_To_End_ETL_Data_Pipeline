@@ -2984,6 +2984,35 @@ reading the quarantine count is a follow-up, deliberately not wired here.
 >
 > 444 tests, coverage 98.95%. Runbook: `docs/runbooks/PR-044.2-quarantine-store.md`.
 
+> **Applied 2026-09-27, ~20:30 UTC. The infrastructure half is verified cold; the code half
+> is not.** That split is the point of applying early rather than on Thursday morning: this
+> repo gets **one pipeline run a week**, and it should be spent proving the code, not
+> discovering a deploy problem.
+>
+> **Checked read-only, against the account:**
+>
+> | | |
+> |---|---|
+> | `quarantine_rejects` | 7 columns + 3 partition keys, **identical to `QUARANTINE_COLUMNS`** |
+> | alarms | 9 total, the 2 new ones in `OK` |
+> | metric filters | both present, patterns matching the literal tokens |
+> | Glue artifact | `quarantine.py` present, `except ValueError` in the loop |
+>
+> **Lake Formation turned out to need nothing, and the reason is worth keeping.** The runbook
+> flagged it as the post-apply risk. `list-resources` shows the registered locations are
+> `silver/`, `processed/*` and the Athena results bucket — **`quarantine/` is not registered,
+> and neither is `gold/`.** So S3 access for both resolves through IAM rather than Lake
+> Formation, exactly as the seven gold tables that are queried without trouble today. The
+> table also carries `ALL` + `SELECT` for the creating principal. Both halves covered, and
+> the reassuring part is not that a grant was added but that **quarantine ended up with the
+> same shape as a layer already known to work**.
+>
+> **Verification is the Thursday 2026-10-01 run**, which now settles three PRs at once —
+> 045.1's columns, 044.1's counters and 044.2's quarantine. The hard one is 044.2: its
+> normal state is **empty**, so "no rows" is both the success case and the case where the
+> writer never ran. That is why the check reads the counters in the log rather than the S3
+> prefix.
+
 
 ## PR-045 — Lineage columns in Silver
 **Fault F.**
@@ -3335,7 +3364,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
-| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` **PR open, not applied** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
+| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` **applied 2026-09-27, NOT verified** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; infrastructure checked cold, code path awaits the Thursday run | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
