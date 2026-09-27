@@ -2890,6 +2890,46 @@ derived from it — not guessed.
 > PR-035.1's defect C and belongs with the quarantine store in `.2`. No storage, no metric,
 > no alarm in this sub-PR. 429 tests, coverage 98.99%.
 
+> **⚠️ Deployed 2026-09-27, and NOT verified — recorded here rather than assumed, because
+> assuming it is what cost PR-042.1 three days.** This applies to **both** PR-044.1 and
+> PR-045.1: they ship in the same Glue artifact and neither has executed its new code path.
+>
+> **What happened.** The deploy landed at 20:20:57Z (confirmed by unzipping the published
+> artifact, not by its timestamp: `lineage.py` present, the reject codes in `parser.py`, the
+> transformer stamping). A verification run at 20:22Z then SUCCEEDED in 9m17s — and
+> transformed nothing:
+>
+> ```
+> "Scanned raw + Silver layers"   raw_files: 118, processed_sorteos: 118
+> ```
+>
+> Every raw file already had its Silver counterpart, so **the transform loop never
+> executed**. No Parquet was written, so no lineage column exists on disk; no file was
+> parsed, so no reject counter ran (`lines_rejected` returns nothing from the log group).
+> Silver stayed at 118/118.
+>
+> **Why, and it is worth knowing:** the 15:46 run that verified PR-042.2 had already scraped
+> and ingested sorteo 3137 — *before* this deploy. That run consumed the one new draw that
+> would have carried lineage. A pipeline that is correctly idempotent cannot be made to
+> re-prove itself on demand.
+>
+> **It could not be forced, and the reason is a guardrail working.** Deleting one sorteo's
+> Silver so the transformer rewrites it is blocked by PR-002's bucket `Deny` — the same
+> `Deny` that made PR-042.2 necessary. Which is just as well: rewriting Silver by hand to
+> exercise a feature is a bad idea that happened to be impossible.
+>
+> **What IS proven:** the deployed artifact contains both changes; `run_id` resolves from
+> the environment (`"run_id": "verify-045-1-044-1-1790540548"`, matching the execution
+> name), so PR-018's correlation bridge reaches the new code; and the pipeline is green
+> end-to-end with both merged — no regression. PR-042.2 also retired cleanly for the
+> **third consecutive run** (2 generations per table, zero `GOLD_RETENTION_FAILED`).
+>
+> **What verifies them: the scheduled run of Thursday 2026-10-01**, which brings sorteo 3138
+> — the first draw transformed by this code. Check, in that order: the new Silver Parquet
+> carries the four columns with a real `run_id`; the transform log carries `lines_total` /
+> `lines_parsed` / `lines_rejected`; and **`rejected_unrecognised` is 0** — a non-zero there
+> is a genuine finding, since the archive baseline is one occurrence in 118 draws.
+
 
 **PR-044.2 — Persist the rejects.** The quarantine writer, the reason-code vocabulary, the
 catalog registration, and the `> baseline` alarm. One constraint worth stating out loud:
@@ -3247,8 +3287,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
-| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **PR open, not applied** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
-| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **PR open, not applied** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured: 6.50% rejects, of which **1 line in 145,680** is unexplained · `.2` todo | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) |
+| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
+| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` todo | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
