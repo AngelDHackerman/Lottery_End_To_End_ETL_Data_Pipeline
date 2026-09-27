@@ -84,11 +84,14 @@
 
   function drawPrefixChips() {
     D.PREFIXES.forEach(p => {
-      el("rect", {x:p.x, y:440, width:136, height:44, rx:2, fill:"var(--surface2)",
+      /* 116, no 136: PR-044.2 añadió quarantine/ y son cinco capas. A 136 la quinta se
+         salía de la caja del bucket (424..1044), que es el tipo de cosa que un diff no
+         enseña y un render sí. */
+      el("rect", {x:p.x, y:440, width:116, height:44, rx:2, fill:"var(--surface2)",
                   stroke:"var(--flow)", "stroke-width":1.2}, map);
-      text({x:p.x + 68, y:459, "text-anchor":"middle", "font-family":"var(--mono)",
+      text({x:p.x + 58, y:459, "text-anchor":"middle", "font-family":"var(--mono)",
             "font-size":"11", "font-weight":"700", fill:"var(--flow)"}, p.k, map);
-      text({x:p.x + 68, y:475, "text-anchor":"middle", "font-family":"var(--mono)",
+      text({x:p.x + 58, y:475, "text-anchor":"middle", "font-family":"var(--mono)",
             "font-size":"9", fill:"var(--muted)"}, p.v, map);
     });
   }

@@ -10,7 +10,7 @@
 <div class="wrap">
   <header>
     <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
-      <span>lago al día hasta el Extraordinario 415</span><span>·</span><span>27 sep 2026</span></p>
+      <span>lago al día hasta el Extraordinario 415</span><span>·</span><span>27 sep 2026 · 20:30 UTC</span></p>
     <h1>Arquitectura Lotería Santa Lucía</h1>
     <p>Lo que está desplegado hoy, comprobado contra la cuenta y no contra la documentación.
       Hacé clic en cualquier pieza para ver sus nombres reales y su estado, o reproducí la
@@ -53,12 +53,15 @@
   </div>
 
   <details>
-    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado del todo, uno a medio cerrar, tres abiertos</summary>
+    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado, tres a medio cerrar, uno abierto</summary>
     <div class="dbody">
-      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042 ya está
-        cerrado</b>, pero no el 21 de septiembre como decía este diagrama: ese día se aplicó,
-        y lo que lo cerró fue una corrida de producción cuatro días después. El 041 va por su
-        tercer paso de tres.</p>
+      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042 es el único
+        cerrado</b>, y no el 21 de septiembre como decía este diagrama: ese día se aplicó, y
+        lo que lo cerró fue una corrida de producción cuatro días después. El 041 espera su
+        tercer paso; el <b>044 y el 045 están desplegados pero sin verificar</b> — su código
+        no ha ejecutado todavía, porque el sorteo de esta semana se ingirió horas antes del
+        deploy y un pipeline correctamente idempotente no se deja volver a probar. Los
+        verifica la corrida del jueves 1 de octubre. Solo el 043 sigue intacto.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
         <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras
@@ -104,15 +107,31 @@
           <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo
             escala con el pasado, no con lo que llega. A 123 553 filas es una minucia, y ese
             es exactamente el problema: nada va a avisar del día en que deje de serlo.</td></tr>
-        <tr><td class="pr">044</td><td>Sin cuarentena</td>
-          <td>Las filas que el parser descarta se pierden sin registro. Pérdida silenciosa:
-            los números de abajo siguen pareciendo plausibles — y el gate de calidad no lo
-            ve, porque valida lo que llegó a Silver, no lo que nunca llegó. Peor: una
-            cabecera sin <code>REINTEGROS</code> aborta el lote entero antes de escribir
-            nada.</td></tr>
-        <tr><td class="pr">045</td><td>Silver sin trazabilidad</td>
-          <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se puede decir qué
-            corrida produjo una fila sin cruzar timestamps de S3 con logs a mano.</td></tr>
+        <tr><td class="pr pend">044</td><td>Sin cuarentena — <b>desplegado el 27 sep, sin
+          verificar</b></td>
+          <td>Las filas que el parser descartaba se perdían sin registro: pérdida silenciosa,
+            con los números de abajo siempre pareciendo plausibles. Ahora se cuentan, se
+            clasifican y las que importan se guardan en <code>quarantine/</code>. <b>Lo más
+            grande no fue el almacén</b>: una cabecera sin <code>REINTEGROS</code> abortaba
+            el lote <i>entero</i> antes de escribir nada, así que un sorteo raro costaba la
+            ingesta de la semana — ahora ese archivo va a cuarentena y el bucle sigue. Y
+            medir cambió el diseño: el parser rechaza el <b>6,50%</b> de cada body, pero
+            9.464 de 9.465 son encabezados de millar. Una alarma sobre rechazos totales
+            habría sonado todos los jueves. La señal real, <code>unrecognised</code>, apareció
+            <b>una vez en 118 sorteos</b>.</td></tr>
+        <tr><td class="pr pend">045</td><td>Silver sin trazabilidad — <b>a medias: las
+          columnas se escriben, Athena todavía no las ve</b></td>
+          <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se podía decir qué
+            corrida produjo una fila sin cruzar timestamps de S3 con logs a mano. 045.1
+            agrega cuatro columnas al Parquet — y <code>run_id</code> se deja <b>nulo</b>
+            cuando falta, en vez de rellenarlo, porque «no nulo en filas con linaje» es el
+            único chequeo del proyecto capaz de notar que <i>algo escribió Silver fuera del
+            pipeline</i>. Queda 045.2 y tiene un requisito duro descubierto al construir
+            esto: <b>los crawlers no pueden evolucionar el esquema</b>
+            (<code>UpdateBehavior: LOG</code>, <code>CRAWL_NEW_FOLDERS_ONLY</code>,
+            particiones <code>InheritFromTable</code>), así que las columnas existen en disco
+            y el catálogo sigue con diez. El gate de calidad sí las ve: lee los Parquet
+            directo, no por Athena.</td></tr>
       </table>
     </div>
   </details>
