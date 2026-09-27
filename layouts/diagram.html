@@ -53,7 +53,7 @@
   </div>
 
   <details>
-    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado, uno a medio cerrar, tres abiertos</summary>
+    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado del todo, uno a medio cerrar, tres abiertos</summary>
     <div class="dbody">
       <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042 ya está
         cerrado</b>, pero no el 21 de septiembre como decía este diagrama: ese día se aplicó,
@@ -83,22 +83,23 @@
             primera corrida real fue el 24 sep y falló tres veces seguidas, cada una por un
             permiso distinto. Lo cerró la corrida del 25 sep a las 02:03 UTC, la primera que
             llegó entera al swap.</td></tr>
-        <tr><td class="pr">042.2</td><td>El swap no limpia lo que deja atrás — <b>el catálogo
-          ya sí, los bytes no</b></td>
-          <td>Publicar una generación nueva no retira la vieja. El <b>27 sep se barrieron a
-            mano las 9 tablas <code>__stg_</code></b> que dejaron las corridas fallidas: la
-            base pasó de 20 tablas a 11 —7 gold, 2 silver y 2 restos de los crawlers
-            legacy— y ya no hay entrada de staging alguna. Los <b>bytes no se pudieron
-            barrer</b>, y el motivo es la parte interesante: el <code>Deny</code> de PR-002
-            exime exactamente a la raíz de la cuenta y al rol
+        <tr><td class="pr done">042.2</td><td>El swap no limpiaba lo que dejaba atrás —
+          <b>cerrado el 27 sep</b></td>
+          <td>Publicar una generación nueva no retiraba la vieja. Ahora un cuarto estado,
+            <code>RetireGold</code>, borra las anteriores salvo una — corre <b>después</b>
+            del swap y tiene permitido fallar sin tumbar la corrida, porque cuando llega las
+            tablas ya están publicadas y correctas. Lo que costó cerrarlo es la parte que
+            vale: las generaciones muertas <b>no eran borrables a mano</b>. El
+            <code>Deny</code> de PR-002 exime exactamente a la raíz de la cuenta y al rol
             <code>lottery-gold-purge-role-prod</code>, así que un usuario con
             <code>AdministratorAccess</code> tiene el borrado denegado —un
             <code>Deny</code> explícito de política de bucket no lo gana ningún
-            <code>Allow</code> de IAM— y el Lambda solo expone <code>prepare</code> y
-            <code>promote</code>. Siguen en disco tres generaciones muertas (16 objetos) más
-            la disposición anterior al swap. <b>No son limpiables hasta que 042.2 exista</b>:
-            la barrera funciona como se diseñó, y el rol que exime es justamente el que
-            correrá el estado nuevo.</td></tr>
+            <code>Allow</code> de IAM— y el Lambda solo exponía <code>prepare</code> y
+            <code>promote</code>. La basura de 042.1 no se podía limpiar hasta que existiera
+            el mecanismo que la limpia. La corrida de verificación retiró <b>12 prefijos</b>
+            y dejó <code>gold/</code> en 39 objetos: 13 vivos, 13 del rollback y 13 de la
+            disposición anterior al swap, que se conserva a propósito por ser el único
+            rollback que no viene de una corrida fallida.</td></tr>
         <tr><td class="pr">043</td><td>Reconstrucción total semanal</td>
           <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo. El costo
             escala con el pasado, no con lo que llega. A 123 553 filas es una minucia, y ese
