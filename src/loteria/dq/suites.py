@@ -37,6 +37,9 @@ import datetime as dt
 import great_expectations as gx
 from great_expectations import expectations as gxe
 from great_expectations.core import ExpectationSuite
+from great_expectations.expectations.row_conditions import Column
+
+from loteria.common.lineage import LINEAGE_COLUMNS, PARSER_VERSION_COLUMN
 
 SORTEOS_SUITE_NAME = "silver_sorteos"
 PREMIOS_SUITE_NAME = "silver_premios"
@@ -103,6 +106,48 @@ FECHA_SORTEO_MIN = dt.datetime(2024, 1, 1)
 FECHA_SORTEO_MAX = dt.datetime(2035, 1, 1)
 
 
+# --- PR-045.1: lineage -----------------------------------------------------------------
+# These expectations are the reason fault F is worth closing: `run_id is not null` is the
+# only check in this project that can notice **something wrote Silver outside the
+# pipeline**. Nothing else looks at provenance at all.
+#
+# ⚠️ They are CONDITIONAL, and that is not timidity. The suites validate the whole dataset,
+# which includes the 222 files written before lineage existed; an unconditional not-null on
+# `run_id` would go red on day one against perfectly good historical data. That is the
+# fails-on-arrival trap PR-032 spent a paragraph avoiding, and a gate that is red on arrival
+# teaches everyone to ignore the gate.
+#
+# The condition is a `parser_version` floor rather than "where the column is not null",
+# because the latter is circular: it would exclude exactly the rows the expectation exists
+# to catch. A row written by the lineage-aware transformer always carries `parser_version`;
+# if it carries that and NOT a `run_id`, something is wrong, and that is what goes red.
+#
+# `loteria.dq.runner.ensure_lineage_columns` guarantees the column exists before validation,
+# so the condition cannot raise on a dataset that has no lineage rows yet.
+LINEAGE_PARSER_VERSION_FLOOR = 1
+
+
+def lineage_expectations() -> list:
+    """Not-null on every lineage column, for lineage-era rows only.
+
+    Shared by both suites deliberately: the lineage contract is identical across the two
+    datasets, and two copies would drift the first time one of them gained a column.
+
+    The condition is a ``Condition`` object rather than the string form the GX docs show
+    most often. A string ``row_condition`` is **deprecated as of GX Core 1.9.0 and removed
+    in 2.0** — this repo pins 1.20.0, so the string works today and emits a DeprecationWarning
+    per expectation per validation. Writing a brand-new feature against an API with a
+    removal date already announced is how a pinned dependency becomes unupgradable.
+    """
+    return [
+        gxe.ExpectColumnValuesToNotBeNull(
+            column=column,
+            row_condition=Column(PARSER_VERSION_COLUMN) >= LINEAGE_PARSER_VERSION_FLOOR,
+        )
+        for column in LINEAGE_COLUMNS
+    ]
+
+
 def build_sorteos_suite() -> ExpectationSuite:
     """The ``silver_sorteos`` contract: one row per draw, uniquely keyed, correctly dated."""
     expectations = [
@@ -145,6 +190,8 @@ def build_sorteos_suite() -> ExpectationSuite:
         # Guards the empty-input case: an S3 listing that returned nothing would otherwise
         # validate a zero-row frame and report a cheerful green.
         gxe.ExpectTableRowCountToBeBetween(min_value=1),
+        # --- PR-045.1 lineage -----------------------------------------------------------
+        *lineage_expectations(),
     ]
     return gx.ExpectationSuite(name=SORTEOS_SUITE_NAME, expectations=expectations)
 
@@ -172,6 +219,8 @@ def build_premios_suite() -> ExpectationSuite:
         gxe.ExpectColumnValuesToMatchRegex(column="letras", regex=r"^[A-Z]+$"),
         gxe.ExpectColumnValuesToBeBetween(column="numero_premiado", min_value=0),
         gxe.ExpectTableRowCountToBeBetween(min_value=1),
+        # --- PR-045.1 lineage -----------------------------------------------------------
+        *lineage_expectations(),
     ]
     return gx.ExpectationSuite(name=PREMIOS_SUITE_NAME, expectations=expectations)
 

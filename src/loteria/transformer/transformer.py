@@ -26,6 +26,15 @@ import pandas as pd
 from awsglue.utils import getResolvedOptions
 
 from loteria.common.aws_secrets import get_secrets
+from loteria.common.lineage import (
+    INGESTED_AT,
+    PARSER_VERSION,
+    PARSER_VERSION_COLUMN,
+    RUN_ID,
+    SOURCE_KEY,
+    run_id_from_env,
+    utc_now,
+)
 from loteria.common.logging_setup import configure_logging
 from loteria.common.s3_utils import (
     download_file_from_s3,
@@ -103,6 +112,16 @@ def transform(
             "processed_sorteos": len(processed_sorteos),
             "raw_prefix": raw_prefix,
         },
+    )
+
+    # PR-045.1: resolved ONCE per transform, not per sorteo — every row this job writes
+    # belongs to the same run by definition, and re-reading the environment inside the loop
+    # would only create a way for them to disagree. None here means the gate will go red,
+    # which is the intended signal; see `run_id_from_env`.
+    run_id = run_id_from_env()
+    logger.info(
+        "Lineage stamp for this transform",
+        extra={"run_id": run_id, "parser_version": PARSER_VERSION},
     )
 
     for raw_file in raw_files:
@@ -238,6 +257,24 @@ def transform(
             )
 
         year = int(sorteos_df["fecha_sorteo"].dt.year.iloc[0])
+
+        # -----------------------
+        # Lineage (PR-045.1, fault F)
+        # -----------------------
+        # Applied to BOTH frames and applied LAST, after every business column exists and
+        # after `year` has been derived. Last on purpose: these four columns describe the
+        # write, so anything that can still raise above this point should raise before a row
+        # is stamped as having been produced by this run.
+        #
+        # `ingested_at` is computed once per sorteo rather than once per frame, so a sorteo's
+        # two files carry the SAME instant. Two timestamps microseconds apart would look like
+        # evidence of something when it is only evidence of two statements.
+        ingested_at = utc_now()
+        for frame in (sorteos_df, premios_df):
+            frame[RUN_ID] = run_id
+            frame[INGESTED_AT] = ingested_at
+            frame[SOURCE_KEY] = raw_file
+            frame[PARSER_VERSION_COLUMN] = PARSER_VERSION
 
         # -----------------------
         # Write Parquet locally
