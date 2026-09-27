@@ -43,6 +43,7 @@ from loteria.common.s3_utils import (
     upload_file_to_s3,
 )
 from loteria.parser.parser import (
+    REJECT_UNRECOGNISED,
     process_body,
     process_header,
     split_header_body,
@@ -156,7 +157,11 @@ def transform(
 
         # Parse into python objects
         sorteos = [process_header(header_lines)]
-        premios = process_body(body_lines)
+        # PR-044.1: `rejects` is what used to disappear into a DEBUG log Glue never
+        # emitted. It is carried, counted and logged here; PERSISTING it is PR-044.2, and
+        # the split is deliberate — the number comes first, because the alarm PR-044.2 adds
+        # has to be built on a measured baseline rather than a guess.
+        premios, premios_rejects = process_body(body_lines)
 
         # Attach numero_sorteo to each premio row
         for premio in premios:
@@ -300,7 +305,18 @@ def transform(
 
         logger.info(
             "Sorteo processed successfully into Silver",
-            extra={"sorteo_number": numero_sorteo, "year": year},
+            extra={
+                "sorteo_number": numero_sorteo,
+                "year": year,
+                # PR-044.1: per-sorteo reject counts, so a run's log answers "how much did
+                # we drop, and was any of it surprising?" without anyone opening the parser.
+                # `unrecognised` is the one that matters — baseline across the whole
+                # archive is 1 line in 145,680.
+                "rejected_total": len(premios_rejects),
+                "rejected_unrecognised": sum(
+                    1 for r in premios_rejects if r["reason"] == REJECT_UNRECOGNISED
+                ),
+            },
         )
 
 

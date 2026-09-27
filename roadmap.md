@@ -2844,6 +2844,53 @@ the canary-that-always-skips failure from PR-031 wearing a third hat. **Acceptan
 measured baseline across all archived draws is in the PR description, and the threshold is
 derived from it — not guessed.
 
+> **PR-044.1 outcome (2026-09-27). The measurement overturned the premise, which is exactly
+> what it was for.**
+>
+> The section above says "the expected value is exactly zero" and asks for an alarm on
+> `> 0` rejected rows. Run over the **whole archived corpus — 118 draws, 145,680 body
+> lines** — the parser rejects **9,465 lines, 6.50%**:
+>
+> | category | lines | share |
+> |---|---|---|
+> | premios | 124,447 | 85.42% |
+> | vendedor / `NO VENDIDO` | 11,768 | 8.08% |
+> | **`section_header`** (a millar heading: `CENTENARES`, `DOS MIL`, …) | **9,464** | **6.4964%** |
+> | `orphan_vendor_line` | 0 | 0% |
+> | **`unrecognised`** | **1** | **0.00069%** |
+>
+> **An alarm on total rejects would have fired every single Thursday** and been muted inside
+> a month — the canary-that-always-skips failure from PR-031 wearing a third hat, which the
+> prompt warned about without knowing it was already true. 6.5% of every body is *structure*,
+> not loss: the headings that introduce each block of prizes.
+>
+> **So the vocabulary does the work the threshold was supposed to.** Three codes, and the
+> split between them is the deliverable: `section_header` is expected and counted,
+> `orphan_vendor_line` has never fired and is kept precisely for that reason (it is the shape
+> the body takes if the site reorders its blocks), and **`unrecognised` is the signal** — one
+> occurrence in the entire archive, `00CERO` in sorteo 396, a typo of a heading at the
+> source. PR-044.2's alarm belongs on `unrecognised`, where "> 0 in a run" means roughly once
+> every 118 draws rather than once a week.
+>
+> **One judgement call, recorded because it moves the number.** `_SECTION_HEADER_RE` accepts
+> `\d*MIL`, which absorbs the archive's single typo'd `000MIL` as a heading. Structurally it
+> is one. A stricter `00MIL` would make it a second `unrecognised` and double the baseline
+> from 1 to 2 — that is how small this number is, and why the choice is written down rather
+> than left implicit in a regex.
+>
+> **Mechanics:** `process_body` returns `(rows, rejects)`; each reject is
+> `{line, reason, position}`, line truncated to 120 chars. Rejects are logged at **INFO** —
+> DEBUG is what made this invisible in Glue in the first place, and WARNING would cry wolf
+> 9,464 times per archive. The per-run log now carries `lines_total` / `lines_parsed` /
+> `lines_rejected` plus a count per reason: the denominator `premios_count` never had. A
+> rejected line still never fails the run.
+>
+> **Still open, deliberately:** the transformer's file-level
+> `logger.warning("Skipping file with unexpected structure")` is untouched — that is
+> PR-035.1's defect C and belongs with the quarantine store in `.2`. No storage, no metric,
+> no alarm in this sub-PR. 429 tests, coverage 98.99%.
+
+
 **PR-044.2 — Persist the rejects.** The quarantine writer, the reason-code vocabulary, the
 catalog registration, and the `> baseline` alarm. One constraint worth stating out loud:
 **a rejected line must never fail the run by itself** — the rate alarm is what escalates.
@@ -3201,7 +3248,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **PR open, not applied** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
-| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
+| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **PR open, not applied** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured: 6.50% rejects, of which **1 line in 145,680** is unexplained · `.2` todo | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
