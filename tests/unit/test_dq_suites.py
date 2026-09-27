@@ -332,3 +332,108 @@ class TestPremiosSuiteBehaviour:
 def test_tipos_sorteo_matches_what_the_parser_can_emit():
     """The header regex is ``SORTEO (\\w+)``; only these two words have ever come out."""
     assert set(TIPOS_SORTEO) == {"ORDINARIO", "EXTRAORDINARIO"}
+
+
+# ==========================================================================================
+# Lineage (PR-045.1)
+# ==========================================================================================
+class TestLineageExpectations:
+    """The lineage checks have to survive a dataset that is half pre-lineage and half not.
+
+    That transitional state is not a corner case — it is what production looks like from the
+    day this ships until every sorteo has been rewritten, which is never, because Silver is
+    written once per draw and never revisited.
+    """
+
+    @staticmethod
+    def _stamped(df, run_id="exec-abc", parser_version=1):
+        df = df.copy()
+        df["run_id"] = run_id
+        df["ingested_at"] = pd.Timestamp("2026-09-27T12:00:00")
+        df["source_key"] = "raw/year=2024/sorteo=3046/results.txt"
+        df["parser_version"] = parser_version
+        return df
+
+    def test_a_pre_lineage_frame_passes(self):
+        """Day one. No file carries lineage yet, so the column is not even in the frame.
+
+        This is the fails-on-arrival trap: an unconditional not-null would turn the gate red
+        the moment the feature shipped, against 222 files of perfectly good historical data,
+        for a reason that has nothing to do with data quality. `ensure_lineage_columns` plus
+        the `parser_version` floor is what makes it a no-op instead.
+        """
+        outcome = outcome_for("sorteos", make_sorteos())
+
+        assert outcome.success, failed_expectations(outcome)
+
+    def test_a_stamped_frame_passes(self):
+        outcome = outcome_for("sorteos", self._stamped(make_sorteos()))
+
+        assert outcome.success, failed_expectations(outcome)
+
+    def test_a_lineage_row_without_a_run_id_fails(self):
+        """The check that justifies the whole sub-PR.
+
+        A row carrying `parser_version` was written by the lineage-aware transformer. If it
+        has no `run_id`, the transformer ran without a correlation id — i.e. **something
+        wrote Silver outside the pipeline**. Nothing else in this project can notice that.
+        """
+        outcome = outcome_for("sorteos", self._stamped(make_sorteos(), run_id=None))
+
+        assert not outcome.success
+        assert ("expect_column_values_to_not_be_null", "run_id") in failed_expectations(outcome)
+
+    def test_a_mixed_frame_judges_only_the_lineage_rows(self):
+        """The realistic shape: old rows with NULL lineage sitting beside new stamped ones.
+
+        The old rows must not be judged — and the new ones must still be. A condition of
+        "where run_id is not null" would have been circular and passed this test for the
+        wrong reason; the `parser_version` floor is what makes it meaningful.
+        """
+        old = make_sorteos()
+        for column in ("run_id", "ingested_at", "source_key", "parser_version"):
+            old[column] = None
+        new = self._stamped(
+            make_sorteos(numero_sorteo=pd.Series([4046, 4047], dtype="int64")),
+            run_id=None,
+        )
+
+        outcome = outcome_for("sorteos", pd.concat([old, new], ignore_index=True))
+
+        assert not outcome.success
+        failures = failed_expectations(outcome)
+        assert ("expect_column_values_to_not_be_null", "run_id") in failures
+
+    def test_both_suites_carry_the_same_lineage_contract(self):
+        """Two datasets, one contract. Separate copies would drift the first time one of
+        them gained a column."""
+        from loteria.dq.suites import build_premios_suite, build_sorteos_suite
+
+        def lineage_columns(suite):
+            return {
+                e.column
+                for e in suite.expectations
+                if getattr(e, "row_condition", None) is not None
+            }
+
+        assert lineage_columns(build_sorteos_suite()) == lineage_columns(build_premios_suite())
+        assert lineage_columns(build_sorteos_suite()) == {
+            "run_id",
+            "ingested_at",
+            "source_key",
+            "parser_version",
+        }
+
+    def test_the_condition_is_not_a_deprecated_string(self):
+        """A string `row_condition` is deprecated in GX 1.9 and removed in 2.0. The repo
+        pins 1.20.0, so the string form would work today and block the next upgrade."""
+        from loteria.dq.suites import build_sorteos_suite
+
+        conditions = [
+            e.row_condition
+            for e in build_sorteos_suite().expectations
+            if getattr(e, "row_condition", None) is not None
+        ]
+
+        assert conditions
+        assert not any(isinstance(c, str) for c in conditions)

@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 import boto3
 import pandas as pd
 
+from loteria.common.lineage import LINEAGE_COLUMNS
 from loteria.dq.suites import PREMIOS_SUITE_NAME, SORTEOS_SUITE_NAME, SUITE_BUILDERS
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,31 @@ def read_parquet_keys(bucket: str, keys: list[str], s3_client=None) -> pd.DataFr
         body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
         frames.append(pd.read_parquet(io.BytesIO(body)))
 
-    return pd.concat(frames, ignore_index=True)
+    return ensure_lineage_columns(pd.concat(frames, ignore_index=True))
+
+
+def ensure_lineage_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Guarantee the PR-045.1 lineage columns exist, filling absent ones with NA.
+
+    **Why this is needed at all, and why here.** The suites gate their lineage expectations
+    on ``parser_version >= N`` so they do not go red against the 222 files written before
+    lineage existed. A row condition is evaluated by pandas, and pandas raises on a column
+    that is not in the frame - so on the day this ships, before a single new sorteo has
+    been transformed, *no* file carries ``parser_version``, the column is absent from the
+    concatenation, and every lineage expectation errors out. The gate would fail closed on
+    the day the feature was added, for a reason that has nothing to do with data quality.
+
+    Normalising here rather than in the suites keeps the expectations readable and puts the
+    transitional concern in the loader, where the mixed-schema read actually happens. Once
+    every Silver file carries lineage this becomes a no-op costing one set difference per
+    run - cheap enough to leave in place as the guard for the next column.
+    """
+    missing = [column for column in LINEAGE_COLUMNS if column not in df.columns]
+    if missing:
+        logger.info("Filling absent lineage columns with NA", extra={"columns": missing})
+        for column in missing:
+            df[column] = pd.NA
+    return df
 
 
 def load_silver_dataset(
@@ -237,6 +262,13 @@ def validate_dataframe(dataset: str, df: pd.DataFrame, files: int = 0) -> SuiteO
     import great_expectations as gx
 
     quiet_gx()
+
+    # Normalised here as well as in the loader: `validate_dataframe` is the entry point for
+    # every caller, including tests and any future path that does not read from S3. The
+    # lineage expectations carry a row condition on `parser_version`, and pandas raises on a
+    # condition over a column that is not in the frame — so a frame without lineage has to be
+    # given the columns before the suite ever sees it, whatever route it arrived by.
+    df = ensure_lineage_columns(df)
 
     suite_name = DATASET_SUITES[dataset]
     suite = SUITE_BUILDERS[suite_name]()

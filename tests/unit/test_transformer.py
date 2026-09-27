@@ -47,6 +47,17 @@ FIXTURES = Path(__file__).parents[1] / "fixtures" / "sorteos"
 # The canonical Silver schemas. Hard-coded rather than derived, because "the schema is
 # whatever the code produces" is not a test — these are the columns Athena, the crawlers and
 # the 7 gold CTAS all depend on.
+#
+# PR-045.1 appends four lineage columns to BOTH datasets, and they are spelled out here
+# rather than spliced in from `loteria.common.lineage` on purpose: importing the constant
+# would make this test agree with the code by construction, which is the one thing a schema
+# test must not do. If the lineage column names change, this file is supposed to fail.
+LINEAGE_COLUMNS_EXPECTED = [
+    "run_id",
+    "ingested_at",
+    "source_key",
+    "parser_version",
+]
 PREMIOS_COLUMNS = [
     "numero_sorteo",
     "numero_premiado",
@@ -55,6 +66,7 @@ PREMIOS_COLUMNS = [
     "vendedor",
     "ciudad",
     "departamento",
+    *LINEAGE_COLUMNS_EXPECTED,
 ]
 SORTEOS_COLUMNS = [
     "numero_sorteo",
@@ -67,6 +79,7 @@ SORTEOS_COLUMNS = [
     "reintegro_primer_premio",
     "reintegro_segundo_premio",
     "reintegro_tercer_premio",
+    *LINEAGE_COLUMNS_EXPECTED,
 ]
 
 # Types are asserted at the PARQUET level, not the pandas level, because Parquet is the

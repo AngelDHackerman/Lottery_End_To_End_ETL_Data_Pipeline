@@ -2914,6 +2914,53 @@ The "watch out" above is already true and worth pinning: **no file in `sql/gold/
 `SELECT *`**, so new Silver columns cannot leak into Gold. Add the test that asserts it —
 that is what keeps the *next* Silver column safe.
 
+> **PR-045.1 outcome (2026-09-27).** Built as scoped. One finding changes what `.2` has to
+> be, and one is a hazard that outlives this PR.
+>
+> **The finding, checked against the live account before any code was written: the crawler
+> cannot give these columns to Athena.** Three settings compound, and each alone is
+> sufficient to hide them — `SchemaChangePolicy.UpdateBehavior: LOG` (detects a schema
+> change, writes a log line, alters nothing), `RecrawlPolicy: CRAWL_NEW_FOLDERS_ONLY` (never
+> re-examines existing partitions) and `Partitions.AddOrUpdateBehavior: InheritFromTable` (a
+> new partition is given the *table's* schema, not its files'). So the four columns land in
+> every new Parquet file and `silver_sorteos_sorteos` keeps the ten columns it has today.
+>
+> **That is the seam, not a defect.** `.1` writes them, `.2` makes them queryable — and what
+> makes `.1` useful on its own is that **the data-quality gate does not go through Athena**:
+> `dq.runner` reads Parquet directly with boto3 + pandas, so the lineage expectations are
+> live from the first run after the deploy, catalog or no catalog. `.2` now has a concrete,
+> verified requirement instead of a vague one, and a real decision inside it: whether the
+> Silver table schemas should be managed in Terraform rather than inferred by a crawler at
+> all, for tables seven CTAS queries depend on.
+>
+> **The expectations are conditional, gated on `parser_version >= 1`.** Unconditional
+> not-null would go red on day one against the 222 pre-lineage files — the fails-on-arrival
+> trap PR-032 spent a paragraph avoiding. The floor is *not* "where `run_id` is not null",
+> which would be circular: it would exclude exactly the rows the check exists to catch. And
+> `run_id` is left **NULL** rather than filled with `"manual"` or a hostname, because a
+> substituted value silently answers the question the gate is asking. Consequence, accepted
+> deliberately: a hand-run transform without `CORRELATION_ID` turns the gate red. It should.
+>
+> **The hazard: ruff's `py312` target versus the Glue Python Shell 3.9 ceiling.**
+> `common/lineage.py` ships in *both* artifacts — the 3.12 extractor Lambda and the **3.9**
+> transform job. ruff wanted `dt.UTC` for the timestamp helper; that alias is 3.11+, so
+> taking its advice would have passed CI, imported fine on Lambda, and raised
+> `AttributeError` in the weekly Glue run. Fixed locally with a `# noqa: UP017` that carries
+> its reason, plus a test asserting the alias never returns. **Not fixed systemically:**
+> `pyproject.toml` has no `per-file-ignores`, so nothing stops the same suggestion being
+> accepted in another Glue-imported module. The real fix is a per-file ignore for that tree
+> or leaving Python Shell (**Open later L6**); rewriting the repo's lint config does not
+> belong in a PR about lineage columns.
+>
+> **Also landed:** `TestGoldCannotInheritSilverColumnsByAccident` — the "watch out" above,
+> pinned as a parametrised test over all seven `sql/gold/*.sql`, with a guard test so an
+> empty glob cannot make it vacuously green. Migrated the row conditions to GX `Condition`
+> objects: the string form is deprecated in GX 1.9 and **removed in 2.0**, and this repo
+> pins 1.20.0 — writing a new feature against an API with an announced removal date is how a
+> pinned dependency becomes unupgradable.
+>
+> 405 tests, coverage 98.97%. Runbook: `docs/runbooks/PR-045.1-lineage-columns.md`.
+
 **PR-045.2 — Make lineage queryable.** A view (cheaper than an eighth gold table for what
 is metadata, not analytics): one row per `(run_id, dataset)` with rows written, min/max
 `ingested_at`, and the source keys. Then answer, in the runbook with real output pasted in,
@@ -3153,7 +3200,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
-| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | todo | — |
+| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **PR open, not applied** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | todo | — |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |

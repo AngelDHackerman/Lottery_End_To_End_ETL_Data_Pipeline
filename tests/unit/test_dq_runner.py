@@ -332,7 +332,7 @@ class TestAgainstRealTransformerOutput:
     """
 
     @pytest.fixture
-    def silver_from_fixtures(self, s3, transformer):
+    def silver_from_fixtures(self, s3, transformer, monkeypatch):
         for name, sorteo, year in [
             ("ordinario_3046.txt", 3046, 2024),
             ("ordinario_3132.txt", 3132, 2025),
@@ -343,6 +343,13 @@ class TestAgainstRealTransformerOutput:
                 Key=f"{RAW_PREFIX}year={year}/sorteo={sorteo}/results_raw_no._{sorteo}.txt",
                 Body=(FIXTURES / name).read_text(encoding="utf-8").encode("utf-8"),
             )
+
+        # PR-045.1: the pipeline always supplies this (Step Functions -> Glue argument ->
+        # `glue_zip_main.py` -> env), so a fixture that omits it is not modelling a
+        # realistic write. Without it the transformer stamps a NULL `run_id` and the suites
+        # correctly go red — which is the subject of its own test below rather than an
+        # accident to be absorbed here.
+        monkeypatch.setenv("CORRELATION_ID", "test-execution-name")
 
         transformer.transform(
             bucket_name=PARTITIONED,

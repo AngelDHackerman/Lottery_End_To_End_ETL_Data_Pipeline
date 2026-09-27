@@ -98,6 +98,70 @@
       "meta": {},
       "severity": "critical",
       "type": "expect_table_row_count_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "run_id",
+        "row_condition": {
+          "column": {
+            "name": "parser_version"
+          },
+          "operator": ">=",
+          "parameter": 1,
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "ingested_at",
+        "row_condition": {
+          "column": {
+            "name": "parser_version"
+          },
+          "operator": ">=",
+          "parameter": 1,
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "source_key",
+        "row_condition": {
+          "column": {
+            "name": "parser_version"
+          },
+          "operator": ">=",
+          "parameter": 1,
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "parser_version",
+        "row_condition": {
+          "column": {
+            "name": "parser_version"
+          },
+          "operator": ">=",
+          "parameter": 1,
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
     }
   ],
   "meta": {
