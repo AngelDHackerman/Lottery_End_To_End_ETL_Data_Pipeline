@@ -403,3 +403,86 @@ resource "aws_cloudwatch_metric_alarm" "gold_retention_failed" {
 
   alarm_actions = local.alarm_actions
 }
+
+# ---------------------------------------------------------------------------------------
+# 8 & 9. Quarantine (PR-044.2).
+# ---------------------------------------------------------------------------------------
+# Two alarms, because two different things can go wrong and they mean opposite things.
+#
+# **The threshold is measured, not guessed — and the measurement overturned the roadmap's
+# premise.** PR-044.1 ran the parser over the whole archive (118 draws, 145,680 body lines)
+# and found the parser rejects 6.50% of every body. The roadmap had assumed "the expected
+# value is exactly zero" and asked for an alarm on `> 0` rejected rows; that alarm would have
+# fired every single Thursday and been muted within a month — the canary-that-always-skips
+# failure from PR-031 wearing a third hat.
+#
+# 9,464 of those 9,465 rejects are millar headings (`CENTENARES`, `DOS MIL`, …): structure,
+# not loss. They are counted and never stored. What is left — `unrecognised` — occurred
+# **once in the entire archive** (`00CERO`, sorteo 396). So "> 0 in a run" is roughly an
+# email a year, which is an alarm someone will still read.
+resource "aws_cloudwatch_log_metric_filter" "quarantined_unrecognised" {
+  name           = "${local.alarm_prefix}-quarantined-unrecognised-${var.environment}"
+  log_group_name = var.glue_output_log_group_name
+
+  pattern = "\"QUARANTINED_UNRECOGNISED\""
+
+  metric_transformation {
+    name          = "QuarantinedUnrecognised"
+    namespace     = var.metrics_namespace
+    value         = "1"
+    default_value = 0
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "quarantined_unrecognised" {
+  alarm_name        = "${local.alarm_prefix}-quarantined-unrecognised-${var.environment}"
+  alarm_description = "The parser met body lines it could not classify and quarantined them. NOT an outage — the run succeeded and Silver was written. It means the source changed shape or the parser has a gap. Query: SELECT reason, line, count(*) FROM lottery_santalucia_db.quarantine_rejects WHERE reason='unrecognised' GROUP BY 1,2. Archive baseline: ONE occurrence in 118 draws, so this is worth reading."
+
+  namespace   = var.metrics_namespace
+  metric_name = aws_cloudwatch_log_metric_filter.quarantined_unrecognised.metric_transformation[0].name
+
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = local.alarm_actions
+}
+
+# The second one is the quarantine failing to record. `quarantine.write` swallows its own
+# exceptions by design — a store that can fail the run turns one odd footer line into a
+# missed week of ingestion, which is the outcome fault E exists to prevent, arrived at from
+# the opposite direction. Same shape as PR-042.2's retention alarm, and the same consequence:
+# a state that cannot fail is a state whose failures nobody would otherwise see.
+resource "aws_cloudwatch_log_metric_filter" "quarantine_write_failed" {
+  name           = "${local.alarm_prefix}-quarantine-write-failed-${var.environment}"
+  log_group_name = var.glue_output_log_group_name
+
+  pattern = "\"QUARANTINE_WRITE_FAILED\""
+
+  metric_transformation {
+    name          = "QuarantineWriteFailures"
+    namespace     = var.metrics_namespace
+    value         = "1"
+    default_value = 0
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "quarantine_write_failed" {
+  alarm_name        = "${local.alarm_prefix}-quarantine-write-failed-${var.environment}"
+  alarm_description = "The transformer could not write to quarantine/. The run SUCCEEDED and Silver is correct — what was lost is the RECORD of what the parser dropped, which puts fault E back the way it was. Usual causes: the PR-002 bucket Deny, or a Lake Formation grant missing on quarantine_rejects."
+
+  namespace   = var.metrics_namespace
+  metric_name = aws_cloudwatch_log_metric_filter.quarantine_write_failed.metric_transformation[0].name
+
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = local.alarm_actions
+}

@@ -427,24 +427,16 @@ class TestSchema:
         df = read_parquet(s3, PARTITIONED, "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet")
         assert list(df.columns) == SORTEOS_COLUMNS
 
-    def test_a_header_with_no_reintegros_line_at_all_is_rejected_by_the_parser(
-        self, s3, transformer
-    ):
-        """⚠️ Two findings in one test (PR-035).
+    def test_a_header_with_no_reintegros_is_quarantined_not_fatal(self, s3, transformer):
+        """PR-044.2 — this is the test PR-035.1 said would have to change, and here it is.
 
-        First: ``transformer.py``'s ``else`` branch — the one that fills the three reintegro
-        columns with None when the column is absent — **cannot be reached from the
-        pipeline**. The only producer of that DataFrame is ``process_header``, and it treats
-        a missing ``REINTEGROS`` as a malformed header and raises. The branch is a defensive
-        leftover; it is listed with the other dead ends in pyproject.toml rather than
-        exercised through a back door that production does not have.
+        **Before:** ``process_header`` raised on a header missing ``REINTEGROS`` and nothing
+        caught it, so one unparseable file aborted the transform for every OTHER file in the
+        batch, before anything was written. A draw type that omits the line — or a redesign
+        that renames the label — was a full weekly outage rather than one skipped record.
 
-        Second, and the reason this is asserted rather than deleted: that rejection takes
-        **the whole run** with it. One unparseable raw file aborts the transform for every
-        other file in the batch, before anything is written. A draw type that omits the line
-        — or a redesign that renames the label — is a full weekly outage, not a skipped
-        record. That is fault E's territory (PR-044, `quarantine/`), and this is the test
-        that has to change when the quarantine lands.
+        **Now:** the file goes to quarantine and the run continues. The assertion is
+        deliberately the opposite of what it used to be.
         """
         body = (FIXTURES / "ordinario_3046.txt").read_text(encoding="utf-8")
         body = "\n".join(
@@ -452,10 +444,38 @@ class TestSchema:
         )
         put_raw(s3, sorteo=3046, year=2024, body=body)
 
-        with pytest.raises(ValueError, match="HEADER does not contain the expected format"):
-            run(transformer)
+        run(transformer)  # no longer raises
 
         assert s3.list_objects_v2(Bucket=PARTITIONED, Prefix="silver/").get("Contents", []) == []
+        quarantined = s3.list_objects_v2(Bucket=PARTITIONED, Prefix="quarantine/").get(
+            "Contents", []
+        )
+        assert quarantined, "the unparseable file left no record of itself"
+
+    def test_one_bad_file_does_not_take_the_batch_with_it(self, s3, transformer):
+        """The actual outage this closes: the *other* draws must still land.
+
+        The previous test proves the bad file is kept. This one proves the good ones are not
+        lost with it — which is the half that made defect C a weekly outage rather than a
+        missing row.
+        """
+        bad = (FIXTURES / "ordinario_3046.txt").read_text(encoding="utf-8")
+        bad = "\n".join(
+            line for line in bad.splitlines() if not line.strip().startswith("REINTEGROS")
+        )
+        put_raw(s3, sorteo=3046, year=2024, body=bad)
+        put_raw(s3, sorteo=3132, year=2026)
+
+        run(transformer)
+
+        keys = [
+            o["Key"]
+            for o in s3.list_objects_v2(Bucket=PARTITIONED, Prefix="silver/sorteos/").get(
+                "Contents", []
+            )
+        ]
+        assert any("sorteo=3132" in k for k in keys), keys
+        assert not any("sorteo=3046" in k for k in keys), keys
 
     def test_dates_are_parsed_from_day_first_format(self, s3, transformer):
         put_raw(s3, sorteo=3046, year=2024)
@@ -617,10 +637,30 @@ class TestFailureModes:
         assert keys_under(s3, PARTITIONED, SILVER_PREFIX) == []
         assert keys_under(s3, OTHER_BUCKET, OTHER_BUCKET_PREFIX) == []
 
-    def test_malformed_file_without_header_raises(self, s3, transformer):
+    def test_malformed_file_without_header_is_quarantined(self, s3, transformer):
+        """A file with no HEADER/BODY markers at all. Same class as the missing REINTEGROS:
+        unusable input, which is what quarantine is for — not a reason to fail the run."""
         put_raw(s3, sorteo=3046, year=2024, body="just some text\nwith no markers\n")
 
-        with pytest.raises(ValueError, match="HEADER or BODY"):
+        run(transformer)
+
+        assert s3.list_objects_v2(Bucket=PARTITIONED, Prefix="quarantine/").get("Contents", [])
+
+    def test_an_infrastructure_error_still_fails_the_run(self, s3, transformer, monkeypatch):
+        """The line between "bad data" and "broken system", asserted.
+
+        The quarantine catches ``ValueError`` only. A broad ``except Exception`` would also
+        swallow an S3 failure or a bug in this module and silently reclassify it as bad
+        data — which is how a pipeline learns to lie about its own health.
+        """
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("S3 is having a day")
+
+        monkeypatch.setattr(transformer, "download_file_from_s3", boom)
+        put_raw(s3, sorteo=3046, year=2024)
+
+        with pytest.raises(RuntimeError, match="S3 is having a day"):
             run(transformer)
 
 
