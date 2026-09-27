@@ -1123,16 +1123,16 @@ class TestTheRetentionAlarmsInterface:
         with caplog.at_level("ERROR"), pytest.raises(RuntimeError):
             retire(gold)
 
-        assert gold.RETENTION_FAILURE_TOKEN in caplog.text
+        assert gold.RETENTION_FAILURE_MARKER in caplog.text
 
     def test_the_token_matches_the_pattern_terraform_greps_for(self):
         """Read from the .tf file, so the two cannot drift apart silently."""
         import pathlib
 
-        from loteria.gold.purge_and_load import RETENTION_FAILURE_TOKEN
+        from loteria.gold.purge_and_load import RETENTION_FAILURE_MARKER
 
         alarms = pathlib.Path(__file__).parents[2] / "terraform/modules/observability/alarms.tf"
-        assert f'"\\"{RETENTION_FAILURE_TOKEN}\\""' in alarms.read_text()
+        assert f'"\\"{RETENTION_FAILURE_MARKER}\\""' in alarms.read_text()
 
     def test_prepare_failures_do_not_emit_it(self, gold, s3, caplog):
         """A failing prepare fails the execution, which alarm 1 already catches.
@@ -1144,7 +1144,7 @@ class TestTheRetentionAlarmsInterface:
         with caplog.at_level("ERROR"), pytest.raises(gold.s3.exceptions.NoSuchKey):
             gold.handler({"action": "prepare", "bucket": BUCKET, "sqlKey": "missing.sql"}, None)
 
-        assert gold.RETENTION_FAILURE_TOKEN not in caplog.text
+        assert gold.RETENTION_FAILURE_MARKER not in caplog.text
 
 
 class TestRetireRefusesWhatItCannotReasonAbout:

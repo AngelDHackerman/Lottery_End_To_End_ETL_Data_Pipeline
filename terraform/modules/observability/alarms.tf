@@ -356,7 +356,7 @@ resource "aws_cloudwatch_metric_alarm" "scrapedo_failed" {
 # already fire alarm 1. Filtering the Lambda's log for a token it emits only on a retention
 # failure is what makes this alarm mean exactly one thing.
 #
-# **The token is an interface.** `loteria.gold.purge_and_load.RETENTION_FAILURE_TOKEN` and
+# **The marker is an interface.** `loteria.gold.purge_and_load.RETENTION_FAILURE_MARKER` and
 # the pattern below must stay in step; a reworded log line does not fail anything, it just
 # quietly stops the alarm from ever firing again. That is the failure mode this comment
 # exists to prevent.

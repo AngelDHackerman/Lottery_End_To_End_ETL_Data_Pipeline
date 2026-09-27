@@ -637,10 +637,14 @@ ACTIONS = {"prepare": prepare, "promote": promote, "retire": retire}
 #: Grepped by a CloudWatch metric filter (PR-042.2) to raise the retention alarm. The state
 #: machine deliberately swallows a ``retire`` failure so it cannot cost a week of Gold, which
 #: means the execution goes green and nothing else in the system will ever mention it. This
-#: line is the only evidence that leaves the Lambda, so it is a literal, stable token rather
+#: line is the only evidence that leaves the Lambda, so it is a literal, stable marker rather
 #: than a formatted message: a metric filter matches text, and a reworded log line silently
 #: turns the alarm off.
-RETENTION_FAILURE_TOKEN = "GOLD_RETENTION_FAILED"
+#:
+#: Named MARKER, not TOKEN: bandit's B105 flags any constant whose name ends in ``_TOKEN`` as
+#: a possible hardcoded credential. The rename is the honest fix rather than a ``# nosec`` —
+#: this is a log marker, and calling it a token was always the less accurate word.
+RETENTION_FAILURE_MARKER = "GOLD_RETENTION_FAILED"
 
 
 def handler(event, context):  # noqa: ANN001 - Lambda signature
@@ -662,7 +666,7 @@ def handler(event, context):  # noqa: ANN001 - Lambda signature
         logger.error(
             "[%s] %s table=%s.%s error=%s: %s",
             correlation_id,
-            RETENTION_FAILURE_TOKEN,
+            RETENTION_FAILURE_MARKER,
             event.get("database"),
             event.get("table"),
             type(exc).__name__,
