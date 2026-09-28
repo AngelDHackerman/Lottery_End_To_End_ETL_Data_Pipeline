@@ -65,3 +65,19 @@ against a location that a manual PR-021 run already populated will fail.
 (`lottery-partitioned-storage-prod`) so the files are runnable as-is in PR-021.
 PR-022 should parameterize the bucket when it uploads these to S3 and runs them
 from the Step Function.
+
+## PR-043.1 — why all seven are still a full rebuild
+
+Every Thursday these seven queries recompute the whole history to incorporate one new
+sorteo. That is a deliberate decision, not an oversight, and it was measured against the
+live account on 2026-09-27 — see `docs/runbooks/PR-043-gold-incremental-spike.md`:
+
+- the seven CTAS together scan **4.84 MiB** per run and grow by **~36.6 KB per draw**;
+- Athena bills a **10 MiB minimum per query**, so all seven bill the minimum and the run
+  costs **~$0.019 a year** — unchanged at 10× the current Silver;
+- an incremental rewrite needs *more* minimum-billed statements than it replaces (an
+  `INSERT INTO` plus the idempotency read against the target), so it would not save money;
+- `BuildGold` spends **9%** of its 179 s actually scanning; the rest is orchestration.
+
+The incremental plan is kept, unbuilt, as **Open later L8** with three tripwires in the
+runbook (§8) — the first being `gold_draw_summary` scanning more than 10 MiB.
