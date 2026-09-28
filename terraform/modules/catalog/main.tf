@@ -185,8 +185,12 @@ resource "aws_glue_catalog_table" "quarantine" {
       comment = "The rejected input, truncated to 120 characters"
     }
     columns {
-      name    = "position"
-      type    = "int"
+      name = "position"
+      # bigint, not int: pandas writes a Python int as int64, and Athena widens INT to
+      # BIGINT but has no supported path in the other direction — so an `int` declaration
+      # over 64-bit Parquet data is a read error waiting for the first row written here.
+      # Corrected in PR-045.2, before the table had a single row to be wrong about.
+      type    = "bigint"
       comment = "1-based line number within the BODY; 0 for file-level rejects"
     }
     columns {
@@ -201,13 +205,233 @@ resource "aws_glue_catalog_table" "quarantine" {
     }
     columns {
       name    = "parser_version"
-      type    = "int"
+      type    = "bigint" # see `position` above (PR-045.2)
       comment = "Which parsing behaviour rejected it (PR-045.1)"
     }
     columns {
       name    = "quarantined_at"
       type    = "timestamp"
       comment = "UTC, timezone-naive, as PR-045.1's ingested_at"
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------------------
+# PR-045.2 — the two Silver tables, defined here instead of inferred by the crawlers.
+# ---------------------------------------------------------------------------------------
+# **Why this had to change hands.** PR-045.1 writes four lineage columns into every new
+# Silver Parquet file and Athena could not see a single one of them. Three crawler settings
+# compound, each sufficient on its own: `SchemaChangePolicy.UpdateBehavior = "LOG"` (detects
+# a schema change, writes a log line, alters nothing), `CRAWL_NEW_FOLDERS_ONLY` (never
+# re-examines an existing partition) and `Partitions.AddOrUpdateBehavior = "InheritFromTable"`
+# (a new partition is given the *table's* schema, not its files'). The columns were on disk
+# and `SELECT run_id FROM silver_sorteos_sorteos` was a column-not-found error.
+#
+# **The crawlers are NOT being loosened, and that is the design.** The obvious fix —
+# `UPDATE_IN_DATABASE` + `CRAWL_EVERYTHING` — hands the schema of the two tables that seven
+# gold CTAS queries read to a process that re-infers it from whatever landed in S3 that
+# week. The same three settings that hid these columns are exactly what makes a
+# Terraform-owned schema safe: a crawler that will not alter a table cannot fight the
+# declaration below, and `InheritFromTable` means every partition it registers from now on
+# is stamped with *this* schema. It keeps the one job it is still needed for — registering
+# the new week's partition — and loses the one it was never good at.
+#
+# The account agrees: these tables were last updated **2025-12-14**, the day they were
+# created, and the crawlers have run every Thursday since. They have not touched the tables
+# in nine months.
+#
+# ⚠️ Both tables ALREADY EXIST and must be IMPORTED, not created. A create would mean Glue
+# dropped and rebuilt the table Athena reads, losing all 118 registered partitions.
+# See docs/runbooks/PR-045.2-lineage-queryable.md §2 for the two import commands.
+#
+# ⚠️ The four lineage columns at the end of each table are a contract with
+# `loteria.common.lineage.LINEAGE_GLUE_TYPES`, held together by a test that reads this file
+# — the same technique PR-044.2 used for the quarantine columns, for the same reason:
+# nothing else would notice them drifting apart, and the symptom of drift is a query error
+# nine months later.
+locals {
+  # Appended to BOTH Silver tables, in `LINEAGE_COLUMNS` order, which is also the order the
+  # transformer appends them to the frame — so the declaration below matches the physical
+  # column order in the Parquet rather than only the names.
+  #
+  # `parser_version` is **bigint, not int**, and that is not a detail. pandas writes a
+  # Python int as int64, so the Parquet holds a 64-bit integer; Athena widens INT to BIGINT
+  # but has no supported path in the other direction, so an `int` declaration over int64
+  # data is a read error waiting for the first row that exercises it.
+  lineage_columns = [
+    { name = "run_id", type = "string", comment = "Step Functions execution name (PR-018 correlation id). NULL means the write did not come from a pipeline run" },
+    { name = "ingested_at", type = "timestamp", comment = "When the transformer wrote the file. UTC, timezone-naive" },
+    { name = "source_key", type = "string", comment = "The raw/ S3 key the row was derived from" },
+    { name = "parser_version", type = "bigint", comment = "Which parsing behaviour produced the row (PR-045.1). Bumped by hand" },
+  ]
+}
+
+resource "aws_glue_catalog_table" "silver_sorteos" {
+  name          = "silver_sorteos_sorteos"
+  database_name = aws_glue_catalog_database.lottery_db.name
+  table_type    = "EXTERNAL_TABLE"
+
+  # The literal the crawler wrote. Declared so the import does not show a field being
+  # cleared: Glue's UpdateTable replaces the whole TableInput, so anything omitted here is
+  # removed there.
+  owner = "owner"
+
+  parameters = {
+    classification = "parquet"
+    # Partition pruning on `year`/`sorteo`. The crawler set this and it must survive the
+    # handover — without it Athena reads every partition for a single-sorteo lookup, which
+    # is exactly the query this PR exists to make cheap.
+    "partition_filtering.enabled" = "true"
+  }
+
+  # Deliberately NOT carried over: the crawler's statistics (`objectCount`, `recordCount`,
+  # `sizeKey`, `averageRecordSize`, `CRAWL_RUN_ID`, `UPDATED_BY_CRAWLER`, `typeOfData`,
+  # `compressionType`, the two CrawlerSchema*Version keys). They are frozen at the
+  # 2025-12-14 crawl — `objectCount` says 79 against 118 partitions — so enshrining them in
+  # code would be writing down a number that has been wrong for nine months.
+
+  partition_keys {
+    name = "year"
+    type = "string"
+  }
+  partition_keys {
+    name = "sorteo"
+    type = "string"
+  }
+
+  storage_descriptor {
+    location      = "s3://${var.partitioned_bucket_name}/silver/sorteos/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+
+    ser_de_info {
+      name                  = "parquet"
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+      parameters            = { "serialization.format" = "1" }
+    }
+
+    # --- business columns: exactly what the crawler inferred on 2025-12-14 ---------------
+    columns {
+      name = "numero_sorteo"
+      type = "bigint"
+    }
+    columns {
+      name = "tipo_sorteo"
+      type = "string"
+    }
+    columns {
+      name = "fecha_sorteo"
+      type = "timestamp"
+    }
+    columns {
+      name = "fecha_caducidad"
+      type = "timestamp"
+    }
+    columns {
+      name = "primer_premio"
+      type = "bigint"
+    }
+    columns {
+      name = "segundo_premio"
+      type = "bigint"
+    }
+    columns {
+      name = "tercer_premio"
+      type = "bigint"
+    }
+    columns {
+      name = "reintegro_primer_premio"
+      type = "bigint"
+    }
+    columns {
+      name = "reintegro_segundo_premio"
+      type = "bigint"
+    }
+    columns {
+      name = "reintegro_tercer_premio"
+      type = "bigint"
+    }
+
+    # --- PR-045.1 lineage, appended at the end ------------------------------------------
+    dynamic "columns" {
+      for_each = local.lineage_columns
+      content {
+        name    = columns.value.name
+        type    = columns.value.type
+        comment = columns.value.comment
+      }
+    }
+  }
+}
+
+resource "aws_glue_catalog_table" "silver_premios" {
+  name          = "silver_premios_premios"
+  database_name = aws_glue_catalog_database.lottery_db.name
+  table_type    = "EXTERNAL_TABLE"
+
+  owner = "owner"
+
+  parameters = {
+    classification                = "parquet"
+    "partition_filtering.enabled" = "true"
+  }
+
+  partition_keys {
+    name = "year"
+    type = "string"
+  }
+  partition_keys {
+    name = "sorteo"
+    type = "string"
+  }
+
+  storage_descriptor {
+    location      = "s3://${var.partitioned_bucket_name}/silver/premios/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+
+    ser_de_info {
+      name                  = "parquet"
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+      parameters            = { "serialization.format" = "1" }
+    }
+
+    columns {
+      name = "numero_sorteo"
+      type = "bigint"
+    }
+    columns {
+      name = "numero_premiado"
+      type = "bigint"
+    }
+    columns {
+      name = "letras"
+      type = "string"
+    }
+    columns {
+      name = "monto"
+      type = "double"
+    }
+    columns {
+      name = "vendedor"
+      type = "string"
+    }
+    columns {
+      name = "ciudad"
+      type = "string"
+    }
+    columns {
+      name = "departamento"
+      type = "string"
+    }
+
+    dynamic "columns" {
+      for_each = local.lineage_columns
+      content {
+        name    = columns.value.name
+        type    = columns.value.type
+        comment = columns.value.comment
+      }
     }
   }
 }

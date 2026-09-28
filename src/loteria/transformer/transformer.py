@@ -339,12 +339,27 @@ def transform(
         # `ingested_at` is computed once per sorteo rather than once per frame, so a sorteo's
         # two files carry the SAME instant. Two timestamps microseconds apart would look like
         # evidence of something when it is only evidence of two statements.
+        #
+        # ⚠️ PR-045.2: the two string columns are cast, and the cast is load-bearing.
+        # `frame[RUN_ID] = None` leaves an all-None object column, and pyarrow types an
+        # all-None column as Parquet **Null** (physically `optional int32 (Null)`), not as a
+        # string. That was invisible while nothing read Silver by its declared schema; now
+        # that the catalog declares `run_id string`, such a file is a type mismatch — and
+        # Athena's one unreadable file would be a whole partition the seven gold CTAS cannot
+        # read. The case is not hypothetical: PR-045.1 accepts, by design, that a hand-run
+        # transform without CORRELATION_ID writes a NULL `run_id`.
         ingested_at = utc_now()
         for frame in (sorteos_df, premios_df):
             frame[RUN_ID] = run_id
             frame[INGESTED_AT] = ingested_at
             frame[SOURCE_KEY] = raw_file
             frame[PARSER_VERSION_COLUMN] = PARSER_VERSION
+            # Assign-then-cast rather than a typed constructor: `frame[col] = <scalar>`
+            # behaves identically on the Glue 3.9 pandas and on the 3.x one the tests run,
+            # and `_to_string` is the same helper every other Silver string column goes
+            # through.
+            frame[RUN_ID] = _to_string(frame[RUN_ID])
+            frame[SOURCE_KEY] = _to_string(frame[SOURCE_KEY])
 
         # -----------------------
         # Write Parquet locally

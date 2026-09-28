@@ -57,6 +57,27 @@ PARSER_VERSION_COLUMN = "parser_version"
 #: stable across runs and a schema diff stays readable.
 LINEAGE_COLUMNS = (RUN_ID, INGESTED_AT, SOURCE_KEY, PARSER_VERSION_COLUMN)
 
+#: What the Glue catalog declares for each column, and therefore what the Parquet must
+#: physically hold (PR-045.2). The other half of this contract is
+#: ``terraform/modules/catalog/main.tf``'s ``local.lineage_columns``; a test reads the
+#: ``.tf`` and compares, because nothing else would notice the two drifting apart.
+#:
+#: **``parser_version`` is ``bigint``, not ``int``.** pandas writes a Python int as int64, so
+#: the Parquet holds 64 bits. Athena widens INT to BIGINT and supports no conversion in the
+#: other direction, so an ``int`` declaration over this data is a read error waiting for
+#: someone to run the query.
+#:
+#: The two string columns are why ``transformer`` and ``quarantine`` cast before writing: an
+#: all-``None`` column — which ``run_id`` legitimately is whenever a write did not come from
+#: a pipeline run — is written to Parquet as the **Null** type, not as a string, and a
+#: declared ``string`` over it does not match.
+LINEAGE_GLUE_TYPES = {
+    RUN_ID: "string",
+    INGESTED_AT: "timestamp",
+    SOURCE_KEY: "string",
+    PARSER_VERSION_COLUMN: "bigint",
+}
+
 #: ``ingested_at`` is stored as a timezone-NAIVE UTC timestamp, and that is a decision worth
 #: writing down because "naive" usually means "careless".
 #:

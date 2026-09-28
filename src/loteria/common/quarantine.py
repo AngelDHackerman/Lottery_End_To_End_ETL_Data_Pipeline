@@ -82,6 +82,30 @@ def _s3():
     return boto3.client("s3")
 
 
+def _typed_frame(rows: list[dict]) -> pd.DataFrame:
+    """The rows as a frame whose Parquet types match what Terraform declares (PR-045.2).
+
+    **Why this is not just ``pd.DataFrame(rows)``.** ``run_id`` is ``None`` for any write
+    that did not come from a pipeline run — deliberately, see ``lineage.run_id_from_env`` —
+    and pandas types an all-``None`` column as ``object``, which pyarrow writes to Parquet as
+    the **Null** type rather than as a string. The catalog declares ``run_id string``, so
+    such a file is a type mismatch at query time, in a table whose entire purpose is to be
+    read after something went wrong. The failure would be perfectly hidden until then:
+    quarantine's normal state is empty, so nothing exercises the write.
+
+    ``line`` gets the same treatment for the same reason — a reject list that happened to
+    carry only ``None`` lines would do it too — and the two integer columns are pinned to
+    ``int64`` to match the ``bigint`` in Terraform. Athena widens INT to BIGINT and has no
+    supported path back, so ``int`` over 64-bit data is the mismatch that cannot be read.
+    """
+    frame = pd.DataFrame(rows, columns=list(QUARANTINE_COLUMNS))
+    for column in ("reason", "line", "source_key", "run_id"):
+        frame[column] = frame[column].astype("string")
+    for column in ("position", "parser_version"):
+        frame[column] = frame[column].astype("int64")
+    return frame
+
+
 def quarantine_key(dataset: str, year, numero_sorteo, run_id: str | None) -> str:
     """Hive-partitioned so Athena can prune, and so one draw's rejects stay together.
 
@@ -149,7 +173,7 @@ def write(
     key = quarantine_key(dataset, year, numero_sorteo, run_id)
     try:
         buffer = io.BytesIO()
-        pd.DataFrame(rows, columns=list(QUARANTINE_COLUMNS)).to_parquet(buffer, index=False)
+        _typed_frame(rows).to_parquet(buffer, index=False)
         buffer.seek(0)
         (s3_client or _s3()).put_object(Bucket=bucket, Key=key, Body=buffer.getvalue())
     except Exception as exc:
