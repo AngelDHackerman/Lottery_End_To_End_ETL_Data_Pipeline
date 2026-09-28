@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan sagemaker
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan sagemaker lineage-views
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -113,6 +113,16 @@ fmt: ## Format python + terraform (PR-039)
 # that is not this change's.
 tf-plan: build tf-init ## Build, then terraform plan the main stack into terraform/tfplan (PR-039)
 	cd terraform && terraform plan -out=tfplan
+
+# PR-045.2. NOT part of `deploy`: the two views are created once and CREATE OR REPLACE is
+# only interesting when the SQL in sql/lineage/ changes. Wiring them into the weekly Step
+# Function would add two states to the pipeline to recreate, every Thursday, metadata that
+# has not moved. Re-run this after editing the SQL, or to restore a view dropped by hand.
+#
+# ⚠️ It needs the Silver tables to carry the lineage columns, which is the Terraform half of
+# PR-045.2 — run it AFTER that apply, or the CREATE fails on a column Athena cannot see.
+lineage-views: ## Create/replace the Silver lineage views in Athena (PR-045.2)
+	bash scripts/create_lineage_views.sh
 
 sagemaker: ## Apply the optional SageMaker module (opt-in, see terraform/modules/sagemaker)
 	cd terraform && terraform apply -var=enable_sagemaker=true -target=module.sagemaker

@@ -48,3 +48,46 @@ exists in prod and is `terraform import`ed — see `docs/runbooks/PR-023-log-ret
 
 Extra inputs: `log_retention_days` (default 30), `manage_shared_glue_log_groups`.
 Extra output: `crawler_log_group_name`.
+
+## Tables DEFINED here, not crawled (PR-044.2, PR-045.2)
+
+Three of this database's tables have their schema declared in `main.tf` rather than inferred
+by a crawler:
+
+| Table | Since | Imported? |
+|---|---|---|
+| `quarantine_rejects` | PR-044.2 | no — created by Terraform |
+| `silver_sorteos_sorteos` | PR-045.2 | **yes** — `terraform import`, see below |
+| `silver_premios_premios` | PR-045.2 | **yes** |
+
+**Why.** PR-045.1 established, against the live account, that the two Silver crawlers cannot
+evolve a schema: `SchemaChangePolicy.UpdateBehavior = "LOG"` detects a change and writes a
+log line, `CRAWL_NEW_FOLDERS_ONLY` never revisits an existing partition, and
+`Partitions.AddOrUpdateBehavior = "InheritFromTable"` gives a new partition the *table's*
+schema rather than its files'. Four lineage columns were being written into every new Parquet
+file and none of them reached Athena.
+
+**The crawlers were not loosened, and that is the design.** `UPDATE_IN_DATABASE` +
+`CRAWL_EVERYTHING` would hand the schema of the two tables seven gold CTAS queries read to a
+process that re-infers it weekly. The same three settings that hid the columns are what make
+a declared schema safe — a crawler that will not alter a table cannot fight it — and
+`InheritFromTable` now stamps each new partition with the declared schema. The crawlers keep
+registering the week's new partition, which is the job they are still needed for.
+
+**⚠️ The two Silver tables already existed and are IMPORTED.** A create would drop and rebuild
+the table Athena reads, losing 118 registered partitions. The import commands and the
+expected plan are in `docs/runbooks/PR-045.2-lineage-queryable.md` §2.
+
+**⚠️ Column contracts.** `local.lineage_columns` (rendered into both Silver tables by a
+`dynamic` block, so the two cannot drift apart) is the other half of
+`loteria.common.lineage.LINEAGE_GLUE_TYPES`, and the quarantine column list is the other half
+of `QUARANTINE_COLUMNS`. Tests read this file and compare — nothing else would notice them
+separating, and the symptom of drift is a query error months later.
+
+**Types are `bigint`, not `int`, wherever pandas writes an integer.** pandas writes a Python
+int as int64; Athena widens INT to BIGINT and supports nothing in the other direction, so an
+`int` declaration over this data cannot be read. Corrected for `quarantine_rejects` in
+PR-045.2, before the table had a row.
+
+The views over these tables (`silver_lineage`, `silver_lineage_runs`) are deliberately NOT
+here — see `sql/lineage/README.md`.

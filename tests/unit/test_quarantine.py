@@ -149,6 +149,41 @@ class TestWhatLandsInS3:
         assert df.loc[0, "run_id"] == "exec-1"
         assert int(df.loc[0, "parser_version"]) == PARSER_VERSION
 
+    def test_the_parquet_types_match_what_terraform_declares(self, s3):
+        """PR-045.2. A quarantine file written without a correlation id — a hand-run
+        transform, which is exactly when something has already gone wrong — used to carry
+        `run_id` as the Parquet **Null** type, because pandas types an all-None column as
+        object and pyarrow writes that as Null rather than as a string. The table declares
+        `run_id string`, so the one file anybody would ever want to read was the one Athena
+        could not. Invisible until now: quarantine's normal state is empty.
+
+        The two integers are pinned for the mirror-image reason — they are int64 on disk and
+        the table says `bigint`, because Athena widens INT to BIGINT and never the reverse.
+        """
+        import pyarrow.parquet as pq
+        import pyarrow.types as pat
+
+        rows = quarantine.build_rows(
+            rejects(REJECT_UNRECOGNISED),
+            source_key="raw/year=2026/sorteo=415/f.txt",
+            run_id=None,  # the case the cast exists for
+        )
+        quarantine.write(
+            BUCKET, rows, dataset="premios", year="2026", numero_sorteo=415, run_id=None
+        )
+
+        (obj,) = s3.list_objects_v2(Bucket=BUCKET, Prefix="quarantine/")["Contents"]
+        body = s3.get_object(Bucket=BUCKET, Key=obj["Key"])["Body"].read()
+        schema = pq.read_schema(io.BytesIO(body))
+
+        for column in ("reason", "line", "source_key", "run_id"):
+            field = schema.field(column)
+            assert pat.is_string(field.type) or pat.is_large_string(
+                field.type
+            ), f"{column}: {field.type} is not a Parquet string"
+        for column in ("position", "parser_version"):
+            assert str(schema.field(column).type) == "int64"
+
     def test_the_key_is_hive_partitioned(self):
         key = quarantine.quarantine_key("premios", "2026", 415, "exec-1")
 
@@ -176,18 +211,16 @@ class TestTheSchemaMatchesTheTerraformTable:
     contract, with nothing but this test holding them together.
     """
 
-    def test_every_code_column_is_declared_in_terraform(self):
-        catalog = (REPO / "terraform/modules/catalog/main.tf").read_text()
-        block = catalog[catalog.index('resource "aws_glue_catalog_table" "quarantine"') :]
+    def test_every_code_column_is_declared_in_terraform(self, tf_block):
+        block = tf_block('resource "aws_glue_catalog_table" "quarantine"')
         declared = re.findall(r'columns\s*\{\s*name\s*=\s*"([a-z_]+)"', block)
 
         assert declared == list(quarantine.QUARANTINE_COLUMNS)
 
-    def test_partition_keys_are_not_also_columns(self):
+    def test_partition_keys_are_not_also_columns(self, tf_block):
         """Glue rejects a table whose columns and partition keys overlap, and it would also
         defeat the partition pruning that is the only reason to lay the prefix out this way."""
-        catalog = (REPO / "terraform/modules/catalog/main.tf").read_text()
-        block = catalog[catalog.index('resource "aws_glue_catalog_table" "quarantine"') :]
+        block = tf_block('resource "aws_glue_catalog_table" "quarantine"')
         partitions = re.findall(r'partition_keys\s*\{\s*name\s*=\s*"([a-z_]+)"', block)
 
         assert partitions == ["dataset", "year", "sorteo"]

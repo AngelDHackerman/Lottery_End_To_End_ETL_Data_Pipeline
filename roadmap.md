@@ -3178,6 +3178,61 @@ is metadata, not analytics): one row per `(run_id, dataset)` with rows written, 
 the question this sub-phase exists for: *"sorteo 3134 looks wrong — which run wrote it,
 from which raw file, and what else did that run write?"* as a single Athena query.
 
+> **PR-045.2 outcome (2026-09-28).** Built as scoped, plus the decision `.1` left open and
+> two defects that only exist once a schema is declared.
+>
+> **The Silver table schemas are now DECLARED in Terraform, imported not created.** That was
+> `.1`'s open question and PR-044.2 nominated the answer. The tempting alternative —
+> loosening the crawlers to `UPDATE_IN_DATABASE` + `CRAWL_EVERYTHING` — is the wrong end to
+> pull: it hands the schema of the two tables seven gold CTAS read to a process that
+> re-infers it weekly from whatever landed in S3. **The three settings that hid the columns
+> are exactly what makes a declared schema safe**: a crawler that will not alter a table
+> cannot fight the declaration, and `InheritFromTable` now stamps every new partition with
+> it. The crawlers keep the job they are still good at — registering the week's partition.
+> The account had already said as much: both tables' `UpdateTime` is **2025-12-14**, the day
+> they were created, after nine months of weekly crawls.
+>
+> **The views are deliberately NOT in Terraform, and the reason is evidence, not taste.** An
+> Athena view lives in Glue as a base64 blob of Athena's internal JSON, carrying the SQL
+> *and* a column list that must agree with it. The views already in this account carry
+> `isProtected` and `isMultiDialect` keys that the widely copied Terraform examples do not —
+> that is the format drifting under anyone who hand-writes it. A table's schema is ours to
+> declare; a view's encoding is Athena's. So `sql/lineage/` owns the SQL, `make
+> lineage-views` runs it, and recreating a dropped view is one command.
+>
+> **Two views, not one, and the second reads the first.** `silver_lineage` is per
+> `(dataset, run_id, year, sorteo, source_key)`; `silver_lineage_runs` is the roadmap's
+> grain, built **on top of the detail view** rather than on the tables — two views over the
+> same tables would be two definitions of lineage, free to drift while both look right.
+>
+> **Two type defects, found by declaring the schema — both invisible until now.**
+> (1) `frame["run_id"] = None` leaves an all-`None` object column, and pyarrow writes that to
+> Parquet as the **Null** type, not as a string. Under a declared `run_id string` that file
+> is a type mismatch, so the hand-run transform `.1` explicitly accepts would not merely turn
+> the gate red — it would leave a partition the gold CTAS cannot read. `quarantine` had it
+> worse: **every** file written outside a run, which is exactly when someone wants to read
+> one, and nothing would notice because quarantine's normal state is empty. (2) `int` was
+> declared over int64 data (`parser_version`, and quarantine's `position`); Athena widens INT
+> to BIGINT and supports nothing in the other direction. Both fixed, both pinned by tests
+> verified to fail without the fix.
+>
+> **What could not be checked before the apply**, and is therefore the first post-apply step:
+> the 118 existing partitions carry the old 10-column schema. Athena documents that Parquet
+> uses name-based verification and that this "eliminates `HIVE_PARTITION_SCHEMA_MISMATCH`
+> errors for tables with partitions in Parquet" — documented is not observed, so the runbook
+> makes a five-second `SELECT run_id … WHERE sorteo = '3046'` the gate before anything else,
+> with a one-revert rollback.
+>
+> **The question is answered with real output** (runbook §6), run against the live tables
+> with the not-yet-catalogued columns substituted as typed NULLs. Today it says: one run,
+> `run_id NULL`, 118 sorteos, 124,447 premios rows — *everything in Silver predates lineage*,
+> which is the truthful answer and a good demonstration that the view is not inventing one.
+> Both queries scan **0 bytes**. 463 tests (444 → 463), coverage 98.96%. Runbook:
+> `docs/runbooks/PR-045.2-lineage-queryable.md`.
+>
+> **Owed:** the same two queries after Thursday **2026-10-01**, the run that settles 045.1,
+> 044.1, 044.2 and this one at once.
+
 
 ## PR-046 — Pin the transitive dependencies so `make build` is reproducible
 **Found at PR-042.1's apply, 2026-09-20. Not an audit fault — a build defect.**
@@ -3411,7 +3466,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
-| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
+| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` **built, NOT applied** — the two Silver tables move to Terraform (**`terraform import` first**, a create loses 118 partitions), two Athena views in `sql/lineage/` via `make lineage-views`, and two Parquet-vs-catalog type defects fixed; needs the owner's apply, then the Thursday run | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` **applied 2026-09-27, NOT verified** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; infrastructure checked cold, code path awaits the Thursday run | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
