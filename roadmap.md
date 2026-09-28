@@ -2766,6 +2766,54 @@ numbers and do not build it.
 > the plan is already written. **043.2's collision with 042's generations is the part not to
 > lose** — whoever picks this up later must resolve it in writing before touching SQL.
 
+> **PR-043.1 outcome (2026-09-27). Verdict: keep the full rebuild, all seven tables.** The
+> spike is the one PR in Phase 8 that needed no pipeline run — Athena had already recorded
+> everything, in the `lottery-wg` query history.
+>
+> **The decisive fact is not "it is cheap", it is the 10 MiB floor.** The seven CTAS scan
+> **4.84 MiB** per run (1.86× the whole Silver layer, because Parquet column projection
+> already does most of what an incremental rewrite is for). Athena bills a **10 MiB minimum
+> per query**, so all seven bill the minimum: **$0.00037 per run, $0.019 a year — and
+> $0.019 a year at 10× Silver too.** Bytes saved are not dollars saved at any volume this
+> project reaches by waiting. Worse, **the rewrite would likely cost more**: every statement
+> carries its own floor, and 043.2's plan needs an `INSERT INTO` *plus* the idempotency read
+> against the target it mandates — two minimum-billed queries where there was one.
+>
+> **The growth is real, and quantified: +36.6 KB scanned per draw**, monotone across four
+> consecutive weekly runs (2026-08-27 → 09-17), deltas agreeing to within 1% against a
+> constant one-draw input. Fault C's core observation is correct; it is a design observation,
+> not a cost defect.
+>
+> **The performance argument inverts.** `BuildGold` took **179 s** in the 2026-09-27 run, of
+> which Athena executing is **16.3 s — 9.1%**. The rest is 7 Map iterations × (3 Lambda
+> invocations + queue/planning) at `MaxConcurrency 3`. An incremental rebuild optimises the
+> 9% and leaves the 91%; per-query times showed no trend at all while bytes grew 2.3%.
+>
+> **Two of fault C's four arguments are retired.** "It compounds fault B" died with PR-042 —
+> nothing is empty during a build-beside-and-swap. "The single largest recurring query cost
+> in the project" was never checked and is false: at $0.019/year the largest recurring
+> compute cost is the DQ gate's start-up (L7). What survives is "a reviewer will ask about
+> it" — and the runbook is now the answer.
+>
+> **Classification verified against `GROUP BY`, not names** — all seven land in the group the
+> roadmap assigned. **One correction:** "already partitioned by `year`" describes the
+> *output*; those three still scan all of Silver every week (+6,102 / +5,298 / +4,410 bytes
+> per draw), because `partitioned_by` prunes nothing on the read side. Also found:
+> `gold_terminations` and `gold_winning_number_frequency` scan **byte-identical** amounts in
+> every run (same single column of `silver_premios_premios`) — recorded so nobody "optimises"
+> 0.8 MiB of a 10 MiB minimum.
+>
+> **Tripwires instead of a feeling** (runbook §8): `gold_draw_summary` scanning > 10 MiB
+> (~9.5× Silver, ~23 years organically), `BuildGold` wall clock > 10 min or any single CTAS
+> > 60 s, or a deliberate scope change. **That last one is the only plausible trigger** — 10×
+> Silver by waiting is ~24 years; 10× by backfilling history or adding a second lottery is a
+> normal decision. **Limitation worth keeping:** Athena's query history is not archived, so
+> any re-measurement must be taken within ~45 days of the runs it describes.
+>
+> Docs-only: no SQL, Terraform or Python touched, so no apply and no test-count change.
+> Deliberately **no** measurement script — it would be code with one caller. Runbook:
+> `docs/runbooks/PR-043-gold-incremental-spike.md`.
+
 **PR-043.2 — The four incremental tables.** Only what 043.1 recommends. Two requirements
 the prompt sketch above leaves implicit:
 - **Idempotency comes from querying the target**, not from assuming the run is the first:
@@ -3295,7 +3343,7 @@ These are deliberately *not* on the path to "hiring-manager-ready". Capture once
 | L5 | Iceberg / Apache Hudi for Silver | If we ever need MERGE/UPSERT semantics. |
 | L6 | Migrate transform off Python Shell (→ Spark `glueetl` or Ray) | The only path to Python 3.10+ / a "Glue 4.0/5.0" runtime — Python Shell caps at 3.9 (see PR-020 outcome). Requires rewriting `loteria.transformer` to PySpark, a new DPU/billing model, and reworked IAM/logging. AWS now publishes a "Migrate from Python shell jobs" guide, so this is the sanctioned long-term direction. Do only when a concrete need (scale, a 3.10-only lib) appears. |
 | L7 | Stop installing great-expectations at runtime in the DQ job (was PR-046.1) | Filed 2026-09-22 at PR-046's scoping, moved here 2026-09-23. `--additional-python-modules = "great-expectations==${var.great_expectations_version}"` pins the version and nothing beneath it, so the gate's dependency set is resolved fresh every Thursday and recorded nowhere — there is no artifact to hash. Pinning ~40 packages into that argument is the wrong fix: it is a production change that adds to a start-up already burning ~21 min of a 60-min timeout in its worst observed case (PR-033.1/.2). The right fix is to ship GX inside the artifact (a job image, or vendored into `--extra-py-files`), which removes the resolution *and* the start-up together. **Pairs with L6** — same root cause, same move. |
-| L8 | Incremental Gold: the four tables + the three aggregates (was PR-043.2 / .3) | Moved here 2026-09-23. Fault C from the 2026-09-14 audit. **PR-043.1 stays on the path** and is the gate for this: it measures bytes scanned and projects to 2× and 10× Silver, and "keep the full rebuild" is a verdict it is allowed to reach. Do this when 043.1's numbers say the rebuild has stopped being a rounding error. The plan is already written at PR-043.2/.3 — including the one thing not to lose, that `INSERT INTO` collides with PR-042's generations and the collision must be resolved in writing before any SQL changes. |
+| L8 | Incremental Gold: the four tables + the three aggregates (was PR-043.2 / .3) | Moved here 2026-09-23. Fault C from the 2026-09-14 audit. **PR-043.1 stays on the path** and is the gate for this: it measures bytes scanned and projects to 2× and 10× Silver, and "keep the full rebuild" is a verdict it is allowed to reach. Do this when 043.1's numbers say the rebuild has stopped being a rounding error. **043.1 has now run (2026-09-27) and the verdict is KEEP** — Athena's 10 MiB-per-query minimum holds the whole year at $0.019 even at 10× Silver, so the three tripwires in `docs/runbooks/PR-043-gold-incremental-spike.md` §8 are what should reopen this, not the calendar. The plan is already written at PR-043.2/.3 — including the one thing not to lose, that `INSERT INTO` collides with PR-042's generations and the collision must be resolved in writing before any SQL changes. |
 
 ---
 
@@ -3365,6 +3413,6 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` todo — **and it now has a hard requirement**: the crawler cannot evolve the table, see `.1`'s outcome | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` **applied 2026-09-27, NOT verified** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; infrastructure checked cold, code path awaits the Thursday run | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
-| 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` todo · `.2`/`.3` deferred (2026-09-23) | — |
+| 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
