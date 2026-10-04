@@ -1930,6 +1930,9 @@ never written.** Either write it or delete the target; do not leave it pointing 
 2. **PR-035.1 A and B** — the dead idempotency guard and the unanchored draw-date regex.
    Correctness, which is this project's stated thesis; both are small.
 3. **Phase 8: 041.2 → 042.2 → 045 (8C) → 044 (8D) → 043.1.** Sub-phase order, as ever.
+3b. **Phase 9 (added 2026-10-03): 050 now; 047 → 048 → 049 after the 2026-10-08 run.** The
+   defects phases 5–8 wrote down and left. Anything that redeploys the transformer or the
+   state machine waits for 10-08, so that run verifies 044/045 alone.
 4. **PR-036 README** — last, so it describes a finished thing rather than a moving one.
 5. **PR-041.3** — on or after **2026-10-20**, owner-run, irreversible. The only item with a
    hard date; it does not block anything above it.
@@ -3428,6 +3431,108 @@ and a rewrite later.
 
 ---
 
+# Phase 9 — Defects the earlier phases wrote down and left (added 2026-10-03)
+
+Every PR below was **filed in an earlier PR's notes, verified still open against the code
+and the account on 2026-10-03**, and never given a number. Writing a defect down in an
+outcome note is not the same as tracking it: these five had been sitting in prose for one
+to four weeks, and one of them is the reason the 2026-09-24 run got a single attempt.
+
+**Ordering rule: nothing that redeploys the transformer or the state machine ships before
+the run of Thursday 2026-10-08.** That run is the first to push a draw (3138) through
+044.1, 044.2, 045.1 and 045.2. If it also carried a new Retry or a rewired transformer, a
+failure would have two suspects and a success would prove two things at once — neither of
+them cleanly. PR-050 changes lint config and a test only, deploys nothing, and goes first.
+
+## PR-047 — The extractor's Retry does not catch the failure that actually happens
+**Filed in PR-031.2 (2026-09-24). Includes the stale alarm description, filed the same day.**
+
+**The defect.** PR-031.1 gave `RunExtractorLambda` a `Retry`, but its `ErrorEquals` lists
+only transport faults — `ReadTimeout`, `ConnectTimeout`, `ConnectionError` and four
+`Lambda.*` (re-read from the live definition 2026-10-03). A proxy 502 surfaces as the
+**`ValueError`** raised by `fetch_via_proxy`, so it matches nothing and the run has one
+attempt. That is what the 2026-09-24 run got.
+
+**The fix.**
+1. `fetch_via_proxy` raises a named exception (e.g. `ProxyHTTPError`) for non-2xx proxy
+   answers, carrying the status code. A `ValueError` is what a parsing bug also raises, and
+   retrying a parsing bug just triples its cost.
+2. Add that error name to `ErrorEquals`, with backoff long enough to matter against a proxy
+   rotation (minutes, not seconds) and `MaxAttempts` sized to the Lambda timeout.
+3. **Retrying is free when it fails** — scrape.do does not charge failed requests — and costs
+   10 credits only when it finally succeeds. Say so in the PR; the budget is real.
+4. **Bundled: `loteria-sfn-execution-failed-prod`'s description** still says *"Because the
+   machine has no Retry/Catch, this fires for a failure in ANY stage"*
+   (`terraform/modules/observability/alarms.tf:50`, and the module README's table). False
+   since PR-031.1 / PR-033, and it is the first sentence of the alert email — the text meant
+   to orient a responder describes a machine that no longer exists. Rewrite it to say what
+   the alarm means *now*: the retries were exhausted or a non-retryable stage failed.
+
+**Scope note.** This would not have saved the eight-failure outage of 09-24, and it does
+nothing for Cloudflare's Waiting Room (which answers **200**). It covers the single
+transient 502, which is the cheap case to stop losing a week to.
+
+**Acceptance:** a unit test proves a 502 raises the named error and a parse failure does
+not; the rendered ASL lists it in `ErrorEquals`; `alarms.tf` no longer claims there is no
+Retry. **Apply after 2026-10-08.** Verifying the retry path live needs a real 502, which
+cannot be scheduled — the test plus the rendered ASL is the bar.
+
+## PR-048 — `transform()` reads one bucket and writes another
+**Filed in PR-030 (2026-08), as a "latent smell, out of scope for a test PR".**
+
+**The defect.** `transform(bucket_name, …)` lists and downloads from its `bucket_name`
+argument, but uploads to the module global `partitioned_bucket`
+(`transformer.py:383-384`). Production agrees only because `main()` passes the same bucket
+to both. Any other caller — a test, a backfill, a second environment — reads from one bucket
+and writes Silver into another, with no error.
+
+**The fix.** Write to `bucket_name`, drop the global from the write path, and add a test
+with two moto buckets asserting the output lands in the one passed in. **Apply after
+2026-10-08** — it redeploys the transformer.
+
+## PR-049 — The DQ gate does not check referential integrity
+**Filed in PR-032's outcome as "the one high-value check missing".**
+
+**The defect.** Nothing asserts that every `premios.numero_sorteo` exists in `sorteos`. A
+premio whose sorteo row was rejected — or never written — passes the gate and reaches the
+seven gold tables, where it either vanishes from joins or shows up as a draw with no date.
+
+**The fix.** The value set is computed at run time (the sorteos present in this Silver), so
+it cannot live in a committed static suite. Compute it in the runner and apply
+`expect_column_values_to_be_in_set` (or an anti-join count asserted to be 0) on premios.
+Exercise it **both ways**, as PR-033 did: once green on real Silver, once red against a
+fixture with an orphan premio. **Apply after 2026-10-08** — it changes the gate that run
+uses.
+
+## PR-050 — Nothing stopped ruff from "modernising" code that runs on Python 3.9
+**Filed in PR-045.1's outcome (2026-09-27): "Not fixed systemically".**
+
+**The defect.** ruff targets py312 (the Lambdas). The transform job is Python Shell **3.9**
+and the DQ gate is Glue 5.0 **3.11**, and both import from `src/loteria/`. ruff's UP rules
+suggest `dt.UTC` (3.11+), `X | Y` outside annotations (3.10+), `StrEnum` (3.11+) — CI
+passes, the Lambda imports fine, the Glue run dies on Thursday. PR-045.1 caught one case
+and fixed it with a single `# noqa`, which protects one line.
+
+> **PR-050 outcome (2026-10-03).** Built as scoped, no AWS change.
+>
+> - `pyproject.toml` gains `[tool.ruff.lint.per-file-ignores]`: six rules (UP007, UP017,
+>   UP038, UP040, UP041, UP042) off for `common/`, `parser/`, `transformer/`, the package
+>   `__init__` and `scripts/glue_zip_main.py`; UP040 alone for `dq/` and `scripts/run_dq.py`
+>   (3.11). The comment carries the rule → minimum-Python table.
+> - **Why not `per-file-target-version`:** it does not exist in ruff 0.6.9, which CI pins;
+>   bumping ruff is its own PR. When it happens, swap the 3.9 block for
+>   `per-file-target-version = "py39"` on the same globs — that also catches 3.10+ syntax.
+> - `tests/unit/test_glue_py39_compat.py` computes the transform job's **import closure**
+>   from the source (entry point → transformer → everything it imports, packages included)
+>   and fails if any module in it is not under a glob carrying all six rules. A new import
+>   cannot slip out from under the guard. Each module is also parsed with
+>   `feature_version=(3, 9)`, which rejects `match` and PEP 695 aliases — grammar no ignore
+>   list can stop.
+> - `lineage.py`'s one-off `# noqa: UP017` is gone; pyproject now covers it.
+> - **Verified by breaking it:** deleting the `common/**` glob fails 6 tests (the six
+>   `common` modules in the closure); a probe file shows ruff still flags UP017 in
+>   `extractor/` (Lambda, 3.12) and no longer in `common/`. 488 tests, ruff clean.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -3514,3 +3619,8 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
+| *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run.*** | | | |
+| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | todo — **after 2026-10-08** | — |
+| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — **after 2026-10-08** | — |
+| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — **after 2026-10-08** | — |
+| 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **built** (2026-10-03), no AWS change | — |
