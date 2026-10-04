@@ -100,6 +100,18 @@ DOUBLE = "double"
 TIMESTAMP = "timestamp[us]"
 STRING = "<string>"  # sentinel: is_string or is_large_string
 
+# PR-045.2: the lineage columns are typed here too, and the one that matters is `run_id`.
+# These tests run WITHOUT a CORRELATION_ID, so `run_id` is the all-NULL case — and an
+# uncast all-None column is written to Parquet as the Null type (`int32 (Null)`), not as a
+# string. That was invisible until the catalog started declaring `run_id string`; now it is
+# a partition Athena cannot read. `parser_version` is pinned to int64 to match the `bigint`
+# in Terraform: Athena widens INT to BIGINT and has no path back.
+LINEAGE_PARQUET_TYPES = {
+    "run_id": STRING,
+    "ingested_at": TIMESTAMP,
+    "source_key": STRING,
+    "parser_version": INT,
+}
 PREMIOS_PARQUET_TYPES = {
     "numero_sorteo": INT,
     "numero_premiado": INT,
@@ -108,6 +120,7 @@ PREMIOS_PARQUET_TYPES = {
     "vendedor": STRING,
     "ciudad": STRING,
     "departamento": STRING,
+    **LINEAGE_PARQUET_TYPES,
 }
 SORTEOS_PARQUET_TYPES = {
     "numero_sorteo": INT,
@@ -120,6 +133,7 @@ SORTEOS_PARQUET_TYPES = {
     "reintegro_primer_premio": INT,
     "reintegro_segundo_premio": INT,
     "reintegro_tercer_premio": INT,
+    **LINEAGE_PARQUET_TYPES,
 }
 
 

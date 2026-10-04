@@ -11,6 +11,7 @@ Three jobs:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import types
 from pathlib import Path
@@ -19,6 +20,7 @@ import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SORTEOS = FIXTURES / "sorteos"
+REPO = Path(__file__).parents[1]
 
 
 # --------------------------------------------------------------------------------------
@@ -135,3 +137,37 @@ def extraordinario_lines() -> list[str]:
     ``NO VENDIDO`` lines. Both are easy assumptions to bake in accidentally.
     """
     return SORTEO_FILES["extraordinario_413"].read_text(encoding="utf-8").splitlines()
+
+
+# --------------------------------------------------------------------------------------
+# Reading Terraform from a test (PR-044.2, generalised in PR-045.2)
+# --------------------------------------------------------------------------------------
+# Several contracts in this repo have one half in Python and the other in a `.tf` file — the
+# quarantine columns, the Silver lineage columns, PR-042.2's alarm pattern. The tests that
+# hold them together work by reading the Terraform as text.
+#
+# ⚠️ The obvious way to do that is `text[text.index(header):]` — everything from the resource
+# to the end of the file. That is only correct while the resource happens to be LAST, which
+# is a property of the file nobody is maintaining: PR-045.2 appended two tables after the
+# quarantine one and the quarantine test started reading their columns as its own. Hence a
+# block that ends where the next top-level declaration begins.
+_TF_TOP_LEVEL = re.compile(r"^(resource|data|module|locals|variable|output|provider)\b", re.M)
+
+
+@pytest.fixture(scope="session")
+def tf_block():
+    """Return one top-level Terraform block as text, bounded at the next declaration.
+
+    ``tf_block('resource "aws_glue_catalog_table" "quarantine"')`` reads the catalog module
+    by default; pass ``path=`` (repo-relative) for any other file. Raises rather than
+    returning empty if the header is absent — a renamed resource should fail the test that
+    depends on it, not quietly pass against no text at all.
+    """
+
+    def _block(header: str, path: str = "terraform/modules/catalog/main.tf") -> str:
+        text = (REPO / path).read_text(encoding="utf-8")
+        start = text.index(header)  # ValueError if it is gone, which is the point
+        end = _TF_TOP_LEVEL.search(text, start + len(header))
+        return text[start : end.start() if end else len(text)]
+
+    return _block
