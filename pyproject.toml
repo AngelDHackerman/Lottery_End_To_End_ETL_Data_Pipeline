@@ -88,6 +88,40 @@ extend-exclude = ["notebooks", "miscellaneous"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+# PR-050. ruff targets py312 — the extractor and gold Lambdas — but two artifacts run on
+# OLDER interpreters, and the UP rules below would "modernise" code into something those
+# interpreters cannot run. CI would pass, the 3.12 Lambda would import it fine, and the
+# weekly Glue run would die. PR-045.1 met exactly this (`dt.UTC`, 3.11+) and fixed it with
+# one `# noqa` — which protects one line and leaves every other module open to the same
+# suggestion.
+#
+#   - The transform job is Python Shell, pinned to **3.9** (Python Shell offers 3.6 or 3.9 and
+#     nothing else; PR-020). It runs whatever `loteria.transformer.transformer` imports, plus
+#     the zipapp entry point. tests/unit/test_glue_py39_compat.py computes that import
+#     closure from the source and FAILS if any module in it is not covered by the 3.9 globs
+#     below — so a new import cannot slip out from under this guard.
+#   - The DQ gate is Glue 5.0, **Python 3.11** — only the 3.12-only type alias applies.
+#
+# Why per-file-ignores and not `per-file-target-version`: that setting arrived in a later
+# ruff than the 0.6.9 CI pins, and bumping ruff is its own PR (new rules, new formatting).
+# When ruff is bumped, replace the 3.9 block with `per-file-target-version = "py39"` on the
+# same globs — that also catches 3.10+ SYNTAX, which an ignore list cannot.
+#
+#   UP007  X | Y in annotations      3.10  (safe only under `from __future__ import annotations`)
+#   UP017  datetime.UTC              3.11
+#   UP038  isinstance(x, A | B)      3.10
+#   UP040  `type X = ...` alias      3.12
+#   UP041  TimeoutError alias        3.11  (asyncio/socket.timeout differ before it)
+#   UP042  enum.StrEnum              3.11
+[tool.ruff.lint.per-file-ignores]
+"src/loteria/__init__.py" = ["UP007", "UP017", "UP038", "UP040", "UP041", "UP042"]
+"src/loteria/common/**" = ["UP007", "UP017", "UP038", "UP040", "UP041", "UP042"]
+"src/loteria/parser/**" = ["UP007", "UP017", "UP038", "UP040", "UP041", "UP042"]
+"src/loteria/transformer/**" = ["UP007", "UP017", "UP038", "UP040", "UP041", "UP042"]
+"scripts/glue_zip_main.py" = ["UP007", "UP017", "UP038", "UP040", "UP041", "UP042"]
+"src/loteria/dq/**" = ["UP040"]
+"scripts/run_dq.py" = ["UP040"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["loteria"]
 

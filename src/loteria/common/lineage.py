@@ -99,14 +99,11 @@ def utc_now() -> dt.datetime:
     naive value *labelled* nothing, so a reader cannot tell whether the author meant UTC or
     forgot about zones — and it is deprecated in 3.12 for exactly that reason.
     """
-    # noqa: UP017 is load-bearing, not noise. ruff targets py312 (pyproject) and wants
-    # `dt.UTC` here — an alias that did not exist before Python 3.11. This module ships
-    # inside the Glue zip, and the transform job is a **Python Shell job pinned to 3.9**
-    # (`PythonVersion: "3.9"`; Python Shell offers 3.6 or 3.9 and nothing else). Taking
-    # ruff's advice would import fine on the 3.12 Lambda, pass CI, and raise
-    # AttributeError in the weekly Glue run. Anything under `loteria/` that Glue imports
-    # has to stay 3.9-compatible regardless of what the linter targets.
-    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)  # noqa: UP017
+    # `dt.timezone.utc`, not `dt.UTC`: that alias is 3.11+, and this module ships inside the
+    # Glue zip, which runs on **Python Shell 3.9**. ruff (targeting py312) used to suggest
+    # the swap; since PR-050 pyproject's per-file-ignores stop it for every module the
+    # transform job imports, not just this line.
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
 
 
 def run_id_from_env(env: dict | None = None) -> str | None:
