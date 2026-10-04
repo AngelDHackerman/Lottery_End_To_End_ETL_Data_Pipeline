@@ -1933,7 +1933,9 @@ never written.** Either write it or delete the target; do not leave it pointing 
 3b. **Phase 9 (added 2026-10-03): 050 now; 047 → 048 → 049 after the 2026-10-08 run.** The
    defects phases 5–8 wrote down and left. Anything that redeploys the transformer or the
    state machine waits for 10-08, so that run verifies 044/045 alone.
-4. **PR-036 README** — last, so it describes a finished thing rather than a moving one.
+4. **PR-036.1 → PR-036.** First publish `layouts/diagram.html` on GitHub Pages (added
+   2026-10-04), then the README, last, so it describes a finished thing rather than a moving
+   one and links the live diagram.
 5. **PR-041.3** — on or after **2026-10-20**, owner-run, irreversible. The only item with a
    hard date; it does not block anything above it.
 
@@ -1982,6 +1984,57 @@ new document.
 
 **Do this LAST.** It describes a finished thing, and it is the only remaining item whose
 content depends on every other one landing first.
+
+## PR-036.1 — Publish the architecture diagram on GitHub Pages
+**Added 2026-10-04, at the owner's request. Do it right BEFORE PR-036,** so the README can
+link a live URL instead of a file path.
+
+**Why.** `layouts/diagram.html` is the project's best portfolio piece: an interactive
+map of what is deployed, with each piece's real names and status, the weekly run as an
+animation, and the defects table. On GitHub today it can only be read as source; a reviewer
+has to clone the repo to see it. A Pages URL turns it into one click from the README and
+from a CV.
+
+**Prompt:**
+```
+Add .github/workflows/pages.yml that publishes layouts/ to GitHub Pages:
+- on: push to master with paths: layouts/**, plus workflow_dispatch.
+- permissions: contents: read, pages: write, id-token: write. concurrency group "pages",
+  cancel-in-progress: false (never cancel a deploy halfway).
+- one build job: checkout → copy layouts/ to _site/ → serve diagram.html as index.html
+  (copy it, so the existing path keeps working) → actions/configure-pages →
+  actions/upload-pages-artifact (path: _site) → actions/deploy-pages, in the
+  github-pages environment.
+- pin each action to a major version, like ci.yml does.
+Nothing is built: the page is static HTML + one CSS + two JS files with relative paths, so
+the artifact is the folder as-is.
+```
+
+**Before publishing, check:**
+1. **Content.** The page names account `913524903233`, bucket, role and function names. All
+   of that is already public in this repo (roadmap, runbooks, Terraform), so Pages exposes
+   nothing new. It holds **no secrets or tokens**: confirm with a grep before the first
+   deploy, and keep it that way. A future edit that pastes a token into a `kv` is now a
+   public web page, not just a public file.
+2. **No external requests.** It loads nothing from a CDN today. Keep it self-contained, so
+   it cannot break when a third party changes.
+3. **Phone width.** A reviewer will open it from a phone. Check that the SVG scales and the
+   side panel stacks below it, with no horizontal page scroll.
+4. **Sharing metadata.** Add `<meta name="description">` and Open Graph tags (`og:title`,
+   `og:description`) so the link previews well in LinkedIn or Slack.
+5. **The date stays honest.** The header says *"comprobado contra la cuenta"* with a date.
+   Once it is public, a stale date reads as abandoned, and a fresh date with stale numbers
+   reads as false. Every PR that changes the architecture updates `diagram.data.js` and the
+   header date in the same commit, as the 045.2 docs PR did.
+
+**Owner action, one time:** Settings → Pages → *Build and deployment* → Source:
+**GitHub Actions**. Like the `SCRAPE_DO_TOKEN` secret, this is a web-UI step, since the
+owner's PAT has returned 403 on repo-settings APIs. Until it is set, the deploy job fails
+with a clear error.
+
+**Acceptance:** the workflow is green on `master`; the Pages URL serves the diagram as
+`index.html` and its CSS/JS load (the click panel works and *Reproducir* animates); it
+works at phone width; and PR-036's README links to the URL in items 1 and 4.
 
 ## PR-037 — Diagrams in draw.io (XML committed) — **DROPPED 2026-09-23**
 
@@ -3607,6 +3660,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
 | 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` **merged + deployed** (2026-09-23) · `C` → PR-044 | [PR #62](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/62) |
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
+| 036.1 | **Publish `layouts/diagram.html` on GitHub Pages**: a `pages.yml` workflow deploys `layouts/` on push to master. Portfolio-facing. Do right before 036, so the README links the live URL. Owner: switch Pages source to GitHub Actions (web UI) | todo | — |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
@@ -3623,4 +3677,4 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | todo — **after 2026-10-08** | — |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — **after 2026-10-08** | — |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — **after 2026-10-08** | — |
-| 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **built** (2026-10-03), no AWS change | — |
+| 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
