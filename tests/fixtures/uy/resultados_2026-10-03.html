@@ -1,0 +1,880 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><!-- InstanceBegin template="/Templates/default_2011_b.dwt" codeOutsideHTMLIsLocked="false" -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<link rel="shortcut icon" href="http://www2.loteria.gub.uy/dnlq_1.ico" />
+<!-- InstanceBeginEditable name="doctitle" -->
+<link rel="shortcut icon" href="https://www2.loteria.gub.uy/dnlq_1.ico" />
+<title>DNLQ | Resultados de todos los juegos</title>
+<script>
+function TratarFecha(vdia,vmes,vano){
+	document.location = "?vdia="+vdia+"&vmes="+vmes+"&vano="+vano;}
+</script>
+
+<script>
+function MostrarExtracto(vjue,vdia,vmes,vano){
+var caminoQVN = '/extractosweb/QV_QN_K/Extracto_QV_QN.php';
+var caminoLote40 = '/extractosweb/loteria/Extracto_Revancha_2023.php';
+var caminoLote39 = '/extractosweb/loteria/Extracto_Gordo_2022.php';
+var caminoLote38 = '/extractosweb/loteria/Extracto_Revancha_2022.php';
+var caminoLote37 = '/extractosweb/loteria/Extracto_Gordo_2021.php';
+var caminoLote36 = '/extractosweb/loteria/Extracto_Loteria_2021.php';
+var caminoLote35 = '/extractosweb/loteria/Extracto_Revancha_2021.php';
+var caminoLote34 = '/extractosweb/loteria/Extracto_Gordo_2020.php';
+var caminoLote33 = '/extractosweb/loteria/Extracto_Revancha_2020.php';
+var caminoLote32 = '/extractosweb/loteria/Extracto_Gordo_2019.php';
+var caminoLote31 = '/extractosweb/loteria/Extracto_Loteria_2019.php';
+var caminoLote30 = '/extractosweb/loteria/Extracto_Loteria_200.php';
+var caminoLote29 = '/extractosweb/loteria/Extracto_Revancha_2019.php';
+var caminoLote28 = '/extractosweb/loteria/Extracto_Loteria_2018_gordo.php';
+var caminoLote27 = '/extractosweb/loteria/Extracto_Revancha_2018.php';
+var caminoLote26 = '/extractosweb/loteria/Extracto_Loteria_2017_gordo.php';
+var caminoLote25 = '/extractosweb/loteria/Extracto_Loteria_2017.php';
+var caminoLote24 = '/extractosweb/loteria/Extracto_Revancha_2017.php';
+var caminoLote23 = '/extractosweb/loteria/Extracto_Loteria_2016_gordo.php';
+var caminoLote22 = '/extractosweb/loteria/Extracto_Revancha_2016.php';
+var caminoLote21 = '/extractosweb/loteria/Extracto_Loteria_2015_gordo.php';
+var caminoLote20 = '/extractosweb/loteria/Extracto_Loteria_2015.php';
+var caminoLote19 = '/extractosweb/loteria/Extracto_Revancha_2015.php';
+var caminoLote18 = '/extractosweb/loteria/Extracto_Loteria_2014_gordo.php';
+var caminoLote17 = '/extractosweb/loteria/Extracto_Loteria_2014_ONLINE.php';
+var caminoLote16 = '/extractosweb/loteria/Extracto_Loteria_2014.php';
+var caminoLote15 = '/extractosweb/loteria/Extracto_Loteria_2014_reyes.php';
+var caminoLote14 = '/extractosweb/loteria/Extracto_Loteria_2013_gordo.php';
+var caminoLote13 = '/extractosweb/loteria/Extracto_Loteria_2013.php';
+var caminoLote12 = '/extractosweb/loteria/Extracto_2013.php';
+var caminoLote11 = '/extractosweb/loteria/loteria_2011.php';
+var caminoLote = '/extractosweb/loteria/extracto_loteria_2.php';
+var caminoLoteN = '/extractosweb/loteria/extracto_loteria_2_nvo.php';
+var caminoLoteF = '/extractosweb/loteria/extracto_loteria_fin.php';
+var caminoLoteR = '/extractosweb/loteria/extracto_loteria_rey.php';
+var caminoQVNK = '/extractosweb/QV_QN_K/Extracto_QV_QN_K.php';
+var caminoQuiV = '/extractosweb/quiniela/vespertina/extracto_QV_S.php';
+var caminoQuiN = '/extractosweb/quiniela/nocturna/extracto_QN_S.php';
+var camino5oro = '/extractosweb/5deOro/extracto_5_de_oro.php';
+var fechasorteo = "?vdia="+vdia+"&vmes="+vmes+"&vano="+vano;
+
+if ((vano>2018) || ( (vano==2018) && (vmes>11) ) || ( (vano == 2018) && (vmes == 11) && (vdia >= 30) ))
+{
+	var a = document.createElement('A');
+	//var filePath = '/extractosweb/20181023v.pdf';
+	var letra = 'l';
+	if (vjue == 5) 	{letra = 'o';}
+	if ((vjue == 2) || (vjue == 19) || (vjue == 3) || (vjue == 19)){letra = 'v';}
+	if (vjue == 4){letra = 'n';}
+
+	var filePath = '/extractosweb/' + vano+vmes+vdia+letra+'.pdf';
+	a.href = filePath;
+	
+	a.download = filePath.substr(filePath.lastIndexOf('/') + 1);
+	
+	//a.view = filePath.substr(filePath.lastIndexOf('/') + 1);
+	
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+}	
+else	
+{
+	if(vjue ==26){window.open(caminoLote27 + fechasorteo, 'principal');}
+	if(vjue ==25){window.open(caminoLote26 + fechasorteo, 'principal');}
+	if(vjue ==24){window.open(caminoLote25 + fechasorteo, 'principal');}
+	if(vjue ==23){window.open(caminoLote24 + fechasorteo, 'principal');}
+	if(vjue ==22){window.open(caminoLote23 + fechasorteo, 'principal');}
+	if(vjue ==21){window.open(caminoLote22 + fechasorteo, 'principal');}
+	if(vjue ==20){window.open(caminoLote21 + fechasorteo, 'principal');}
+	if(vjue ==19){window.open(caminoQVN + fechasorteo, 'principal');}
+	if(vjue ==18){window.open(caminoLote20 + fechasorteo, 'principal');}
+	if(vjue ==17){window.open(caminoLote19 + fechasorteo, 'principal');}
+	if(vjue ==16){window.open(caminoLote18 + fechasorteo, 'principal');}
+	if(vjue ==15){window.open(caminoLote17 + fechasorteo, 'principal');}
+	if(vjue ==14){window.open(caminoLote16 + fechasorteo, 'principal');}
+	if(vjue ==13){window.open(caminoLote15 + fechasorteo, 'principal');}
+	if(vjue ==12){window.open(caminoLote14 + fechasorteo, 'principal');}
+	if(vjue ==11){window.open(caminoLote13 + fechasorteo, 'principal');}
+	if(vjue ==10){window.open(caminoLote12 + fechasorteo, 'principal');}
+	if(vjue ==9){window.open(caminoLote11 + fechasorteo, 'principal');}
+	if(vjue ==8){window.open(caminoLoteR + fechasorteo, 'principal');}
+	if(vjue ==7){window.open(caminoLoteF + fechasorteo, 'principal');}
+	if(vjue ==6){window.open(caminoLote + fechasorteo, 'principal');}
+	if(vjue ==5){window.open(camino5oro + fechasorteo, 'principal');}
+	if(vjue ==4){window.open(caminoQuiN + fechasorteo, 'principal');}
+	if(vjue ==3){window.open(caminoQuiV + fechasorteo, 'principal');}
+	if(vjue ==2){window.open(caminoQVNK + fechasorteo, 'principal');}
+	if(vjue ==1){window.open(caminoLoteN + fechasorteo, 'principal');}
+}	
+}
+</script>
+<!-- InstanceEndEditable -->
+<link href="styles_dnlq_2.css" rel="stylesheet" type="text/css" />
+<link href="SpryAssets/SpryAccordion.css" rel="stylesheet" type="text/css" />
+<!-- InstanceBeginEditable name="head" -->
+<!-- InstanceEndEditable -->
+<script src="SpryAssets/SpryAccordion.js" type="text/javascript"></script>
+<SCRIPT LANGUAGE="JavaScript">
+<!--
+Begin
+function popUp(URL) {
+day = new Date();
+id = day.getTime();
+eval("page" + id + " = window.open(URL, '" + id + "', 'toolbar=0,scrollbars=0,location=0,statusbar=0,menubar=0,resizable=0,width=290,height=200');");
+}
+function MM_swapImgRestore() { //v3.0
+  var i,x,a=document.MM_sr; for(i=0;a&&i<a.length&&(x=a[i])&&x.oSrc;i++) x.src=x.oSrc;
+}
+function MM_preloadImages() { //v3.0
+  var d=document; if(d.images){ if(!d.MM_p) d.MM_p=new Array();
+    var i,j=d.MM_p.length,a=MM_preloadImages.arguments; for(i=0; i<a.length; i++)
+    if (a[i].indexOf("#")!=0){ d.MM_p[j]=new Image; d.MM_p[j++].src=a[i];}}
+}
+
+function MM_findObj(n, d) { //v4.01
+  var p,i,x;  if(!d) d=document; if((p=n.indexOf("?"))>0&&parent.frames.length) {
+    d=parent.frames[n.substring(p+1)].document; n=n.substring(0,p);}
+  if(!(x=d[n])&&d.all) x=d.all[n]; for (i=0;!x&&i<d.forms.length;i++) x=d.forms[i][n];
+  for(i=0;!x&&d.layers&&i<d.layers.length;i++) x=MM_findObj(n,d.layers[i].document);
+  if(!x && d.getElementById) x=d.getElementById(n); return x;
+}
+
+function MM_swapImage() { //v3.0
+  var i,j=0,x,a=MM_swapImage.arguments; document.MM_sr=new Array; for(i=0;i<(a.length-2);i+=3)
+   if ((x=MM_findObj(a[i]))!=null){document.MM_sr[j++]=x; if(!x.oSrc) x.oSrc=x.src; x.src=a[i+2];}
+}
+
+//-->
+</script>
+<style type="text/css">
+body {
+	margin-left: 0px;
+	margin-top: 0px;
+	margin-right: 0px;
+	margin-bottom: 0px;
+	background-image: url();
+}
+a:visited {
+	color: #666;
+}
+a:hover {
+	color: #DCC984;
+}
+a:active {
+	color: #666;
+}
+body,td,th {
+	color: #666;
+}
+a:link {
+	color: #666;
+}
+</style>
+</head>
+
+<body onload="MM_preloadImages('LOTERIAS/2011/MENU/bot_buscador_b.jpg','LOTERIAS/2011/MENU/bot_resultados_b.jpg','LOTERIAS/2011/MENU/bot_sorteos_on_line_b.jpg','LOTERIAS/2011/MENU/bot_tramites_en_linea_b.jpg','LOTERIAS/2011/bot_portal_gub_uy_b.jpg','LOTERIAS/2011/bot_cibelae_b.jpg','LOTERIAS/2011/bot_atencion_ciudadana_b.jpg','LOTERIAS/2011/bot_sugerencias_b.jpg','LOTERIAS/2011/MENU/zimbra_b.jpg','LOTERIAS/2011/MENU/bot_consulta_recibo_b.jpg','LOTERIAS/2011/MENU/bot_consulta_expedientes_b.jpg','LOTERIAS/2011/bot_quien_los_vendio_b.png','LOTERIAS/2011/bot_mapas_b.png','LOTERIAS/2011/bot_fechas_sorteos_b.png','LOTERIAS/2011/MENU/menu_ext_loteria_1_r1_c1_s1.png','LOTERIAS/2011/MENU/menu_ext_loteria_1_r2_c1_s1.png','LOTERIAS/2011/MENU/BOT_Ext_Lot_B.png')"><table width="1080" border="0" align="center" cellpadding="0" cellspacing="0">
+  <tr>
+    <td>&nbsp;</td>
+    <td colspan="3" align="center" valign="top"><table width="81%" border="0" align="center" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" valign="bottom"><a href="index.php" target="_parent"><img src="LOTERIAS/2011/banner_02.jpg" alt="Loteria Uruguaya" width="1057" height="120" border="0" /></a></td>
+      </tr>
+      <tr>
+		 <td align="center" valign="bottom"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td align="left" valign="bottom"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="14" /></td>
+            <td align="center" valign="bottom"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /><img src="LOTERIAS/2011/gif_2.gif" alt="dnlq" width="10" height="10" /></td>
+            <td align="right" valign="bottom"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /></td>
+          </tr>
+        </table></td>
+      </tr>
+    </table></td>
+    <td>&nbsp;</td>
+  </tr>
+  <tr>
+    <td align="left" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /></td>
+	<td align="center" valign="botom"><!-- InstanceBeginEditable name="Zona_Fecha" -->04/10/2026  11:33:56<!-- InstanceEndEditable --></td>
+	<td align="left" valign="botom"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /></td>
+	<td align="left" valign="botom"><!-- InstanceBeginEditable name="Zona_Camino" --><a href="index.php">Principal</a> | Resultados | <a href="ver_resultados.php">Resultados de Sorteos</a> <!-- InstanceEndEditable --></td>
+    <td align="left" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="25" /></td>
+  </tr>
+  <tr>
+    <td>&nbsp;</td>
+    <td align="left" valign="top"><table width="183" border="0" cellspacing="0" cellpadding="0">
+      <tr>
+        <td colspan="2" align="left" valign="bottom" background="LOTERIAS/2011/indice_de_temas.png"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="42" /></td>
+        </tr>
+      <tr>
+        <td colspan="2" valign="top" bgcolor="#ECF9FF"><div align="center" class="Accordion" id="Accordion1" tabindex="0">
+          <div class="AccordionPanel">
+            <div class="AccordionPanelTab">Transparencia</div>
+            <div class="AccordionPanelContent" style="display: block">
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="institucional_2011.php?xins=1&xpos=1">Autoridades|Organigrama</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="institucional_2011.php?xins=2&xpos=1">Facultades del Organismo</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="institucional_2011.php?xins=3&xpos=1">Remuneraciones</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="institucional_2011.php?xins=4&xpos=1">Presupuesto|Licitaciones</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="institucional_2011.php?xins=5&xpos=1">Estadísticas</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="participacion.php?xins=1&xpos=1">Participación Ciudadana</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="fotos_dnlq.php">Multimedia</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="ver_expedientes.php">Expedientes On-Line</a>
+              </div>
+            </div>
+          <div class="AccordionPanel">
+            <div class="AccordionPanelTab">Los Juegos</div>
+            <div class="AccordionPanelContent" style="display: none"> 
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Juego_Loteria.php">Lotería Uruguaya</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Juego_Quiniela.php">Quiniela</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Juego_Quiniela.php?xjue=3&xpos=1">Tómbola</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Juego_Quiniela.php?xjue=4&xpos=1">5 de Oro Revancha</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Juego_Rifas.php">Rifas</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="ver_calendario.php">Calendario de Sorteos</a><br />   
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="ver_significado.php">Significado de Números</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="ver_estadisticas.php">Estadisticas de Números</a><br />
+              </div>
+            </div>
+          <div class="AccordionPanel">
+            <div class="AccordionPanelTab">Agencias</div>
+            <div class="AccordionPanelContent" style="display: none">
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="agencias_loteria.php">Agencias de Lotería</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="agencias_quiniela.php">Agencias de Quinielas</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="loteros.php">Requisitos Loteros</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Devolucion_programa.zip">Descarga Prog. Devolucion</a><br />
+              </div>
+            </div>
+          <div class="AccordionPanel">
+            <div class="AccordionPanelTab">Resultados</div>
+            <div class="AccordionPanelContent" style="display: none">
+            <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="ver_resultados.php">Resultados Juegos</a><br />
+			<img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="ver_vendedores.php">Venta 20 Premios Loteria</a>
+            </div>
+            </div>
+          <div class="AccordionPanel">
+            <div class="AccordionPanelTab">Buscador Billetes</div>
+            <div class="AccordionPanelContent" style="display: none">
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="busco_numeros.php">Encuentre su Billete</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="Juego_Loteria_Billetes.php">Historico de Billetes</a><br />
+            </div>
+            </div>
+          <div class="AccordionPanel">
+            <div class="AccordionPanelTab">Sorteos On-Line</div>
+            <div class="AccordionPanelContent" style="display: none">
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="https://www.youtube.com/user/LoteriaUruguaya" target="_new">Sorteos en Vivo</a><br />
+              <img src="LOTERIAS/2011/cuadradito_menu_1.jpg" width="12" height="10" alt="menu" /><a href="tablero_online.php">Tablero on-line</a><br />
+           
+              </div>
+            </div>
+          </div></td>
+        </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top" bgcolor="#ECF9FF"><img name="indice_de_temas_pie_1" src="LOTERIAS/2011/indice_de_temas_pie_1.jpg" width="184" height="40" border="0" id="indice_de_temas_pie_1" usemap="#m_indice_de_temas_pie_1" alt="Indice de Temas" /><map name="m_indice_de_temas_pie_1" id="m_indice_de_temas_pie_1">
+<area shape="rect" coords="68,7,113,34" href="contactos.php" target="_parent" alt="Contactos con la DNLQ" title="Contactos con la DNLQ" />
+<area shape="rect" coords="137,6,176,35" href="index.php" target="_parent" alt="Indice de Temas" title="Indice de Temas" />
+<area shape="rect" coords="8,3,36,32" href="horarios_publico.php" target="_parent" alt="Horarios de atención al público" title="Horarios de atención al público" />
+</map></td>
+        </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="184" height="10" border="0" /></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top"><a href="busco_numeros.php" target="_parent" onmouseover="MM_swapImage('bot_busco_numero','','LOTERIAS/2011/MENU/bot_buscador_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/bot_busco_numero_a.jpg" alt="Buscador de Billetes de Lotería" name="bot_busco_numero" width="184" height="41" border="0" id="bot_busco_numero" /></a></td>
+        </tr>
+      <tr>
+          <td colspan="2" align="center" valign="top"><a href="ver_resultados.php" target="_parent" onmouseover="MM_swapImage('bot_resultados','','LOTERIAS/2011/MENU/bot_resultados_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/bot_resultados_a.jpg" alt="Resultados de Todos los Juegos" name="bot_resultados" width="184" height="41" border="0" id="bot_resultados" /></a></td>
+        </tr>
+      <tr>
+      <td colspan="2" align="center" valign="top"><a href="sorteos_online.php" target="_parent" onmouseover="MM_swapImage('bot_sorteos_en_linea','','LOTERIAS/2011/MENU/bot_sorteos_on_line_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/bot_sorteos_on_line_a.jpg" alt="Sorteos El Linea" name="bot_sorteos_en_linea" width="184" height="41" border="0" id="bot_sorteos_en_linea" /></a></td>
+        </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top"><a href="tramites_online.php" target="_parent" onmouseover="MM_swapImage('bot_tramites_en_linea','','LOTERIAS/2011/MENU/bot_tramites_en_linea_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/bot_tramites_en_linea_a.jpg" alt="Trámites en Línea" name="bot_tramites_en_linea" width="184" height="41" border="0" id="bot_tramites_en_linea" /></a></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="bottom"><img name="indice_de_temas_pie_4" src="LOTERIAS/2011/indice_de_temas_pie_4.jpg" width="184" height="41" border="0" id="indice_de_temas_pie_4" alt="Indice de Temas | Loteria Uruguaya" /></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+      </tr>
+      <tr>
+        <td width="94" align="right" valign="top" bgcolor="#ECF9FF"><a href="https://www.presidencia.gub.uy/" target="_new"><img src="LOTERIAS/2011/logo_presidencia_a.jpg" alt="presidencia" width="92" height="57" border="0" /></a></td>
+        <td width="90" align="left" valign="top" bgcolor="#ECF9FF"><a href="https://www.mef.gub.uy/" target="_new"><img src="LOTERIAS/2011/logo_MEF_a.jpg" alt="M.E.F" width="92" height="57" border="0" /></a></td>
+      </tr>
+      <tr>
+        <td align="right" valign="top" bgcolor="#ECF9FF"><a href="http://portal.gub.uy/" target="_new" onmouseover="MM_swapImage('bot_portal_gub_uy','','LOTERIAS/2011/bot_portal_gub_uy_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/bot_portal_gub_uy_a.jpg" alt="Portal Gub Uy " name="bot_portal_gub_uy" width="92" height="29" border="0" id="bot_portal_gub_uy" /></a></td>
+        <td align="left" valign="top" bgcolor="#ECF9FF"><a href="http://www2.loteria.gub.uy/sugerencias_2011.php?vmail=20" target="_parent" onmouseover="MM_swapImage('bot_atencion_ciudadana','','LOTERIAS/2011/bot_atencion_ciudadana_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/bot_atencion_ciudadana_a.jpg" alt="Atención Ciudadana" name="bot_atencion_ciudadana" width="92" height="29" border="0" id="bot_atencion_ciudadana" /></a></td>
+      </tr>
+      <tr>
+        <td align="right" valign="top" bgcolor="#ECF9FF"><a href="https://cibelae.net/" target="_new" onmouseover="MM_swapImage('bot_cibelae','','LOTERIAS/2011/bot_cibelae_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/bot_cibelae_a.jpg" alt="CIBELAE [Corporación Iberoamericana de Loterías Estatales]" name="bot_cibelae" width="92" height="29" border="0" id="bot_cibelae" /></a></td>
+        <td align="left" valign="top" bgcolor="#ECF9FF"><a href="http://www2.loteria.gub.uy/sugerencias_2011.php?vmail=10" target="_parent" onmouseover="MM_swapImage('bot_sugerencias','','LOTERIAS/2011/bot_sugerencias_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/bot_sugerencias_a.jpg" alt="Consultas y Sugerencias a la DNLQ" name="bot_sugerencias" width="92" height="29" border="0" id="bot_sugerencias" /></a></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top" bgcolor="#ECF9FF"><a href="ver_expedientes.php" target="_parent" onmouseover="MM_swapImage('bot_consulta_expedientes','','LOTERIAS/2011/MENU/bot_consulta_expedientes_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/bot_consulta_expedientes_a.jpg" alt="Consulta en Línea de Expedientes iniciados en DNLQ" name="bot_consulta_expedientes" width="184" height="29" border="0" id="bot_consulta_expedientes" /></a></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top" bgcolor="#ECF9FF"><a href="https://www.cgn.gub.uy/SLHConsWeb_Presentacion/login.xhtml" target="_new" onmouseover="MM_swapImage('bot_consulta_recibo_de_sueldo_DNLQ','','LOTERIAS/2011/MENU/bot_consulta_recibo_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/bot_consulta_recibo_a.jpg" alt="Consulta del Recibo de Sueldo de Funcionarios de la DNLQ" name="bot_consulta_recibo_de_sueldo_DNLQ" width="184" height="29" border="0" id="bot_consulta_recibo_de_sueldo_DNLQ" /></a></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top" bgcolor="#ECF9FF"><a href="https://webmail.loteria.gub.uy/#1" target="_new" onmouseover="MM_swapImage('bot_Correo_Loterias','','LOTERIAS/2011/MENU/zimbra_b.jpg',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/MENU/zimbra_a.jpg" alt="Correo de Funcionarios de la DNLQ" name="bot_Correo_Loterias" width="184" height="29" border="0" id="bot_Correo_Loterias" /></a></td>
+      </tr>
+      <tr>
+        <td colspan="2" align="center" valign="top"><img src="/LOTERIAS/2011/indice_de_temas_pie_3.jpg" alt="Indice de Temas" name="indice_de_temas_pie" width="184" height="40" border="0" usemap="#indice_de_temas_pieMap" id="indice_de_temas_pie3" /></td>
+      </tr>
+    </table></td>
+    <td align="center" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /></td>
+    <td align="center" valign="top" bgcolor="#ECF9FF"><!-- InstanceBeginEditable name="Zona_Resultados" -->
+      <table width="100%" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+          <td align="left" valign="top" background="LOTERIAS/2011/cabezal_loteria_r1_c2_s1.jpg"><img src="LOTERIAS/2011/cabezal_gral_sup_r1_c1_s1.jpg" alt="DNLQ" width="14" height="39" /></td>
+          <td width="96%" background="LOTERIAS/2011/cabezal_loteria_r1_c2_s1.jpg"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+            <tr>
+              <td width="41%" align="left" valign="middle"><img src="LOTERIAS/2011/t_resultados_todos_los_juegos.png" alt="Resultado de todos los juegos | DNLQ" width="283" height="39" border="0" /></td>
+              <td width="59%" align="right" valign="middle"><table border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                <td align="left" valign="middle"><a href="ver_vendedores_2026.php" onmouseout="MM_swapImgRestore()" onmouseover="MM_swapImage('bot_quien_los_vendio','','LOTERIAS/2011/bot_quien_los_vendio_b.png',1)"><img src="LOTERIAS/2011/bot_quien_los_vendio_a.png" alt="Sepa quien vendió los 20 premios de tabla de la última Lotería" name="bot_quien_los_vendio" width="100" height="40" border="0" id="bot_quien_los_vendio" /></a></td>
+                  <td align="left" valign="middle"><a href="ver_geolocalizacion.html" onmouseout="MM_swapImgRestore()" onmouseover="MM_swapImage('bot_mapas','','LOTERIAS/2011/bot_mapas_b.png',1)"><img src="LOTERIAS/2011/bot_mapas_a.png" alt="Geolocalizacion de Agencias de Loteria" name="bot_mapas" width="103" height="40" border="0" id="bot_mapas" /></a></td>
+                  
+                  <td align="left" valign="middle"><a href="ver_calendario.php" onmouseout="MM_swapImgRestore()" onmouseover="MM_swapImage('bot_fechas_sorteos','','LOTERIAS/2011/bot_fechas_sorteos_b.png',1)"><img src="LOTERIAS/2011/bot_fechas_sorteos_a.png" alt="Calendario de Sorteos de todos los Juegos" name="bot_fechas_sorteos" width="91" height="40" border="0" id="bot_fechas_sorteos2" /></a></td>
+                  <td align="left" valign="middle"><a href="DCpG_2026.php"><img src="LOTERIAS/2011/bot_calendarios_sorteos_especiales_a.png" alt="" width="140" height="40" border="0" /></a></td>
+                  </tr>
+              </table></td>
+            </tr>
+          </table></td>
+          <td width="2%" align="right" valign="top" background="LOTERIAS/2011/cabezal_loteria_r1_c2_s1.jpg"><img src="LOTERIAS/2011/cabezal_gral_sup_r1_c3_s1.jpg" alt="DNLQ" width="14" height="39" /></td>
+        </tr>
+        <tr>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+          <td align="left" valign="top" background="LOTERIAS/2011/linea_azul_1.gif" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/linea_azul_5.gif" alt="" width="320" height="5" border="0" /></td>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+        </tr>
+        <tr>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF"><table width="100%" border="0" cellpadding="0" cellspacing="0">
+            <tr>
+              <td align="right" valign="top" bgcolor="#ECF9FF"><form>
+                <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="right" valign="bottom"><img src="LOTERIAS/2011/t_buscador_mes.png" alt="Selecciones Mes" width="36" height="26" border="0" />
+                      <select onChange="location.href = this.options[this.selectedIndex].value" size = "1" name = "vmes">
+      <option value=ver_resultados.php?vdia=3&vmes=1&vano=2026>Enero
+      <option value=ver_resultados.php?vdia=3&vmes=2&vano=2026>Febrero
+      <option value=ver_resultados.php?vdia=3&vmes=3&vano=2026>Marzo
+      <option value=ver_resultados.php?vdia=3&vmes=4&vano=2026>Abril
+      <option value=ver_resultados.php?vdia=3&vmes=5&vano=2026>Mayo
+      <option value=ver_resultados.php?vdia=3&vmes=6&vano=2026>Junio
+      <option value=ver_resultados.php?vdia=3&vmes=7&vano=2026>Julio
+      <option value=ver_resultados.php?vdia=3&vmes=8&vano=2026>Agosto
+      <option value=ver_resultados.php?vdia=3&vmes=9&vano=2026>Setiembre
+      <option selected value=ver_resultados.php?vdia=3&vmes=10&vano=2026>Octubre
+      <option value=ver_resultados.php?vdia=3&vmes=11&vano=2026>Noviembre
+      <option value=ver_resultados.php?vdia=3&vmes=12&vano=2026>Diciembre
+</select>
+<select onChange="location.href = this.options[this.selectedIndex].value" size = "1" name = "vano
+">
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2007>2007
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2008>2008
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2009>2009
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2010>2010
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2011>2011
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2012>2012
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2013>2013
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2014>2014
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2015>2015
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2016>2016
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2017>2017
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2018>2018
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2019>2019
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2020>2020
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2021>2021
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2022>2022
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2023>2023
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2024>2024
+      <option value=ver_resultados.php?vdia=3&vmes=10&vano=2025>2025
+      <option selected value=ver_resultados.php?vdia=3&vmes=10&vano=2026>2026
+</select>
+<table border="0" cellpadding="0" cellspacing="0" width="100%" class="m1" bgcolor="#ECF9FF" height="100%">
+      <tr>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">D</td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">L</td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">M</td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">M</td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">J</td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">V</td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <font color="#FFFFFF">S</td>
+      </tr>
+      <tr>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(1,10,2026)">1</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(2,10,2026)">2</a></td>
+        <td width="10%" height="5" bgcolor="#006699" align="center">
+        <a href="#" onclick="TratarFecha(3,10,2026)"><font color="#FFFF00">3</a></td>
+      </tr>
+      <tr>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(4,10,2026)">4</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(5,10,2026)">5</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(6,10,2026)">6</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(7,10,2026)">7</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(8,10,2026)">8</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(9,10,2026)">9</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(10,10,2026)">10</a></td>
+      </tr>
+      <tr>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(11,10,2026)">11</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(12,10,2026)">12</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(13,10,2026)">13</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(14,10,2026)">14</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(15,10,2026)">15</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(16,10,2026)">16</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(17,10,2026)">17</a></td>
+      </tr>
+      <tr>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(18,10,2026)">18</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(19,10,2026)">19</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(20,10,2026)">20</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(21,10,2026)">21</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(22,10,2026)">22</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(23,10,2026)">23</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(24,10,2026)">24</a></td>
+      </tr>
+      <tr>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(25,10,2026)">25</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(26,10,2026)">26</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(27,10,2026)">27</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(28,10,2026)">28</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(29,10,2026)">29</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(30,10,2026)">30</a></td>
+        <td width="10%" height="5" align="center">
+        <a href="#" onclick="TratarFecha(31,10,2026)">31</a></td>
+      </tr>
+      <tr>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+        <td width="10%" height="5" align="center">
+        </td>
+      </tr>
+                        </table></td>
+                    </tr>
+                  </table>
+                </form></td>
+              <td><table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td width="7%" align="left" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="30" height="5" /></td>
+                  <td width="93%" align="right" valign="top"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td width="41%" align="right" valign="bottom"><img src="LOTERIAS/2011/t_sorteos_para_el_dia_de_hoy.gif" alt="Sorteos para el día de hoy" width="206" height="26" border="0" /></td>
+                                            <td width="59%" align="center" valign="middle" class="text_azul_3">Domingo 4 de Octubre de 2026</td>
+                    </tr>
+                    <tr>
+                      <td width="41%" align="right" valign="bottom"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+                      <td width="59%" align="right" valign="bottom"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+                    </tr>
+                  </table></td>
+                </tr>
+                <tr>
+                  <td align="left" valign="top">&nbsp;</td>
+                  <td align="right" valign="top"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+                  	                  
+
+            	      
+        	          
+                	  	                      	                <tr>
+        	              <td width="47%" align="right" valign="top">5 de Oro Revancha</td>
+            	          <td width="22%" align="right" valign="top">22:00 hs</td>
+                	      <td width="31%" align="right" valign="top">Canal 12</td>
+	                    </tr>
+    	                      	                        </table></td>
+                </tr>
+              </table></td>
+
+            </tr>
+          </table></td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+        </tr>
+        <tr>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+        </tr>
+        <tr>
+          <td bgcolor="#ECF9FF"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+        </tr>
+
+
+        <tr>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+        </tr>
+
+
+       
+
+                 
+                          
+            <tr>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+            <tr>
+              <td width="59%"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="450" height="5" /></td>
+              <td><img src="LOTERIAS/2011/gif_2.gif" alt="" width="250" height="5" /></td>
+            </tr>
+            <tr>
+              <td align="left" valign="top"><table width="95%" border="0" cellpadding="0" cellspacing="0">
+            <tr>
+              <td colspan="2" align="center" valign="top"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="left" valign="top"><img src="LOTERIAS/2011/cabezal_quinielas_nocturno.png" alt="TABLA QUINIELA Y TOMBOLA NOCTURNO" width="160" height="20" border="0" /><img src="LOTERIAS/2011/gif_2.gif" alt="" width="5" height="5" />S&aacute;bado 03 de Octubre de 2026</td>
+                  </tr>
+              </table></td>
+              </tr>
+            <tr>
+              <td width="50%" align="center" valign="middle" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/logo_quiniela.png" alt="TABLA QUINIELA NOCTURNO" width="89" height="39" border="0" /></td>
+              <td width="43%" align="center" valign="middle" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/logo_tombola.png" alt="TABLA TOMBOLA NOCTURNO" width="79" height="39" border="0" /></td>
+              </tr>
+            <tr>
+              <td align="center" valign="top" bgcolor="#ECF9FF"><table  border="0" cellspacing="1" cellpadding="0">
+                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_01.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    867                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_11.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    228                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_02.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    261                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_12.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    541                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_03.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    828                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_13.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    227                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_04.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    192                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_14.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    174                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_05.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    792                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_15.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    487                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_06.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    353                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_16.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    546                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_07.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    545                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_17.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    438                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_08.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    075                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_18.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    133                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_09.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    457                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_19.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    912                    </div></td>
+                  </tr>
+                                                <tr valign="top">
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_10.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+                  <td><div align="center" class="text_azul_3">
+                    787                    </div></td>
+                                    <td><img src="LOTERIAS/2011/gif_2.gif" alt="gif_trasparente" width="20" height="10" /></td>
+                                    <td><img src="LOTERIAS/2011/numeros_tablas/l_20.gif" alt="Número del Premio" width="30" height="20" /></td>
+                  <td >&nbsp;</td>
+				  <td><div align="center" class="text_azul_3">
+                    916                    </div></td>
+                  </tr>
+                                              </table></td>
+              <td align="center" valign="top" bgcolor="#ECF9FF"><table  border="0" align="center" cellpadding="0" cellspacing="5">
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    12                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    16                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    20                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    27                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    28                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    33                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    34                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    38                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    41                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    45                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    46                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    53                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    57                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    61                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    67                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    74                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    75                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    87                    </div></td>
+                                    </tr>
+                                <tr>
+                                    <td valign="middle"><div align="center" class="text_azul_3">
+                    92                    </div></td>
+                  <td><img src="LOTERIAS/2011/gif_2.gif" width="35" height="10" alt="separador" /></td>
+                                                      <td><div align="center" class="text_azul_3">
+                    99                    </div></td>
+                                    </tr>
+                              </table></td>
+              </tr>
+          </table></td>
+              			  <td align="right" valign="top" class="text_pie"><p>Próximo  Nocturno:  05 / 10 / 2026</p>
+			    <p><br />
+			      <span class="IR"><br />
+			        </span><a href="#"  onclick="MostrarExtracto('4','03','10','2026')"onMouseOut="MM_swapImgRestore()" onMouseOver="MM_swapImage('impresion','','LOTERIAS/bot_ir.gif',1)">
+	            <img src="LOTERIAS/2011/MENU/BOT_Ext_Q_Y_T_n_A.png" width="261" height="199" border="0" /></a><br />
+<span class="text_calendario_fechas">
+                                    	<a href="#privacy-link-removed" target="_new"><img src="LOTERIAS/2011/bot_invalidas_q.gif" width="96" height="22" border="0" /></a>
+                                                      	<a href="#privacy-link-removed" target="_new"><img src="LOTERIAS/2011/bot_invalidas_t.gif" width="96" height="22" border="0" /></a>
+                  </span></p></td>
+            </tr>
+          </table></td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+        </tr>
+        <tr>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+        </tr>
+        <tr>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+          <td bgcolor="#ECF9FF" background="LOTERIAS/2011/linea_azul_1.gif"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="5" /></td>
+        </tr>
+  	    
+
+                          
+    	
+			         
+  
+
+        <tr>
+          <td align="left" valign="bottom" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/cabezal_gral_inf_r1_c1_s1.jpg" alt="DNLQ" width="14" height="39" /></td>
+          <td bgcolor="#ECF9FF">&nbsp;</td>
+          <td align="right" valign="bottom" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/cabezal_gral_inf_r1_c3_s1.jpg" alt="DNLQ" width="14" height="39" /></td>
+        </tr>
+      </table>
+    <!-- InstanceEndEditable --></td>
+    <td>&nbsp;</td>
+  </tr>
+  <tr>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td align="center" valign="top" bgcolor="#FFFFFF">&nbsp;</td>
+    <td align="center" valign="top" bgcolor="#ECF9FF" background="LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/linea_dorada_TEMPLATE_a.gif"><table border="0" cellspacing="0" cellpadding="0">
+      <tr>
+        <td align="left" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="15" /></td>
+        <td align="center" valign="top"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="10" /></td>
+        <td align="center" valign="top">&nbsp;</td>
+      </tr>
+      <tr>
+        <td align="left" valign="top" bgcolor="#ECF9FF"><table border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td align="left" valign="top"><table width="100%" border="0" cellspacing="0" cellpadding="0">
+              <tr>
+                <td align="left" valign="top"><a href="https://www.facebook.com/Loteria-Uruguaya-153342174817573/" target="_new" onmouseover="MM_swapImage('bot_fascebook','','LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_[1]_r1_c1_s1.png',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_r1_c1_s1.png" alt="Facebook/LoteriaUruguaya" name="bot_fascebook" width="55" height="49" border="0" id="bot_fascebook" /></a></td>
+                <td align="left" valign="top"><a href="https://twitter.com/loteriauruguaya" target="_new" onmouseover="MM_swapImage('bot_twitter','','LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_[1]_r1_c2_s1.png',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_r1_c2_s1.png" alt="TWITTER/@loteriauruguaya" name="bot_twitter" width="51" height="49" border="0" id="bot_twitter" /></a></td>
+                <td align="left" valign="top"><a href="https://www.youtube.com/user/LoteriaUruguaya" target="_new" onmouseover="MM_swapImage('bot_YouTube','','LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_[1]_r1_c3_s1.png',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_r1_c3_s1.png" alt="YouTube/LoteriaUruguaya" name="bot_YouTube" width="75" height="49" border="0" id="bot_YouTube" /></a></td>
+                
+              </tr>
+            </table></td>
+          </tr>
+          <tr>
+            <td align="left" valign="top"><a href="http://www2.loteria.gub.uy/contactos.php" target="_parent" onmouseover="MM_swapImage('bot_contactos','','LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_[1]_r2_c1_s1.png',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_r2_c1_s1.png" alt="Contactos | e_mail | Teléfonos" name="bot_contactos" width="181" height="39" border="0" id="bot_contactos" /></a></td>
+          </tr>
+          <tr>
+            <td align="left" valign="top"><a href="http://www2.loteria.gub.uy/horarios_publico.php" target="_parent" onmouseover="MM_swapImage('bot_horarios','','LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_[1]_r3_c1_s1.png',1)" onmouseout="MM_swapImgRestore()"><img src="LOTERIAS/2011/EDITABLE/BOTONES_MENU/MENU_2017/PIE_BLANCO_r3_c1_s1.png" alt="Horarios atención al público y telefónico" name="bot_horarios" width="181" height="52" border="0" id="bot_horarios" /></a></td>
+          </tr>
+        </table></td>
+        <td align="center" valign="top" bgcolor="#ECF9FF"><p><span class="text_azul_3"><a href="institucional_2011.php" target="_parent"><strong>Transparencia</strong></a><strong> | <a href="Juego_Loteria.php" target="_parent">Los Juegos </a>| <a href="ver_resultados.php" target="_parent">Resultados</a> | <a href="busco_numeros.php" target="_parent">Buscador de Billetes</a> | <a href="sorteos_online.php" target="_parent">Sorteos Online</a> <BR />
+          <a href="ver_calendario.php" target="_parent">Calendario Sorteos</a> |<a href="tramites_online.php" target="_parent"> Trámites</a> |<a href="contactos.php" target="_parent"> Contactos</a></strong><a href="contactos.php" target="_parent"></a></span></p>
+          <p>&nbsp;</p>
+          <p><span class="text_calendario_fechas">Ministerio de Economía y Finanzas | Dirección Nacional de Loterías y Quinielas
+            Edificio Central: Cerrito 220<br />
+            Horarios al público: 9:15 a 15:15 | Central tel.: 2916 0376<br />
+            Resolución recomendada de monitor: 1360 x 768 o superior | Sitio optimizado para Mozilla Firefox</span></p>
+          <br />
+          </p></td>
+        <td align="center" valign="top" bgcolor="#ECF9FF"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="10" height="25" /></td>
+      </tr>
+    </table></td>
+    <td>&nbsp;</td>
+  </tr>
+  <tr>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td>&nbsp;</td>
+    <td bgcolor="#FFFFFF"><img src="LOTERIAS/2011/gif_2.gif" alt="" width="772" height="8" /></td>
+    <td>&nbsp;</td>
+  </tr>
+  </table>
+<map name="indice_de_temas_pie_1Map" id="indice_de_temas_pie_1Map">
+  <area shape="rect" coords="117,13,145,32" href="contactos.php" alt="Contactos con la DNLQ" />
+  <area shape="rect" coords="152,6,178,34" href="index.php" />
+  <area shape="rect" coords="8,8,94,32" href="horarios_publico.php" alt="Horarios de atención al público" />
+</map>
+<map name="indice_de_temas_pieMap" id="indice_de_temas_pieMap">
+  <area shape="circle" coords="90,19,15" href="https://www.facebook.com/Loteria-Uruguaya-153342174817573/" target="_new" />
+  <area shape="circle" coords="125,19,15" href="https://twitter.com/loteriauruguaya" target="_new" />
+  <area shape="circle" coords="160,21,15" href="https://www.youtube.com/user/LoteriaUruguaya" target="_new" />
+</map>
+<script type="text/javascript">
+var Accordion1 = new Spry.Widget.Accordion("Accordion1");
+</script>
+
+<script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
+
+</body>
+<!-- InstanceEnd --></html>

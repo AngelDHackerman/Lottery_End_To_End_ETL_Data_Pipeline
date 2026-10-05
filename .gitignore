@@ -307,3 +307,8 @@ build/
 *.dist-info/
 *.egg-info/
 layer/
+
+# Uruguay extension (roadmap-uruguay.md): local bronze + manifest, never committed.
+/data/uy/
+# Windows "downloaded from the internet" marker that WSL copies in alongside files.
+*:Zone.Identifier

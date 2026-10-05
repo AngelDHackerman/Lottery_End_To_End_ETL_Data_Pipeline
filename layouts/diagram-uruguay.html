@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extensión Uruguay</title>
+<link rel="stylesheet" href="css/diagram.css">
+<link rel="stylesheet" href="css/diagram-uruguay.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="meta" id="h-meta"></p>
+    <h1 id="h-title">Extensión Uruguay</h1>
+    <p id="h-lede"></p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Vista del diagrama">
+    <button role="tab" data-view="local" aria-selected="true">1 · Local (beta)</button>
+    <button role="tab" data-view="nube" aria-selected="false">2 · Nube, tras el merge</button>
+    <span class="tabnote">hermano de <a href="diagram.html">diagram.html</a> · Santa Lucía</span>
+  </div>
+
+  <div class="bar">
+    <button id="play" class="primary">▶ Reproducir</button>
+    <div class="sep"></div>
+    <button id="tgl-a" aria-pressed="false"></button>
+    <button id="tgl-b" aria-pressed="false"></button>
+    <div class="keys" id="keys"></div>
+  </div>
+
+  <div class="runbar" id="runbar" aria-live="polite">
+    <span class="step" id="runstep">EN REPOSO</span>
+    <span id="runtext"></span>
+  </div>
+
+  <div class="stage">
+    <div class="canvas">
+      <svg id="map" viewBox="0 0 1400 850" role="img"></svg>
+    </div>
+
+    <aside class="panel" id="panel">
+      <span class="chip" id="p-chip">seleccioná una pieza</span>
+      <h2 id="p-title">Cómo leer esto</h2>
+      <p id="p-desc"></p>
+      <dl id="p-dl"></dl>
+      <div id="p-warn"></div>
+      <p class="hint" id="p-hint">Atajo: <b>Esc</b> limpia la selección.</p>
+    </aside>
+  </div>
+
+  <details data-view-only="local" open>
+    <summary>Lo que encontró el sondeo del 4 de octubre: el brief acertó en lo grueso y se equivocó en la fecha de inicio</summary>
+    <div class="dbody">
+      <p class="hint">Unas 60 URLs pedidas a 1 req/s, más dos pilotos del backfill (95 peticiones,
+        0 errores). <b>Verificado</b> significa visto en una respuesta real y repetible;
+        <b>observado</b>, visto en pocas fechas; <b>hipótesis</b>, todavía sin prueba. El detalle
+        por pregunta va a <code>docs/uruguay/FINDINGS.md</code> (UY-007).</p>
+      <table>
+        <tr><th>Etiqueta</th><th>Hallazgo</th><th>Frente al brief</th></tr>
+        <tr><td class="tag v">verificado</td>
+          <td>El primer día con datos en <code>ver_resultados.php</code> es el <b>11/08/2006</b>
+            (Lotería + Quiniela Nocturna), hallado por bisección. Antes de esa fecha, la página
+            vacía. El selector de la página dice 2007, pero la URL acepta 2006.</td>
+          <td>El brief suponía el 02/01/2007. El backfill arranca el 01/08/2006.</td></tr>
+        <tr><td class="tag v">verificado</td>
+          <td>Un día sin sorteo responde <b>HTTP 200</b> con ~45,9 KB y ningún bloque de juego. Cada
+            bloque real llama a <code>MostrarExtracto('&lt;código&gt;', dd, mm, aaaa)</code>: la tabla
+            de ruteo del propio sitio, con la fecha adentro.</td>
+          <td>Responde Q2. Es la señal que usa el clasificador.</td></tr>
+        <tr><td class="tag o">observado</td>
+          <td>El 5 de Oro <b>sí</b> está en la página consolidada (2007, 2016 y 2025).</td>
+          <td>Responde Q1 en tres años; el backfill lo confirma en todos.</td></tr>
+        <tr><td class="tag v">verificado</td>
+          <td>Desde el <b>30/11/2018</b> el extracto oficial es un PDF estático:
+            <code>/extractosweb/{aaaammdd}{o|v|n|l}.pdf</code>. Si no hubo sorteo responde
+            <b>404</b>, y su <code>Last-Modified</code> marca la publicación (5 de Oro del 17/09/2025:
+            22:50 en Uruguay; vespertina: 15:29). No trae <code>Content-Disposition</code>. El
+            extracto PHP sigue respondiendo para todas las fechas.</td>
+          <td>Responde Q5: es otra URL, sacada del JavaScript del sitio.</td></tr>
+        <tr><td class="tag v">verificado</td>
+          <td>Las rutas de Kini (<code>QV_QN_K/Extracto_QV_QN_K.php</code>) y de Lotería
+            (<code>loteria/extracto_loteria_2_nvo.php</code>, más un script por año y tipo de sorteo)
+            están en el mismo <code>MostrarExtracto()</code>.</td>
+          <td>Responde Q4 sin usar DevTools.</td></tr>
+        <tr><td class="tag v">verificado</td>
+          <td>Las dos fuentes HTML declaran UTF-8 y lo son. El <code>Pe?aloza</code> de 2007 es un
+            «?» guardado así en el origen.</td>
+          <td>Responde Q7.</td></tr>
+        <tr><td class="tag o">observado</td>
+          <td>Los sábados hay solo Nocturna y los domingos solo 5 de Oro (julio de 2016, octubre de
+            2026). En 2010 ya había Nocturna el sábado.</td>
+          <td>Matiza la hipótesis de «sin sorteos el fin de semana en 2010».</td></tr>
+        <tr><td class="tag o">observado · n=1</td>
+          <td>El 03/09/2010 los 20 números de la Quiniela Nocturna son <b>las últimas tres cifras de
+            los 20 premios de la Lotería</b> de ese día, en el mismo orden.</td>
+          <td>Nuevo. Hipótesis: los días de Lotería, la nocturna sale de ese sorteo. Afecta la
+            auditoría de aleatoriedad.</td></tr>
+        <tr><td class="tag o">observado</td>
+          <td>El jueves 14/07/2016 no hubo ningún sorteo.</td>
+          <td>Sin explicar: a buscar en la lista de resoluciones (¿paro?).</td></tr>
+        <tr><td class="tag h">hipótesis</td>
+          <td>Desde AWS el sitio responde igual que desde la casa.</td>
+          <td>Sin probar. Es UY-005, y es lo único que podría cambiar la forma de la nube.</td></tr>
+      </table>
+    </div>
+  </details>
+
+  <details data-view-only="nube" open>
+    <summary>Qué cambia —y qué no— cuando Uruguay se fusiona con master (UY-050)</summary>
+    <div class="dbody">
+      <p class="hint">El criterio del merge es uno solo: <b>nada de Santa Lucía cambia</b>. El
+        <code>terraform plan</code> solo agrega, su suite sigue en ≥98 % y su tubería del jueves corre
+        igual. Lo de abajo es la propuesta. Las filas marcadas UY-040 son decisiones abiertas.</p>
+      <table>
+        <tr><th>Pieza</th><th>Santa Lucía</th><th>Uruguay</th></tr>
+        <tr><td>Fuente</td><td>loteria.org.gt vía scrape.do (GT)</td>
+          <td>www.loteria.gub.uy, directo si UY-005 lo confirma desde AWS</td></tr>
+        <tr><td>Cadencia</td><td>semanal, jueves 18:00 UTC</td>
+          <td>diaria: ~15:30 y ~21:30, más ~22:30 mié/dom (America/Montevideo)</td></tr>
+        <tr><td>Extractor</td><td>Lambda, sin cambios</td>
+          <td>Lambda 3.12 con el mismo cliente, clasificador y manifiesto que corren hoy en local</td></tr>
+        <tr><td>Lago</td><td>lottery-partitioned-storage-prod</td>
+          <td>prefijo <code>country=uy/</code> en el mismo bucket, o uno propio (UY-040)</td></tr>
+        <tr><td>Bronce histórico</td><td>—</td>
+          <td>se sube una vez desde el disco local; no se vuelve a scrapear (UY-042)</td></tr>
+        <tr><td>Catálogo</td><td>lottery_santalucia_db, sin cambios</td>
+          <td>base nueva, con esquemas en Terraform desde el día 1</td></tr>
+        <tr><td>Permisos</td><td>sin cambios</td>
+          <td>grants nuevos, con las lecciones de PR-042.3/042.4 ya aplicadas</td></tr>
+        <tr><td>Observabilidad</td><td>9 alarmas, sin cambios</td>
+          <td>«sorteo esperado que no llegó» + canary de gub.uy (UY-045)</td></tr>
+        <tr><td>Build</td><td>copia solo <code>src/loteria</code>: no se entera</td>
+          <td>artefacto propio, así que un cambio de Uruguay no redespliega Santa Lucía</td></tr>
+        <tr><td>CI</td><td>el mismo <code>ci.yml</code></td>
+          <td>el mismo; el gate de cobertura ya mide <code>loteria_uy</code></td></tr>
+      </table>
+    </div>
+  </details>
+
+  <p class="hint">Plan completo y estado de cada paso: <code>roadmap-uruguay.md</code>.</p>
+</div>
+
+<script src="js/diagram-uruguay.data.js"></script>
+<script src="js/diagram-uruguay.js"></script>
+</body>
+</html>

@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan sagemaker lineage-views
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan sagemaker lineage-views uy-backfill uy-pilot uy-report
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -126,3 +126,22 @@ lineage-views: ## Create/replace the Silver lineage views in Athena (PR-045.2)
 
 sagemaker: ## Apply the optional SageMaker module (opt-in, see terraform/modules/sagemaker)
 	cd terraform && terraform apply -var=enable_sagemaker=true -target=module.sagemaker
+
+# ---------------------------------------------------------------------------------------
+# Uruguay extension — LOCAL ONLY during the beta (roadmap-uruguay.md). Nothing below touches
+# AWS. Raw pages land in data/uy/bronze/ and the manifest in data/uy/manifest.sqlite, both
+# gitignored. Every target can be stopped and re-run: the manifest skips what is final.
+# PYTHONPATH=src because the package is not installed ([tool.uv] package = false).
+# ---------------------------------------------------------------------------------------
+UY_START ?= 2006-08-01
+UY_END ?= today
+UY_SOURCES ?= resultados,extractos
+
+uy-pilot: ## One year (2016, crosses the layout change) — validates before the full run
+	PYTHONPATH=src python -m loteria_uy.backfill --start 2016-01-01 --end 2016-12-31 --sources $(UY_SOURCES)
+
+uy-backfill: ## Full raw backfill to local bronze (several hours at 1 req/s; resumable)
+	PYTHONPATH=src python -m loteria_uy.backfill --start $(UY_START) --end $(UY_END) --sources $(UY_SOURCES)
+
+uy-report: ## Manifest summary: states per source and the date span of each
+	PYTHONPATH=src python -m loteria_uy.backfill --report

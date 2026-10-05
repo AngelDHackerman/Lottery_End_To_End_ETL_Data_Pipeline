@@ -196,7 +196,7 @@ pythonpath = ["src"]
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov-report=term-missing --cov-fail-under=98"
+addopts = "-ra --strict-markers --cov=src/loteria --cov=src/loteria_uy --cov-report=term-missing --cov-fail-under=98"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see
