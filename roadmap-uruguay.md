@@ -359,7 +359,7 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 
 | PR | Título | Estado | Link |
 |---|---|---|---|
-| UY-000 | Higiene de la rama beta (push, mover el brief, `.gitignore`) | in-progress | — |
+| UY-000 | Higiene de la rama beta (push, mover el brief, `.gitignore`) | in-progress | [#83](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/83) |
 | *Fase 1 — Exploración* | | | |
 | UY-001 | Cliente HTTP cortés y guard `DET_INVALIDAS`, **más el scraper de bronce completo** (adelantado) | merged (commit directo `ad6bf1f`, sin PR; publicado con la rama el 2026-10-05) · backfill completo **terminado** el 2026-10-04: 7.370 días de `resultados` (6.908 `draw`, 457 `no_draw`, 1 `not_yet_published` = 2026-10-04, 4 `error` = 2019-09-25/26/27/30 «game blocks without extract codes», pendiente para UY-002) | — |
 | UY-002 | Sondeo de `ver_resultados` (Q1, Q2, Q3, Q7) | **en curso**: Q2, Q3 (inicio 2006-08-11) y Q7 respondidas; Q1 observada en 3 años, y el backfill la confirma para todos | — |
