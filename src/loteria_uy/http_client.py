@@ -205,7 +205,8 @@ class PoliteClient:
 
     def _backoff(self, attempt: int, retry_after: str | None, *, reason: str, url: str) -> None:
         delay = min(self.backoff_cap, self.backoff_base * (2**attempt))
-        delay += random.uniform(0, delay / 2)
+        # Backoff jitter, not cryptography.
+        delay += random.uniform(0, delay / 2)  # nosec B311
         if retry_after and re.fullmatch(r"\d+", retry_after.strip()):
             delay = max(delay, min(self.backoff_cap * 5, float(retry_after)))
         logger.warning(
