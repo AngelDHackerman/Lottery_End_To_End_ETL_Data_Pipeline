@@ -366,7 +366,7 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 | UY-000 | Higiene de la rama beta (push, mover el brief, `.gitignore`) | merged | [#83](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/83) |
 | *Fase 1 — Exploración* | | | |
 | UY-001 | Cliente HTTP cortés y guard `DET_INVALIDAS`, **más el scraper de bronce completo** (adelantado) | merged (commit directo `ad6bf1f`, sin PR; publicado con la rama el 2026-10-05) · backfill completo **terminado** el 2026-10-04: 7.370 días de `resultados` (6.908 `draw`, 457 `no_draw`, 1 `not_yet_published` = 2026-10-04, 4 `error` = 2019-09-25/26/27/30 «game blocks without extract codes», pendiente para UY-002) | — |
-| UY-002 | Sondeo de `ver_resultados` (Q1, Q2, Q3, Q7) | **en curso**: Q1 **verificada** y escrita en FINDINGS.md (2.072 sorteos, mismos campos que el extracto, sin número de sorteo, 12,6% fuera de mié./dom.); falta la comparación valor por valor · Q2, Q3 (inicio 2006-08-11) y Q7 respondidas, falta escribirlas | — |
+| UY-002 | Sondeo de `ver_resultados` (Q1, Q2, Q3, Q7) | **en curso**: Q1 **verificada** en FINDINGS.md (2.072 sorteos; `ver_resultados` y el extracto coinciden en el 100% de los valores; sin número de sorteo; 12,6% fuera de mié./dom.; los 5 números se publican ordenados) · Q2, Q3 (inicio 2006-08-11) y Q7 respondidas, falta escribirlas | — |
 | UY-003 | Sondeo de `extractosweb` y PDF (Q3, Q5, Q7) | **en curso**: Q5 respondida (PDF desde 2018-11-30, 404 si no hubo, sin `Content-Disposition`); falta comparar HTML con PDF | — |
 | UY-004 | Metadatos, reglas, términos y estadísticas (Q8, Q9, Q10) | todo | — |
 | UY-005 | Acceso al sitio desde AWS (CloudShell) | todo | — |
