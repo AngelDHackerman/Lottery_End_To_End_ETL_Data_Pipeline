@@ -2,7 +2,7 @@
 **Owner:** Angel Hernandez
 **Brief de origen:** [`docs/uruguay/BRIEF.md`](./docs/uruguay/BRIEF.md)
 **Rama base:** `loteria-uruguaya-test` (hace de `master` para esta extensión hasta la fase de merge)
-**Última actualización:** 2026-10-05
+**Última actualización:** 2026-10-06
 
 > Plan de ejecución de la extensión a Uruguay (DNLQ, `www.loteria.gub.uy`). El roadmap principal
 > ([`roadmap.md`](./roadmap.md)) sigue siendo el de Santa Lucía; este archivo **no** lo reemplaza
@@ -66,6 +66,9 @@ El brief pide reportar lo que se contradice. Esto salió al leerlo junto con el 
 | C7 | Los fixtures del brief incluyen números de cupón (`#########-#`) | No identifican a una persona, pero el brief exige preguntar cualquier decisión nueva sobre datos personales. | Pregunta para el owner en UY-007: ¿los cupones ganadores entran en plata o se quedan solo en bronce? |
 | C8 | "El sorteo más antiguo… 07/01/2007" y el selector del sitio (2007–2026) | **Verificado 2026-10-04:** `ver_resultados.php` acepta 2006, y el primer día con datos es el **11/08/2006** (Lotería + Quiniela Nocturna), hallado por bisección. Antes de esa fecha la página sale vacía. | El backfill arranca el 2006-08-01, y el manifiesto deja registrado dónde empieza la historia. |
 | C9 | "Después de ~2010 algunas URLs descargan un PDF" | **Verificado:** el `MostrarExtracto()` del sitio cambia al PDF estático `/extractosweb/{aaaammdd}{o\|v\|n\|l}.pdf` desde el **30/11/2018**, no en 2010. Ese PDF responde 404 cuando no hubo sorteo, y el extracto PHP sigue respondiendo para todas las fechas. | Las dos son fuentes de bronce separadas (`extractos` y `pdf`). |
+| C10 | 5 de Oro "miércoles y domingo" | **Verificado:** 261 de 2.072 sorteos (12,6%) caen otro día, sobre todo jueves (186) y lunes (75), por feriados, paros o fútbol (informado por el owner). | El sorteo esperado es el "Próximo sorteo" que anunció el anterior (acierta en el 98,3%), con una tolerancia de +3 días. Ver FINDINGS.md. |
+| C11 | El número de sorteo como clave natural y detector de huecos | **Verificado:** no se publica ni en `ver_resultados` ni en el extracto. Solo está en el PDF de pozos (desde ~2016). | La clave es la fecha y el juego. Los huecos se detectan con "Próximo sorteo" y `calendar_events`. |
+| C12 | Montos en estilo EE.UU. "en el HTML de 2016" | **Verificado:** `ver_resultados` usa estilo EE.UU. desde 2006 y el extracto usa estilo uruguayo en todas las épocas. | Un parser de montos por fuente, no por época. |
 
 ---
 
@@ -91,8 +94,9 @@ El brief pide reportar lo que se contradice. Esto salió al leerlo junto con el 
 > **Hecho 2026-10-05:** la rama se publicó **tal cual**, con UY-001 adentro (commit directo
 > `ad6bf1f`, sin PR, por decisión del owner). Las líneas de `.gitignore` y el roadmap ya habían
 > entrado con ese commit, así que este PR solo mueve el brief, borra el `Zone.Identifier` (estaba
-> ignorado y no versionado, se borró solo del disco) y pone al día el Tracker. La protección de la
-> rama queda pendiente para el owner.
+> ignorado y no versionado, se borró solo del disco) y pone al día el Tracker. Desde el 2026-10-05
+> `master` y `loteria-uruguaya-test` están protegidas por el ruleset "Protect-master": todo entra
+> por PR, con los 7 checks obligatorios.
 
 ---
 
@@ -359,10 +363,10 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 
 | PR | Título | Estado | Link |
 |---|---|---|---|
-| UY-000 | Higiene de la rama beta (push, mover el brief, `.gitignore`) | in-progress | [#83](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/83) |
+| UY-000 | Higiene de la rama beta (push, mover el brief, `.gitignore`) | merged | [#83](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/83) |
 | *Fase 1 — Exploración* | | | |
 | UY-001 | Cliente HTTP cortés y guard `DET_INVALIDAS`, **más el scraper de bronce completo** (adelantado) | merged (commit directo `ad6bf1f`, sin PR; publicado con la rama el 2026-10-05) · backfill completo **terminado** el 2026-10-04: 7.370 días de `resultados` (6.908 `draw`, 457 `no_draw`, 1 `not_yet_published` = 2026-10-04, 4 `error` = 2019-09-25/26/27/30 «game blocks without extract codes», pendiente para UY-002) | — |
-| UY-002 | Sondeo de `ver_resultados` (Q1, Q2, Q3, Q7) | **en curso**: Q2, Q3 (inicio 2006-08-11) y Q7 respondidas; Q1 observada en 3 años, y el backfill la confirma para todos | — |
+| UY-002 | Sondeo de `ver_resultados` (Q1, Q2, Q3, Q7) | **en curso**: Q1 **verificada** y escrita en FINDINGS.md (2.072 sorteos, mismos campos que el extracto, sin número de sorteo, 12,6% fuera de mié./dom.); falta la comparación valor por valor · Q2, Q3 (inicio 2006-08-11) y Q7 respondidas, falta escribirlas | — |
 | UY-003 | Sondeo de `extractosweb` y PDF (Q3, Q5, Q7) | **en curso**: Q5 respondida (PDF desde 2018-11-30, 404 si no hubo, sin `Content-Disposition`); falta comparar HTML con PDF | — |
 | UY-004 | Metadatos, reglas, términos y estadísticas (Q8, Q9, Q10) | todo | — |
 | UY-005 | Acceso al sitio desde AWS (CloudShell) | todo | — |
