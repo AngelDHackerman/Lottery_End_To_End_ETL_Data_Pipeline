@@ -3642,6 +3642,33 @@ Exercise it **both ways**, as PR-033 did: once green on real Silver, once red ag
 fixture with an orphan premio. **Apply after 2026-10-08** — it changes the gate that run
 uses.
 
+> **PR-049 outcome (2026-10-09). Built, deploy held to Thursday 2026-10-15 after that day's
+> run** (owner's call), so 10-15 verifies 047/048 alone and 10-22 is the first run on this
+> gate. `be_in_set` was chosen over an anti-join count because GX then names the orphan
+> sorteo numbers in `partial_unexpected_list`, which reaches the verdict line and the SNS
+> summary.
+>
+> The rule lives in `dq/suites.py` as `referential_expectations(sorteo_numbers)` but **outside
+> `SUITE_BUILDERS`**, so the committed JSON stays static (`--sync-suites` leaves `qa/`
+> unchanged). The runner appends it to the premios suite per run, via a new
+> `extra_expectations` parameter. `REFERENCES = {"premios": ("sorteos", "numero_sorteo")}`
+> makes `run_dq` load a parent even when only the child was selected. A premios-only run
+> cannot skip the check, and with no sorteos it raises `SilverDatasetEmpty` instead of
+> passing.
+>
+> **Run the gate before shipping it, again:** against prod Silver from a checkout
+> (read-only) it is `[PASS] silver_premios: 14 expectations, 125337 rows from 119 files`.
+> 13 → 14, still green, so it is not red on arrival. **Red direction:** an orphan premios
+> file fails the gate with `unexpected_count 2`, `[3048, 3048]`, and it is the *only*
+> failure on that file. Three older tests had been seeding a premio without its sorteo
+> and now seed the sorteo too, so each still fails for exactly one reason. Mutation-checked
+> (the check disabled → 6 red). 520 tests.
+>
+> **Not done:** the reverse direction (a sorteo with no premios), which is out of scope
+> and needs its own threshold. Plan read-only: `0/3/0`, pure churn; the change ships in
+> `loteria_dq_lib.zip` via `make upload-glue`. The diagram's "28 expectativas" becomes 29
+> after the deploy. Runbook: `docs/runbooks/PR-049-dq-referential-integrity.md`.
+
 ## PR-050 — Nothing stopped ruff from "modernising" code that runs on Python 3.9
 **Filed in PR-045.1's outcome (2026-09-27): "Not fixed systemically".**
 
@@ -3760,6 +3787,6 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; the 10-15 run only checks for regressions | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
-| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **built, NOT applied** (2026-10-09) — writes to `bucket_name`, `main()` stops mutating the global; read-only plan `0/3/0` (churn only, the fix ships via `upload-glue`) | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
-| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — unblocked (10-08 run verified 044/045) | — |
+| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. End-to-end check: the 2026-10-15 run (sorteo 3139) | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
+| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | **built, NOT applied** (2026-10-09) — green on prod Silver (premios 13 → 14 expectations), red on an orphan; **deploy 2026-10-15 after that run**, first gated run 10-22 | — |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
