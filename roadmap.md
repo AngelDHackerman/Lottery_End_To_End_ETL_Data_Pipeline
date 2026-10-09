@@ -3588,8 +3588,8 @@ cannot be scheduled — the test plus the rendered ASL is the bar.
 > the state machine and three alarm descriptions, plus the extractor Lambda in the full
 > deploy. 506 tests. Runbook: `docs/runbooks/PR-047-extractor-proxy-retry.md`.
 >
-> **The diagram is deliberately untouched.** Its red "Retry does not cover the 502" marker
-> describes the deployed machine, and stays true until the apply.
+> **Applied 2026-10-09** (owner: #86 merged, `make deploy`). The diagram's red marker was
+> rewritten as history in the docs PR that followed. Post-deploy checks in the runbook, §7.
 
 ## PR-048 — `transform()` reads one bucket and writes another
 **Filed in PR-030 (2026-08), as a "latent smell, out of scope for a test PR".**
@@ -3735,7 +3735,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
-| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **built, NOT applied** (2026-10-08) — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier; read-only plan `0/4/0` + the extractor Lambda | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
+| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; the 10-15 run only checks for regressions | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — unblocked (10-08 run verified 044/045) | — |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — unblocked (10-08 run verified 044/045) | — |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |

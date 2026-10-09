@@ -211,13 +211,14 @@
             corrida real.</td></tr>
       </table>
 
-      <p class="hint">Dos cosas que esa misma noche dejó <b>anotadas y sin arreglar</b>, y que
-        el diagrama marca en rojo sobre sus piezas: el <code>Retry</code> de
-        <code>RunExtractorLambda</code> cubre solo faltas de transporte, así que un 502 del
-        proxy —que llega como <code>ValueError</code>— no reintenta nada; y la descripción de
-        la alarma <code>loteria-sfn-execution-failed-prod</code> todavía dice «la máquina no
-        tiene Retry ni Catch», que es lo primero que se lee en el correo de alerta y lleva
-        semanas siendo falso.</p>
+      <p class="hint">Esa misma noche dejó dos cosas <b>anotadas y sin arreglar</b>, que
+        <b>PR-047 cerró el 8 de octubre</b>. La primera: el <code>Retry</code> de
+        <code>RunExtractorLambda</code> cubría solo faltas de transporte, así que un 502 del
+        proxy, que llegaba como <code>ValueError</code>, no se reintentaba. Ahora llega como
+        <code>ProxyRetryableError</code> y se reintenta a los 5, 15 y 35 minutos. La segunda:
+        la alarma <code>loteria-sfn-execution-failed-prod</code> decía «la máquina no tiene
+        Retry ni Catch», justo lo primero que se lee en el correo de alerta. Ahora dice que
+        la ejecución falló después de sus reintentos.</p>
     </div>
   </details>
 </div>
