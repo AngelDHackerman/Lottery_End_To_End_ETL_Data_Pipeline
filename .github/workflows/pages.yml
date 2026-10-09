@@ -1,0 +1,64 @@
+# Publish the architecture diagram on GitHub Pages (PR-036.1).
+#
+# layouts/ is static HTML + one CSS + two JS files with relative paths, so nothing is built:
+# the artifact is the folder as-is, plus a copy of diagram.html as index.html so the Pages
+# root serves the diagram while the existing path keeps working.
+#
+# ⚠️ One-time owner step, web UI only: Settings → Pages → Build and deployment → Source:
+# "GitHub Actions". Until it is set, deploy-pages fails with a clear error. The owner's PAT
+# returns 403 on repo-settings APIs, so this cannot be scripted.
+#
+# ⚠️ The page is public. It names the account, buckets, roles and functions, which are all
+# already public in this repo. It must never carry a token or a secret: a paste into
+# diagram.data.js would now be a public web page, not just a public file.
+
+name: pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "layouts/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a deploy halfway: a second push queues behind the first instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp -R layouts/. _site/
+          cp _site/diagram.html _site/index.html
+          # The page must stay self-contained: no CDN, no third-party request that can break
+          # it later. Fail the deploy if a remote script or stylesheet ever appears.
+          if grep -rEn '<(script|link)[^>]+(src|href)="(https?:)?//' _site; then
+            echo "::error::layouts/ loads a remote asset; keep the diagram self-contained."
+            exit 1
+          fi
+          ls -R _site
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

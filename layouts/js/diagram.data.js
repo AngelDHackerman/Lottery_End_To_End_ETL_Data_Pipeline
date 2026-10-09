@@ -27,7 +27,10 @@
 
    Re-leído el 2026-10-09, tras aplicar PR-047: el Retry desplegado de
    RunExtractorLambda (dos retriers, el segundo ProxyRetryableError 300 s × 3),
-   las clases dentro del zip del Lambda y las tres descripciones de alarma. */
+   las clases dentro del zip del Lambda y las tres descripciones de alarma.
+
+   Re-leído el 2026-10-09, tras aplicar PR-048: el zip del transformer en
+   lambda-code-zip-prod (01:29:40Z) escribe Silver en el bucket que recibe. */
 (function (global) {
   "use strict";
 
@@ -57,7 +60,7 @@
 
     {id:"owner", x:44, y:356, w:312, h:56, st:"pend", t:"El owner, a mano", s:["make deploy → build · apply · upload"],
      title:"El puente humano", desc:"La única vía real entre GitHub y la cuenta de AWS. Terraform no gestiona los objetos de código en S3, así que construir y subir los zips es un paso manual — pero desde PR-039 es un solo comando, y eso cerró la deriva silenciosa de los artefactos de Glue.",
-     kv:{"Comando":"make deploy = build → apply → upload-glue","Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Al día":"4 oct 2026 · PR-045.2 (imports + make deploy + make lineage-views)"},
+     kv:{"Comando":"make deploy = build → apply → upload-glue","Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Al día":"9 oct 2026 · PR-048 (make deploy: el transformer escribe en el bucket que lee)"},
      warn:{k:"p",t:"Ningún target del Makefile imprime ya TODO. Antes siete lo hacían —deploy, lint y fmt entre ellos—, así que un README que prometiera «5 comandos para desplegar» o mentía o rodeaba al Makefile, lo cual plantea por qué existe el Makefile."}},
 
     {id:"eb", x:424, y:158, w:180, h:56, st:"ok", t:"EventBridge", s:["cron(0 18 ? * THU *)"],
