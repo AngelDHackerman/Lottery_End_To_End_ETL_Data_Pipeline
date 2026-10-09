@@ -241,6 +241,8 @@ class TestRunDQ:
         """Both suites run even after one fails, so a single execution reports everything
         that is wrong instead of one thing at a time."""
         seed_valid_silver(s3, sorteos=(3046,))
+        # Its sorteo exists, so the only defect is the one under test (PR-049).
+        put_silver(s3, "sorteos", sorteos_frame(3047), year=2024, sorteo=3047)
         put_silver(
             s3,
             "premios",
@@ -268,6 +270,90 @@ class TestRunDQ:
     def test_missing_silver_raises_rather_than_reporting_failure(self, s3):
         with pytest.raises(SilverDatasetEmpty):
             run_dq(PARTITIONED)
+
+
+class TestReferentialIntegrity:
+    """PR-049 — every premio belongs to a sorteo Silver actually holds.
+
+    Exercised both ways, as PR-033 did for the gate itself: green on clean Silver (and on
+    real transformer output, below), red on an orphan.
+    """
+
+    @staticmethod
+    def referential(outcome):
+        return [
+            r
+            for r in outcome.results
+            if r.expectation == "expect_column_values_to_be_in_set" and r.column == "numero_sorteo"
+        ]
+
+    def test_clean_silver_runs_the_check_and_passes_it(self, s3):
+        seed_valid_silver(s3)
+        premios = next(s for s in run_dq(PARTITIONED).suites if s.dataset == "premios")
+
+        # Present, not merely absent-from-failures: a check that silently stopped being
+        # added would leave this suite green too.
+        [check] = self.referential(premios)
+        assert check.success
+
+    def test_an_orphan_premio_fails_the_gate_and_names_its_sorteo(self, s3):
+        seed_valid_silver(s3, sorteos=(3046,))
+        put_silver(s3, "premios", premios_frame(3048), year=2024, sorteo=3048)
+
+        report = run_dq(PARTITIONED)
+        premios = next(s for s in report.suites if s.dataset == "premios")
+
+        assert not report.success
+        [check] = self.referential(premios)
+        assert not check.success
+        assert check.unexpected_count == 2  # both rows of the orphan file
+        assert check.partial_unexpected == [3048, 3048]
+        # It is the premio that is wrong, not the sorteos.
+        assert next(s for s in report.suites if s.dataset == "sorteos").success
+
+    def test_the_orphan_is_the_only_failure(self, s3):
+        """Every other premios expectation still passes on the orphan file, so the
+        referential check is the one doing the catching."""
+        seed_valid_silver(s3, sorteos=(3046,))
+        put_silver(s3, "premios", premios_frame(3048), year=2024, sorteo=3048)
+
+        premios = next(s for s in run_dq(PARTITIONED).suites if s.dataset == "premios")
+
+        assert [(f.expectation, f.column) for f in premios.failures] == [
+            ("expect_column_values_to_be_in_set", "numero_sorteo")
+        ]
+
+    def test_a_premios_only_run_still_checks_against_sorteos(self, s3):
+        """Asking for one dataset must not quietly skip a rule that needs the other."""
+        seed_valid_silver(s3, sorteos=(3046,))
+        put_silver(s3, "premios", premios_frame(3048), year=2024, sorteo=3048)
+
+        report = run_dq(PARTITIONED, datasets=["premios"])
+
+        assert [s.dataset for s in report.suites] == ["premios"]
+        assert not report.success
+
+    def test_a_premios_only_run_without_sorteos_is_no_data_not_a_pass(self, s3):
+        put_silver(s3, "premios", premios_frame(3046), year=2024, sorteo=3046)
+
+        with pytest.raises(SilverDatasetEmpty, match="sorteos"):
+            run_dq(PARTITIONED, datasets=["premios"])
+
+    def test_sorteos_has_no_parent_to_check(self, s3):
+        seed_valid_silver(s3, sorteos=(3046,))
+        sorteos = next(s for s in run_dq(PARTITIONED).suites if s.dataset == "sorteos")
+
+        assert self.referential(sorteos) == []
+
+    def test_the_alert_summary_names_the_check(self, s3):
+        from loteria.dq.runner import summarize_failures
+
+        seed_valid_silver(s3, sorteos=(3046,))
+        put_silver(s3, "premios", premios_frame(3048), year=2024, sorteo=3048)
+
+        summary = summarize_failures(run_dq(PARTITIONED))
+
+        assert "silver_premios.numero_sorteo: expect_column_values_to_be_in_set [2 rows]" in summary
 
 
 class TestDQReport:
@@ -364,6 +450,14 @@ class TestAgainstRealTransformerOutput:
         failures = [(s.suite, f.expectation, f.column) for s in report.suites for f in s.failures]
         assert report.success, failures
 
+    def test_the_referential_check_holds_on_real_output(self, silver_from_fixtures):
+        """PR-049's green direction on what the transformer really writes: three draws,
+        two numbering sequences (ordinario 3046/3132, extraordinario 413), no orphans."""
+        premios = next(s for s in run_dq(PARTITIONED).suites if s.dataset == "premios")
+
+        [check] = TestReferentialIntegrity.referential(premios)
+        assert check.success
+
     def test_all_three_fixture_draws_are_covered(self, silver_from_fixtures):
         """Guards the fixture above: if `transform` silently skipped a file, the suites would
         pass on a smaller dataset and this test would still read as green."""
@@ -396,6 +490,8 @@ class TestCLI:
     def test_exits_non_zero_on_a_dq_failure(self, s3, capsys):
         """The exit code is the contract PR-033 depends on to stop the Gold build."""
         seed_valid_silver(s3, sorteos=(3046,))
+        # Its sorteo exists, so the only defect is the one under test (PR-049).
+        put_silver(s3, "sorteos", sorteos_frame(3047), year=2024, sorteo=3047)
         put_silver(
             s3,
             "premios",
@@ -423,6 +519,8 @@ class TestCLI:
         """This text is what lands in the SNS alert body in PR-033. "DQ failed" alone would
         send someone to the console to find out what broke."""
         seed_valid_silver(s3, sorteos=(3046,))
+        # Its sorteo exists, so the only defect is the one under test (PR-049).
+        put_silver(s3, "sorteos", sorteos_frame(3047), year=2024, sorteo=3047)
         put_silver(
             s3,
             "premios",
