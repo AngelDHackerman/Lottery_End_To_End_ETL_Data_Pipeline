@@ -53,16 +53,16 @@
   </div>
 
   <details>
-    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado, uno medido y aceptado, tres a medio cerrar</summary>
+    <summary>Los cinco defectos estructurales de la auditoría: tres cerrados, uno medido y aceptado, uno a medio cerrar</summary>
     <div class="dbody">
-      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042 es el único
-        cerrado</b>, y no el 21 de septiembre como decía este diagrama: ese día se aplicó, y
-        lo que lo cerró fue una corrida de producción cuatro días después. El 043 se midió y
-        se decidió conservarlo. El 041 espera su tercer paso; el <b>044 y el 045 están
-        desplegados enteros pero sin verificar</b> — su código no ha ejecutado todavía. El
-        3137 se ingirió horas antes del deploy, y la corrida del 1 de octubre, que este
-        diagrama daba por la verificación, <b>no tenía nada nuevo</b>: los sorteos son los
-        sábados, y el 3138 se sorteó el 3. Los verifica el jueves 8 de octubre.</p>
+      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042, el 044 y el
+        045 están cerrados</b>, y en los tres lo que cerró fue una corrida de producción, no
+        el apply. El 042 se aplicó el 21 de septiembre y se verificó el 25. El 044 y el 045
+        esperaron más: el 3137 se ingirió horas antes del deploy, y la corrida del 1 de
+        octubre, que este diagrama daba por la verificación, <b>no tenía nada nuevo</b> —los
+        sorteos son los sábados, y el 3138 se sorteó el 3—. Los verificó la corrida
+        programada del <b>jueves 8 de octubre</b>, la primera que pasó un sorteo por su
+        código. El 043 se midió y se decidió conservarlo. El 041 espera su tercer paso.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
         <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras
@@ -114,8 +114,7 @@
             escaneando y el 91% orquestando: una versión incremental sumaría consultas de
             cobro mínimo para no ahorrar nada. La reescritura quedó aplazada (L8), con tres
             umbrales anotados que la reabren.</td></tr>
-        <tr><td class="pr pend">044</td><td>Sin cuarentena — <b>desplegado el 27 sep, sin
-          verificar hasta el 8 oct</b></td>
+        <tr><td class="pr done">044</td><td>Sin cuarentena — <b>cerrado el 8 oct</b></td>
           <td>Las filas que el parser descartaba se perdían sin registro: pérdida silenciosa,
             con los números de abajo siempre pareciendo plausibles. Ahora se cuentan, se
             clasifican y las que importan se guardan en <code>quarantine/</code>. <b>Lo más
@@ -125,9 +124,10 @@
             medir cambió el diseño: el parser rechaza el <b>6,50%</b> de cada body, pero
             9.464 de 9.465 son encabezados de millar. Una alarma sobre rechazos totales
             habría sonado todos los jueves. La señal real, <code>unrecognised</code>, apareció
-            <b>una vez en 118 sorteos</b>.</td></tr>
-        <tr><td class="pr pend">045</td><td>Silver sin trazabilidad — <b>aplicado entero el
-          4 oct, sin verificar</b></td>
+            <b>una vez en 118 sorteos</b>. El 3138 lo confirmó: 1.047 líneas, 80 rechazadas,
+            las 80 encabezados de millar, cero <code>unrecognised</code>, cuarentena vacía
+            y ninguna alarma.</td></tr>
+        <tr><td class="pr done">045</td><td>Silver sin trazabilidad — <b>cerrado el 8 oct</b></td>
           <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se podía decir qué
             corrida produjo una fila sin cruzar timestamps de S3 con logs a mano. 045.1
             agrega cuatro columnas al Parquet — y <code>run_id</code> se deja <b>nulo</b>
@@ -142,7 +142,8 @@
             La prueba de que el import no perdió nada es que la vista
             <code>silver_lineage_runs</code> devolvió después del apply exactamente lo mismo
             que antes: una corrida con <code>run_id</code> nulo, 118 sorteos, 124 447 premios.
-            El 8 de octubre debería devolver dos.</td></tr>
+            El 8 de octubre devolvió dos: la nula y la corrida programada, con su nombre de
+            ejecución de Step Functions como <code>run_id</code>, 1 sorteo y 890 premios.</td></tr>
       </table>
     </div>
   </details>
