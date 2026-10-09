@@ -476,11 +476,33 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
         # than adding a second draw. NOT because of check_if_sorteo_exists(): that guard
         # looks for the draw in silver/ (PR-035.1 A — it used to look in processed/, and
         # never fired), and the transformer has not run yet at this point in the execution.
-        # It also runs after both proxied fetches, so a retry still costs its 50 credits.
+        # It also runs after both proxied fetches, so a retry still costs its credits (50
+        # on PR-031.1's rendered profile, 20 since PR-031.2 dropped render).
         #
         # 60 s / 2 attempts / 2.0 backoff = attempts at t+0, t+60, t+180. The Cloudflare
         # block this PR fixes was persistent, so retries would NOT have saved those two
         # runs — this is for the transient case, and the runbook says so plainly.
+        #
+        # PR-047: the second retrier is the one the first was missing. A proxy 502 is not
+        # a transport fault — scrape.do ANSWERS, with a 502 after ~57 s — so it used to
+        # surface as a bare ValueError, matched nothing above, and the 2026-09-24 run got
+        # one attempt. fetch_via_proxy now raises ProxyRetryableError for 429/5xx only;
+        # ProxyHTTPError (401 bad token, 404 …) and every parsing ValueError stay
+        # unlisted, because a second attempt cannot fix them.
+        #
+        # Minutes, not seconds: what fails is a proxy rotation against Cloudflare, and a
+        # rotation 60 s later lands on the same pool. 300 s / 3 attempts / 2.0 = attempts at
+        # t+0, +5, +15, +35 min. Each attempt is bounded by the Lambda's 120 s timeout
+        # (a 502 costs ~57 s of it), so the whole proxy-retry window is ~41 min worst
+        # case, on a run with no downstream deadline.
+        #
+        # Cost on today's profile (10 credits/request, no render — PR-031.2): scrape.do does
+        # not charge a failed request, so a retry costs nothing while the 502 persists.
+        # The worst case is a listing that succeeds and a detail page that 502s: 10 credits
+        # per failed attempt, 30 for all three, plus the 20 of the run that finally works.
+        #
+        # The two retriers count attempts separately (Step Functions keeps one counter per
+        # retrier), so a run that sees both kinds can make at most 1 + 2 + 3 attempts.
         Retry = [
           {
             ErrorEquals = [
@@ -494,6 +516,14 @@ resource "aws_sfn_state_machine" "pipeline_state_machine" {
             ],
             IntervalSeconds = 60,
             MaxAttempts     = 2,
+            BackoffRate     = 2.0
+          },
+          {
+            # Must equal loteria.extractor.scraping.ProxyRetryableError.__name__ —
+            # asserted by tests/unit/test_scraping.py.
+            ErrorEquals     = ["ProxyRetryableError"],
+            IntervalSeconds = 300,
+            MaxAttempts     = 3,
             BackoffRate     = 2.0
           }
         ],
