@@ -3604,6 +3604,30 @@ and writes Silver into another, with no error.
 with two moto buckets asserting the output lands in the one passed in. **Apply after
 2026-10-08** — it redeploys the transformer.
 
+> **PR-048 outcome (2026-10-09).** Built as scoped, plus the half the prompt implied.
+> `transform()` uploads to `bucket_name`, and **`main()` no longer mutates the global**: it
+> resolves `bucket = args.get("PARTITIONED_BUCKET") or partitioned_bucket` into a local
+> and passes it. The `global` overwrite had been the only thing keeping read and write in
+> the same bucket. With the write fixed it would have been harmless, but it was also the
+> reason two tests asserted that the global *changes*. The global stays as `main()`'s
+> fallback only. Removing it means removing the transformer's import-time
+> `get_secrets()` and its Secrets Manager grant, which is an IAM change for its own PR.
+>
+> **Production is unchanged.** The live job's `--PARTITIONED_BUCKET` is
+> `lottery-partitioned-storage-prod`, the bucket 3138's Silver was written to on 10-08.
+>
+> **Tests:** `TestOneBucketBothWays` points the global at the second moto bucket on purpose.
+> Three tests: Silver lands in `bucket_name`; a raw file in bucket B yields Silver in B with
+> the production-named bucket untouched; a second run over B leaves the Parquet's ETag and
+> LastModified alone (the idempotency check reads where the write goes). Mutation-checked:
+> putting the uploads back on the global fails all three. 510 tests.
+>
+> **Plan, read-only after `make build`: `0 to add, 3 to change, 0 to destroy`**, all of it
+> known churn (`lambda_package` + the extractor, since the zip ships all of `loteria/`; the
+> `gold_purge` phantom). The real change is the Glue zip, which only `make upload-glue`
+> ships. Verified by the 2026-10-15 run (sorteo 3139). Runbook:
+> `docs/runbooks/PR-048-transform-one-bucket.md`.
+
 ## PR-049 — The DQ gate does not check referential integrity
 **Filed in PR-032's outcome as "the one high-value check missing".**
 
@@ -3736,6 +3760,6 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; the 10-15 run only checks for regressions | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
-| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — unblocked (10-08 run verified 044/045) | — |
+| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **built, NOT applied** (2026-10-09) — writes to `bucket_name`, `main()` stops mutating the global; read-only plan `0/3/0` (churn only, the fix ships via `upload-glue`) | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — unblocked (10-08 run verified 044/045) | — |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
