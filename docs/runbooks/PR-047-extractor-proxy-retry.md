@@ -148,6 +148,21 @@ aws cloudwatch describe-alarms --alarm-names loteria-sfn-execution-failed-prod \
 # expect: begins "The ETL state machine failed an execution, AFTER its retries."
 ```
 
+### ✅ Result, 2026-10-09 (after the owner's `make deploy`)
+
+1. **Deployed ASL:** `RunExtractorLambda.Retry` holds two retriers. The first is unchanged
+   (7 transport/Lambda names, 60 s × 2). The second is `["ProxyRetryableError"]`,
+   `IntervalSeconds 300`, `MaxAttempts 3`, `BackoffRate 2`.
+2. **Deployed Lambda:** `LastModified 2026-10-09T01:08:21Z`, `CodeSha256
+   CmpKbabudbEw3C5AYoqRWb269uO8IQDlSS86vmC6WI4=`. The zip's `scraping.py` has
+   `class ProxyHTTPError` (l.91), `class ProxyRetryableError` (l.105) and the raise of the
+   latter (l.165). Layer `loteria-deps-prod:6`.
+3. **Alarm text:** `sfn-execution-failed` begins "…failed an execution, AFTER its retries."
+   `extractor-errors` carries "Counts EVERY failed attempt", and `scrapedo-failed` carries
+   "retried by the state machine (PR-047)". All three are `OK`.
+
+No execution has run since the deploy; the last one is still 2026-10-08's.
+
 Then let the scheduled run of **Thursday 2026-10-15** (sorteo 3139, drawn Saturday 10-10)
 go through. It will almost certainly not see a 502, so it proves only that nothing regressed:
 the extractor still succeeds and returns its file. The retry path stays proven by the tests
