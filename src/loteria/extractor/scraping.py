@@ -78,6 +78,45 @@ MIN_PRIZE_LINES = 10
 # -----------------------
 
 
+# PR-047 — named errors for a non-200 proxy answer. This used to be a bare ValueError,
+# which is also what every parsing failure below raises, so the state machine could not
+# tell "scrape.do had a bad minute" from "the site changed its markup" and retried
+# neither: the 2026-09-24 run died on its first 502.
+#
+# Step Functions matches a Lambda failure on the exception's CLASS NAME (the Lambda
+# errorType), never on its base classes, so the split has to be two distinct names:
+# only ProxyRetryableError is listed in RunExtractorLambda's ErrorEquals. Rename it and
+# nothing fails — the retry just stops engaging, which test_retryable_error_is_in_the_asl
+# exists to catch.
+class ProxyHTTPError(Exception):
+    """scrape.do answered non-200 with a status a second attempt will not change.
+
+    401 (bad token / quota spent), 400, 404 and friends: retrying them only delays the
+    alert. Deliberately NOT a ValueError subclass, so no ``except ValueError`` aimed at a
+    parsing failure can swallow it.
+    """
+
+    def __init__(self, status_code: int, target_url: str):
+        super().__init__(f"❌ Proxy error {status_code} para {target_url}")
+        self.status_code = status_code
+        self.target_url = target_url
+
+
+class ProxyRetryableError(ProxyHTTPError):
+    """scrape.do answered 429 or 5xx — transient by its own documentation.
+
+    The case this exists for is the ``502 ROTATION_FAILED`` it returns when a rotation
+    cannot reach the target ("occasional failures on protected domains", in scrape.do's
+    own error text). Failed requests are not charged, so a retry costs credits only when
+    it finally succeeds.
+    """
+
+
+def is_retryable_status(status_code: int) -> bool:
+    """429 (concurrency/rate limit) and every 5xx; nothing else is worth a second attempt."""
+    return status_code == 429 or 500 <= status_code <= 599
+
+
 def build_proxy_url(target_url: str, token: str = SCRAPE_DO_TOKEN) -> str:
     """Assemble the scrape.do request URL for ``target_url``.
 
@@ -122,7 +161,9 @@ def fetch_via_proxy(target_url: str) -> requests.Response:
 
     # dispara alerta temprana si el proxy falla
     if resp.status_code != 200:
-        raise ValueError(f"❌ Proxy error {resp.status_code} para {target_url}")
+        if is_retryable_status(resp.status_code):
+            raise ProxyRetryableError(resp.status_code, target_url)
+        raise ProxyHTTPError(resp.status_code, target_url)
     return resp
 
 

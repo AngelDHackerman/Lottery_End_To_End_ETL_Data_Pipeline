@@ -3558,6 +3558,39 @@ not; the rendered ASL lists it in `ErrorEquals`; `alarms.tf` no longer claims th
 Retry. **Apply after 2026-10-08.** Verifying the retry path live needs a real 502, which
 cannot be scheduled — the test plus the rendered ASL is the bar.
 
+> **PR-047 outcome (2026-10-08).** Built as scoped, with one design point the prompt left
+> open. **Two classes, not one:** `ProxyHTTPError` for any non-200 and its subclass
+> `ProxyRetryableError` for 429/5xx, and only the subclass is listed. Step Functions matches
+> a Lambda failure on `type(exc).__name__` and never on a base class, so "retry some proxy
+> errors" has to be expressed as a separate name. 401 (bad token / spent quota) and 404
+> stay unretried. Neither class is a `ValueError`, so a parsing `except` cannot swallow an
+> outage.
+>
+> **Retrier:** `300 s / 3 attempts / 2.0` → attempts at t+0, +5, +15, +35 min, ~41 min worst
+> case including three 120 s Lambda timeouts. It is a *second* retrier: Step Functions keeps
+> one counter per retrier, so at most 1 + 2 + 3 attempts. **Cost:** a failed scrape.do
+> request is free, so a 502 on the listing costs 0. A listing that succeeds before a detail
+> page that 502s costs 10 per attempt; the worst case is 50 credits for the run, against
+> ~175/month on a 1000 plan.
+>
+> **Alarm text:** `sfn-execution-failed` now says "failed … AFTER its retries", and names
+> the DQ gate's deliberate failure. `extractor-errors` and `scrapedo-failed` each gained a
+> sentence, because a retry changes what they mean: both now fire on an attempt the next one
+> recovers, and an email from either without an `sfn-execution-failed` after it means the run
+> went on.
+>
+> **Acceptance met:** tests prove 429/5xx raise exactly `ProxyRetryableError`, 400–404
+> exactly `ProxyHTTPError`, a parse failure neither, and that `main.tf`'s extractor
+> `Retry` lists the class's name and does not list `ProxyHTTPError`, `ValueError` or
+> `States.ALL`. Both mutations were tried (renaming the ASL entry, disabling the
+> classification) and the suite went red each time. The **rendered** ASL was read from a
+> read-only targeted plan against the account: `0 to add, 4 to change, 0 to destroy`, i.e.
+> the state machine and three alarm descriptions, plus the extractor Lambda in the full
+> deploy. 506 tests. Runbook: `docs/runbooks/PR-047-extractor-proxy-retry.md`.
+>
+> **The diagram is deliberately untouched.** Its red "Retry does not cover the 502" marker
+> describes the deployed machine, and stays true until the apply.
+
 ## PR-048 — `transform()` reads one bucket and writes another
 **Filed in PR-030 (2026-08), as a "latent smell, out of scope for a test PR".**
 
@@ -3702,7 +3735,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
-| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | todo — unblocked (10-08 run verified 044/045) | — |
+| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **built, NOT applied** (2026-10-08) — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier; read-only plan `0/4/0` + the extractor Lambda | — |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — unblocked (10-08 run verified 044/045) | — |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — unblocked (10-08 run verified 044/045) | — |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |

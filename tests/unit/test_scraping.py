@@ -165,7 +165,7 @@ class TestFetchViaProxyTelemetry:
             patch.object(scraping_module.requests, "get", return_value=response),
             patch.object(scraping_module, "record_scraper_status") as status,
         ):
-            with pytest.raises(ValueError):
+            with pytest.raises(scraping_module.ProxyRetryableError):
                 scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
 
         status.assert_called_once_with(429)
@@ -180,6 +180,92 @@ class TestFetchViaProxyTelemetry:
             patch.object(scraping_module, "record_scraper_status"),
         ):
             assert scraping_module.fetch_via_proxy("https://loteria.org.gt") is response
+
+
+# ==========================================================================================
+# PR-047 — which proxy failures the state machine retries
+# ==========================================================================================
+REPO = Path(__file__).parents[2]
+ORCHESTRATION_TF = REPO / "terraform" / "modules" / "orchestration" / "main.tf"
+
+
+def _proxy_answer(scraping_module, status_code: int):
+    """Call fetch_via_proxy against a canned scrape.do answer; return what it raised."""
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = b"502 ROTATION_FAILED cannot connect target url"
+
+    with (
+        patch.object(scraping_module.requests, "get", return_value=response),
+        patch.object(scraping_module, "record_scraper_status"),
+        pytest.raises(scraping_module.ProxyHTTPError) as excinfo,
+    ):
+        scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
+    return excinfo.value
+
+
+def _extractor_retry_block() -> str:
+    """The text of RunExtractorLambda's Retry list, up to its Next."""
+    tf = ORCHESTRATION_TF.read_text()
+    state = tf[tf.index("RunExtractorLambda = {") :]
+    return state[state.index("Retry = [") : state.index('Next = "RunTransformerGlueJob"')]
+
+
+class TestProxyErrorClassification:
+    @pytest.mark.parametrize("status_code", [502, 500, 503, 504, 429])
+    def test_transient_answers_raise_the_retryable_error(self, scraping_module, status_code):
+        err = _proxy_answer(scraping_module, status_code)
+
+        # Step Functions matches the class NAME, never a base class, so the exact type is
+        # the contract — isinstance would pass for the wrong class.
+        assert type(err) is scraping_module.ProxyRetryableError
+        assert err.status_code == status_code
+
+    @pytest.mark.parametrize("status_code", [400, 401, 402, 403, 404])
+    def test_permanent_answers_are_not_retryable(self, scraping_module, status_code):
+        """A bad token or a spent quota is the same on the fourth attempt — retrying only
+        delays the alert by ~41 minutes."""
+        err = _proxy_answer(scraping_module, status_code)
+
+        assert type(err) is scraping_module.ProxyHTTPError
+        assert err.status_code == status_code
+
+    def test_a_proxy_error_is_not_a_value_error(self, scraping_module):
+        """So nothing written to catch a parsing failure can swallow an outage."""
+        assert not issubclass(scraping_module.ProxyHTTPError, ValueError)
+
+    def test_a_parse_failure_is_not_retryable(self, scraping_module):
+        """The other half of the acceptance: a missing selector must keep failing once."""
+        with pytest.raises(ValueError) as excinfo:
+            scraping_module.extract_prize_body(BeautifulSoup("<html></html>", "html.parser"))
+
+        assert not isinstance(excinfo.value, scraping_module.ProxyHTTPError)
+
+    def test_the_message_keeps_the_status_and_url(self, scraping_module):
+        """The alert email and the CloudWatch line read this; it was the old ValueError text."""
+        err = _proxy_answer(scraping_module, 502)
+
+        assert str(err) == "❌ Proxy error 502 para https://loteria.org.gt/site/award"
+
+
+class TestTheStateMachineRetriesIt:
+    def test_retryable_error_is_in_the_asl(self, scraping_module):
+        """Rename the class and nothing fails — the retry just never engages again."""
+        retry = _extractor_retry_block()
+
+        assert f'["{scraping_module.ProxyRetryableError.__name__}"]' in retry
+
+    @pytest.mark.parametrize("name", ["ProxyHTTPError", "ValueError", "States.ALL"])
+    def test_deterministic_failures_are_not_retried(self, name):
+        assert f'"{name}"' not in _extractor_retry_block()
+
+    def test_the_failed_execution_alarm_no_longer_claims_there_is_no_retry(self):
+        """It is the first sentence of the alert email (PR-031.2's follow-up)."""
+        alarms = (REPO / "terraform" / "modules" / "observability" / "alarms.tf").read_text()
+        readme = (REPO / "terraform" / "modules" / "observability" / "README.md").read_text()
+
+        for text in (alarms, readme):
+            assert "no Retry/Catch" not in text
 
 
 # ==========================================================================================
