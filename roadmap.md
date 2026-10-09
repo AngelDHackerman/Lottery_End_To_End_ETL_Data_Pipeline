@@ -1930,7 +1930,8 @@ never written.** Either write it or delete the target; do not leave it pointing 
 2. **PR-035.1 A and B** — the dead idempotency guard and the unanchored draw-date regex.
    Correctness, which is this project's stated thesis; both are small.
 3. **Phase 8: 041.2 → 042.2 → 045 (8C) → 044 (8D) → 043.1.** Sub-phase order, as ever.
-3b. **Phase 9 (added 2026-10-03): 050 now; 047 → 048 → 049 after the 2026-10-08 run.** The
+3b. **Phase 9 (added 2026-10-03): 050 now; 047 → 048 → 049 after the 2026-10-08 run.** 050 merged
+   2026-10-04; the 10-08 run SUCCEEDED and verified 044/045, so **047 is next**. The
    defects phases 5–8 wrote down and left. Anything that redeploys the transformer or the
    state machine waits for 10-08, so that run verifies 044/045 alone.
 4. **PR-036.1 → PR-036.** First publish `layouts/diagram.html` on GitHub Pages (added
@@ -2181,6 +2182,10 @@ and the decision that followed.
 > rebuild was kept deliberately, and at what point that stops being the right call — a
 > defect that is understood and priced is a different thing from one nobody looked at, and
 > the diagram is where a reader learns which one this is.
+
+> **Status 2026-10-08.** Four of the five rows are closed or decided: 042 (verified 09-25),
+> 043 (measured, full rebuild kept), 044 and 045 (both verified by the 10-08 run). **The only
+> row left is 041**, waiting for `.3` on or after 2026-10-20.
 
 ---
 
@@ -3048,6 +3053,15 @@ derived from it — not guessed.
 > since the previous Saturday has already consumed the draw. A manual run on a Sunday
 > pre-empts the next scheduled one, and schedules written against "the next Thursday" have
 > to count Saturdays first.
+>
+> **✅ Verified 2026-10-08 — both PR-044.1 and PR-045.1, by the scheduled run** (execution
+> `2417c307-…_3477d275-…a1283f3f2a4d`, 18:00:37 → 18:10:41 UTC, SUCCEEDED). The checks above,
+> in order: **(1)** 3138's Silver Parquets (1 sorteo, 890 premios) carry the four columns —
+> `run_id` is that execution's name, `source_key` the raw object written at 18:00:54,
+> `parser_version 1`; **(2)** the log carries `lines_total 1047 / lines_parsed 967 /
+> lines_rejected 80`, and all 80 are `section_header` (7.6% against the archive's 6.50%, the
+> expected kind); **(3)** `rejected_unrecognised` is **0**. The gate passed with the lineage
+> expectations selecting real rows for the first time. Outputs in both runbooks.
 
 
 **PR-044.2 — Persist the rejects.** The quarantine writer, the reason-code vocabulary, the
@@ -3134,6 +3148,13 @@ reading the quarantine count is a follow-up, deliberately not wired here.
 >
 > **Moved to Thursday 2026-10-08** (sorteo 3138) — the 10-01 run had nothing new to parse;
 > see the correction under PR-044.1.
+>
+> **✅ Verified 2026-10-08.** The counters reached the log including the zero case —
+> `rejected_total 80, rejected_unrecognised 0, quarantined 0` — which is the line that tells
+> "nothing to quarantine" apart from "the writer never ran". `quarantine/` holds 0 objects,
+> both quarantine alarms are `OK`, and the alerts topic's email subscription is confirmed, so
+> no email meant no fault. The write path itself stays proven by the unit suite only: a clean
+> draw cannot exercise it, and planting a broken one in `raw/` is ruled out (see the runbook).
 
 
 ## PR-045 — Lineage columns in Silver
@@ -3327,10 +3348,13 @@ from which raw file, and what else did that run write?"* as a single Athena quer
 >
 > Catalog after: 14 and 11 columns, 118 partitions on each Silver table, 12 tables + 2 views.
 >
-> **Owed:** the same query after Thursday **2026-10-08** (sorteo 3138 — the 10-01 run was a
-> no-op, see PR-044.1's correction). Expect **two runs per dataset**: the NULL one above
-> and the Step Functions execution name with 1 sorteo. That run settles 045.1, 045.2, 044.1
-> and 044.2 together.
+> **✅ Verified 2026-10-08** (sorteo 3138 — the 10-01 run was a no-op, see PR-044.1's
+> correction). `silver_lineage_runs` returned exactly the prediction, **two runs per
+> dataset**: the NULL one above, unchanged (premios 124,447 / 118, sorteos 118 / 118), and the
+> scheduled execution `2417c307-…_3477d275-…a1283f3f2a4d` with 1 sorteo and 890 premios.
+> `silver_lineage WHERE sorteo = '3138'` names that run and its raw file. 119 partitions on
+> each Silver table — the crawler added 3138's under the Terraform-declared schema — and Gold
+> rebuilt through 3138. Output pasted in the runbook, §7.
 
 
 ## PR-046 — Pin the transitive dependencies so `make build` is reproducible
@@ -3496,6 +3520,10 @@ the run of Thursday 2026-10-08.** That run is the first to push a draw (3138) th
 044.1, 044.2, 045.1 and 045.2. If it also carried a new Retry or a rewired transformer, a
 failure would have two suspects and a success would prove two things at once — neither of
 them cleanly. PR-050 changes lint config and a test only, deploys nothing, and goes first.
+
+> **Rule satisfied 2026-10-08.** The scheduled run carried 3138 through 044.1, 044.2, 045.1
+> and 045.2 with nothing else new in the artifact, and all four verified (notes under each).
+> 047 → 048 → 049 may now redeploy the state machine and the transformer.
 
 ## PR-047 — The extractor's Retry does not catch the failure that actually happens
 **Filed in PR-031.2 (2026-09-24). Includes the stale alarm description, filed the same day.**
@@ -3668,13 +3696,13 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
 | 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 (count still 347 on 2026-10-03) | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
-| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` **applied 2026-10-04, NOT verified** ([#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79)) — both Silver tables imported into Terraform (plan `0/3/0`, 118 partitions kept), `make deploy`, gate query clean, both views live and answering *one NULL run, 118 sorteos, 124,447 premios*. Both halves verify on **Thursday 2026-10-08** (sorteo 3138) — the 10-01 run was a no-op | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) · [#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79) |
-| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` **applied 2026-09-27, NOT verified** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; infrastructure checked cold, code path awaits **Thursday 2026-10-08** (the 10-01 run had no new draw to parse) | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
+| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed + VERIFIED in prod 2026-10-08** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — sorteo 3138's two Parquets carry `run_id` = the scheduled execution's name, `source_key`, `ingested_at`, `parser_version 1`; gate PASS with the lineage expectations on real rows · `.2` **applied 2026-10-04 + VERIFIED 2026-10-08** ([#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79)) — 119 partitions, `silver_lineage_runs` answers *two runs*: the NULL one (118 sorteos, 124,447 premios) and 2026-10-08's (1 sorteo, 890 premios); Gold rebuilt to 3138 on the declared schema | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) · [#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79) |
+| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed + VERIFIED in prod 2026-10-08** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained); on 3138 the counters logged `lines_total 1047 / parsed 967 / rejected 80`, all 80 `section_header`, `unrecognised 0` · `.2` **applied 2026-09-27 + VERIFIED 2026-10-08** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; the writer ran and logged `quarantined: 0`, `quarantine/` empty, both alarms `OK` | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
-| *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run.*** | | | |
-| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | todo — **after 2026-10-08** | — |
-| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — **after 2026-10-08** | — |
-| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — **after 2026-10-08** | — |
+| *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
+| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | todo — unblocked (10-08 run verified 044/045) | — |
+| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — unblocked (10-08 run verified 044/045) | — |
+| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — unblocked (10-08 run verified 044/045) | — |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
