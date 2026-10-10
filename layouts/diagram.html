@@ -4,13 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arquitectura Lotería Santa Lucía</title>
+<!-- PR-036.1: this page is public on GitHub Pages. Everything here is already public in the
+     repo (account id, bucket, role and function names). Never paste a token or a secret into
+     diagram.data.js: what was a public file is now also a public web page. -->
+<meta name="description" content="Pipeline ETL serverless en AWS para la Lotería Santa Lucía de Guatemala: scraping semanal, Bronze/Silver/Gold en S3, gate de calidad con Great Expectations y Gold atómico con Athena. Mapa interactivo de lo desplegado, comprobado contra la cuenta.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Arquitectura Lotería Santa Lucía — pipeline ETL en AWS">
+<meta property="og:description" content="Mapa interactivo de un pipeline ETL serverless en AWS: Lambda, Glue, Step Functions, S3, Athena y un gate de calidad. Cada pieza con sus nombres reales y su estado, y la corrida semanal animada.">
+<meta name="twitter:card" content="summary">
 <link rel="stylesheet" href="css/diagram.css">
 </head>
 <body>
 <div class="wrap">
   <header>
     <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
-      <span>lago al día hasta el Ordinario 3137</span><span>·</span><span>4 oct 2026 · 02:00 UTC</span></p>
+      <span>lago al día hasta el Ordinario 3138</span><span>·</span><span>9 oct 2026 · 01:30 UTC</span></p>
     <h1>Arquitectura Lotería Santa Lucía</h1>
     <p>Lo que está desplegado hoy, comprobado contra la cuenta y no contra la documentación.
       Hacé clic en cualquier pieza para ver sus nombres reales y su estado, o reproducí la

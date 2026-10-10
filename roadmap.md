@@ -2037,6 +2037,38 @@ with a clear error.
 `index.html` and its CSS/JS load (the click panel works and *Reproducir* animates); it
 works at phone width; and PR-036's README links to the URL in items 1 and 4.
 
+> **PR-036.1 outcome (2026-10-09).** `.github/workflows/pages.yml` as prompted. Actions are
+> pinned to the **current** majors (`configure-pages@v6`, `upload-pages-artifact@v5`,
+> `deploy-pages@v5`, read from their latest releases that day); `checkout@v4` matches
+> `ci.yml`. It also triggers on its own path, so editing the workflow redeploys. One addition
+> enforces check 2: the assemble step **fails the deploy if any `<script>`/`<link>` points
+> at a remote URL**, so "self-contained" is a gate, not a promise.
+>
+> **The five checks:**
+> 1. **Content:** grep over `layouts/` finds no token, key, secret or email, only prose
+>    mentions of `get_secrets()` and "el secreto". A comment in `<head>` now says the page is
+>    public.
+> 2. **No external requests:** none, and now enforced (above).
+> 3. **Phone width: it was broken.** Measured through headless Chrome's DevTools protocol at
+>    360/390/768/1440 px: with the page as committed it was fine *closed*, but **opening
+>    either defects `<details>` grew the page to ~460 px** on a phone. Three-column tables,
+>    plus tokens like `glue:BatchUpdatePartition` that have nowhere to break. Fixed in CSS:
+>    under 640 px each row stacks (PR + defect on one line, the explanation full width
+>    below), and `td code` may break anywhere. Now `scrollWidth == innerWidth` at every width,
+>    open or closed. The SVG keeps its 1080 px minimum and scrolls inside its own box
+>    (scaled to 360 px its labels are unreadable), with a phone-only hint "Deslizá el mapa
+>    hacia los lados →".
+> 4. **Sharing metadata:** `description`, `og:type/title/description`, `twitter:card`.
+> 5. **The date stays honest: it was stale.** The header still said *"al día hasta el
+>    Ordinario 3137 · 4 oct"* after the 10-08 docs PR had moved every count to 3138. Now
+>    *"3138 · 9 oct 2026 · 01:30 UTC"*, the time of the last account read (PR-048's zip
+>    check). The rule for later PRs stands: data and header date in the same commit.
+>
+> **Assembled `_site/` tested locally:** `index.html` applies the CSS, renders 20 nodes,
+> a click fills the panel, *Reproducir* advances to step 1/12; no JS errors, no failed
+> loads. **Owner action still owed:** Settings → Pages → Source: **GitHub Actions**. Then
+> the URL is `https://angeldhackerman.github.io/Lottery_End_To_End_ETL_Data_Pipeline/`.
+
 ## PR-037 — Diagrams in draw.io (XML committed) — **DROPPED 2026-09-23**
 
 > **Superseded by `layouts/diagram.html`,** which shipped between this PR being written and
@@ -3772,7 +3804,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
 | 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` **merged + deployed** (2026-09-23) · `C` → PR-044 | [PR #62](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/62) |
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
-| 036.1 | **Publish `layouts/diagram.html` on GitHub Pages**: a `pages.yml` workflow deploys `layouts/` on push to master. Portfolio-facing. Do right before 036, so the README links the live URL. Owner: switch Pages source to GitHub Actions (web UI) | todo | — |
+| 036.1 | **Publish `layouts/diagram.html` on GitHub Pages**: a `pages.yml` workflow deploys `layouts/` on push to master. Portfolio-facing. Do right before 036, so the README links the live URL. Owner: switch Pages source to GitHub Actions (web UI) | **built** (2026-10-09) — workflow + phone-width fix + OG tags + header date; **owner: set Pages source, then merge** | [PR #90](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/90) |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |

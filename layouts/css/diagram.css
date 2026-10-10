@@ -146,4 +146,19 @@ td.pr.pend{color:var(--pending)}
 .dbody i{font-style:italic;color:var(--ink)}
 code{font-family:var(--mono);font-size:.87em;background:var(--surface2);
      padding:.08em .32em;border-radius:2px}
+/* PR-036.1 — teléfono. El mapa conserva su ancho mínimo y se desliza dentro de su caja
+   (achicado a 360 px no se lee); la página en sí nunca debe tener scroll horizontal. Las
+   tablas de tres columnas sí lo provocaban: con un <details> abierto la página crecía a
+   ~460 px, por tokens como glue:BatchUpdatePartition que no tienen dónde cortarse. */
+td code{overflow-wrap:anywhere}
+@media (max-width:640px){
+  .canvas::before{content:"Deslizá el mapa hacia los lados →";display:block;
+                  font-family:var(--mono);font-size:11px;color:var(--muted);margin:0 0 6px}
+  table,tbody,tr,td{display:block}
+  tr:first-child{display:none}
+  tr{display:grid;grid-template-columns:auto minmax(0,1fr);border-bottom:1px solid var(--rule)}
+  tr:last-child{border-bottom:none}
+  td{border-bottom:none;padding:8px 6px}
+  td:nth-child(3){grid-column:1 / -1;padding-top:0}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
