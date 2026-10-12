@@ -82,17 +82,17 @@
     t.setAttribute("transform", `rotate(-90 ${l.x} ${l.y})`);
   }
 
-  function drawPrefixChips() {
+  function drawPrefixChips(parent) {
     D.PREFIXES.forEach(p => {
       /* 116, no 136: PR-044.2 añadió quarantine/ y son cinco capas. A 136 la quinta se
          salía de la caja del bucket (424..1044), que es el tipo de cosa que un diff no
          enseña y un render sí. */
       el("rect", {x:p.x, y:440, width:116, height:44, rx:2, fill:"var(--surface2)",
-                  stroke:"var(--flow)", "stroke-width":1.2}, map);
+                  stroke:"var(--flow)", "stroke-width":1.2}, parent);
       text({x:p.x + 58, y:459, "text-anchor":"middle", "font-family":"var(--mono)",
-            "font-size":"11", "font-weight":"700", fill:"var(--flow)"}, p.k, map);
+            "font-size":"11", "font-weight":"700", fill:"var(--flow)"}, p.k, parent);
       text({x:p.x + 58, y:475, "text-anchor":"middle", "font-family":"var(--mono)",
-            "font-size":"9", fill:"var(--muted)"}, p.v, map);
+            "font-size":"9", fill:"var(--muted)"}, p.v, parent);
     });
   }
 
@@ -170,9 +170,12 @@
   drawGap();
   const edgeEls = drawEdges();
   const nodeEls = drawNodes(id => select(id), id => hover(id));
-  /* Después de las cajas: los chips viven DENTRO de la caja del bucket, y el
-     relleno opaco de un nodo pinta encima de todo lo dibujado antes. */
-  drawPrefixChips();
+  /* Los chips van DENTRO del grupo del bucket, después de su relleno opaco. Dibujados
+     sueltos en el lienzo pintaban bien pero no heredaban el .dim del nodo: con «Resaltar
+     defectos» o «La corrida» el bucket se apagaba y sus cinco capas seguían encendidas,
+     como si las señalaran. Dentro del grupo, además, un clic en un chip selecciona el
+     bucket. */
+  drawPrefixChips(nodeEls.s3p);
 
   /* ============================ PANEL ============================ */
 
