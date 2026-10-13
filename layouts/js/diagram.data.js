@@ -172,7 +172,7 @@
   /* Texto suelto sobre el lienzo. */
   const NOTES = [
     {x:426, y:514, t:"Los crawlers registran silver aquí."},
-    {x:44,  y:448, t:"Ningún workflow tiene credenciales de AWS.", color:"var(--flow)", weight:700},
+    {x:44,  y:448, t:"✕ Ningún workflow tiene credenciales de AWS.", color:"var(--flow)", weight:700},
     {x:44,  y:466, t:"terraform init -backend=false: no puede leer"},
     {x:44,  y:482, t:"ni siquiera el estado remoto."}
   ];
@@ -184,8 +184,12 @@
     note:  {y: 688, t: "El extractor no tiene vpc_config y Glue no tiene connection. Su único consumidor sería SageMaker, que está apagado."}
   };
 
-  /* La NO-conexión entre el plano de control y la cuenta: línea tachada. */
-  const GAP = {x1:380, x2:398, y:300, label:{x:389, y:258, t:"sin conexión"}};
+  /* La NO-conexión entre el plano de control y la cuenta: línea tachada. Es a propósito:
+     ningún workflow tiene credenciales de AWS, así que un PR no puede tocar producción;
+     el único puente es el owner con make deploy. Sin rótulo propio: en el canal de 24 px
+     lo cruzan dos aristas y no se lee; su leyenda es la primera nota, que repite la ✕. */
+  const GAP = {x1:380, x2:398, y:300,
+               tip:"A propósito: ningún workflow de GitHub Actions tiene credenciales de AWS, así que el CI no puede desplegar ni leer producción. El único puente es el owner, a mano, con make deploy."};
 
   /* Chips de prefijo dentro de la caja del bucket particionado. */
   const PREFIXES = [

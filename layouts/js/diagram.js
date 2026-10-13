@@ -54,32 +54,36 @@
           fill:"var(--muted)"}, v.note.t, map);
   }
 
+  /* Las notas y la cruz van en su propio grupo para que los focos las atenúen junto con
+     las cajas: sueltas en el lienzo quedaban encendidas y parecían señaladas. */
+  let deco = null;
+
   function note(x, y, txt, color, weight) {
     const t = text({x, y, "font-family":"var(--mono)", "font-size":"10",
-                    fill: color || "var(--muted)"}, txt, map);
+                    fill: color || "var(--muted)"}, txt, deco);
     if (weight) t.setAttribute("font-weight", weight);
     return t;
   }
 
   function drawNotes() {
+    deco = el("g", {class:"deco"}, map);   /* aquí, no antes: debe pintar sobre los marcos */
     D.NOTES.forEach(n => note(n.x, n.y, n.t, n.color, n.weight));
   }
 
-  /* La cruz roja: GitHub Actions no toca la cuenta de AWS. */
+  /* La cruz: GitHub Actions no toca la cuenta de AWS. Es gris y no roja porque es una
+     decisión, no un defecto — en la leyenda el rojo significa «defecto anotado». */
   function drawGap() {
-    const g = D.GAP, x1 = g.x1, x2 = g.x2, y = g.y, mid = (x1 + x2) / 2;
-    el("line", {x1, y1:y, x2, y2:y, stroke:"var(--breach)", "stroke-width":2.5,
-                "stroke-dasharray":"5 4"}, map);
-    el("line", {x1:x1 + 2, y1:y - 9, x2:x2 - 2, y2:y + 9, stroke:"var(--breach)",
-                "stroke-width":3, "stroke-linecap":"round"}, map);
-    el("line", {x1:x2 - 2, y1:y - 9, x2:x1 + 2, y2:y + 9, stroke:"var(--breach)",
-                "stroke-width":3, "stroke-linecap":"round"}, map);
-    /* El rótulo va GIRADO: el canal entre las dos zonas mide 24 px de ancho y
-       cualquier texto horizontal se derrama sobre ambos marcos. De pie cabe. */
-    const l = g.label;
-    const t = note(l.x, l.y, l.t, "var(--breach)", 700);
-    t.setAttribute("text-anchor", "middle");
-    t.setAttribute("transform", `rotate(-90 ${l.x} ${l.y})`);
+    const g = D.GAP, x1 = g.x1, x2 = g.x2, y = g.y;
+    const grp = el("g", {}, deco);
+    el("title", {}, grp).textContent = g.tip;
+    el("line", {x1, y1:y, x2, y2:y, stroke:"var(--muted)", "stroke-width":2.5,
+                "stroke-dasharray":"5 4"}, grp);
+    el("line", {x1:x1 + 2, y1:y - 9, x2:x2 - 2, y2:y + 9, stroke:"var(--muted)",
+                "stroke-width":3, "stroke-linecap":"round"}, grp);
+    el("line", {x1:x2 - 2, y1:y - 9, x2:x1 + 2, y2:y + 9, stroke:"var(--muted)",
+                "stroke-width":3, "stroke-linecap":"round"}, grp);
+    /* Las líneas miden 3 px: sin un área transparente, el tooltip casi no se encuentra. */
+    el("rect", {x:x1 - 4, y:y - 14, width:x2 - x1 + 8, height:28, fill:"transparent"}, grp);
   }
 
   function drawPrefixChips(parent) {
@@ -252,6 +256,7 @@
       const inside = ids.indexOf(e.a) !== -1 && ids.indexOf(e.b) !== -1;
       p.classList.toggle("dim", !on && !inside);
     });
+    deco.classList.toggle("dim", !on);
   }
 
   tp.addEventListener("click", () => spotlight(tp, tb, D.SPOT));
@@ -273,6 +278,7 @@
     btn.textContent = "▶ Reproducir la corrida semanal";
     NODES.forEach(n => nodeEls[n.id].classList.remove("lit", "dim"));
     edgeEls.forEach(({p}) => p.classList.remove("lit", "dim"));
+    deco.classList.remove("dim");
     rstep.textContent = IDLE_STEP;
     rtext.textContent = IDLE_TEXT;
   }
@@ -285,6 +291,7 @@
       nodeEls[n.id].classList.toggle("dim", n.id !== s.id);
     });
     edgeEls.forEach(({p}) => p.classList.add("dim"));
+    deco.classList.add("dim");
     rstep.textContent = `PASO ${idx + 1}/${RUN.length}`;
     rtext.textContent = s.t;
     select(s.id);

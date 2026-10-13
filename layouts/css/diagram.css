@@ -85,6 +85,7 @@ svg#map{display:block;width:100%;min-width:1080px;height:auto;color:var(--ink)}
 .edge.pend{stroke:var(--pending);stroke-dasharray:7 5}
 .edge.manual{stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}
 .edge.dim{opacity:.2}
+.deco.dim{opacity:.26}
 .edge.lit{stroke-width:5}
 .elabel{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
 
@@ -142,6 +143,8 @@ td.pr.done{color:var(--flow)}
    "desplegado pero sin verificar", que es precisamente la distinción que a 042.1 le
    costó tres días de decir lo contrario. */
 td.pr.pend{color:var(--pending)}
+/* La leyenda de esos colores, dentro del texto de la tabla que los usa. */
+.c-done{color:var(--flow)} .c-pend{color:var(--pending)} .c-open{color:var(--breach)}
 .dbody table + .hint{margin:14px 0 0}
 .dbody i{font-style:italic;color:var(--ink)}
 code{font-family:var(--mono);font-size:.87em;background:var(--surface2);
