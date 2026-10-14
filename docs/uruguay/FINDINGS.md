@@ -23,12 +23,12 @@ pendiente).
 | Pregunta | Tema | Estado | PR |
 |---|---|---|---|
 | **Q1** | El 5 de Oro en `ver_resultados` y sus campos | **Respondida** (verificado, campos y valores) | UY-002 |
-| Q2 | Fecha sin sorteo y Quiniela en fin de semana | Respondida en el Tracker, falta la sección | UY-002 |
-| Q3 | Fecha más antigua por juego | Respondida (2006-08-11, ver C8), falta la sección | UY-002 + UY-003 |
+| **Q2** | Fecha sin sorteo y Quiniela en fin de semana | **Respondida** (verificado; los 4 `error` de 2019 son un paro) | UY-002 |
+| Q3 | Fecha más antigua por juego | **Respondida para `ver_resultados`** (verificado, 2006-08-11); falta `extractosweb` | UY-002 + UY-003 |
 | Q4 | Rutas de Lotería y Kini | Respondida en el Tracker, falta la sección | UY-006 |
 | Q5 | PDF frente a HTML | Parcial (PDF desde 2018-11-30, ver C9); falta la comparación | UY-003 |
 | Q6 | Frecuencia de la Lotería | Pendiente | UY-006 |
-| Q7 | Encoding | Respondida (UTF-8 en todas las páginas), falta la sección | UY-002 + UY-003 |
+| Q7 | Encoding | **Respondida para el HTML** (verificado, UTF-8); falta el texto de los PDF | UY-002 + UY-003 |
 | Q8 | Rango y reglas del 5 de Oro | Pendiente | UY-004 |
 | Q9 | Términos de uso | Pendiente | UY-004 |
 | Q10 | `ver_estadisticas` como control cruzado | Pendiente | UY-004 |
@@ -141,13 +141,13 @@ No hay sorteo de 5 de Oro en ese día ni en los 3 días siguientes:
 |---|---|---|
 | **Semana de Turismo (13)** | 2007-04-08, 2008-03-23, 2009-04-12, 2010-04-04, 2011-04-24, 2012-04-08, 2013-03-31, 2014-04-20, 2015-04-05, 2016-03-27, 2017-04-16, 2019-04-21, 2020-04-08 | No se sortea. **Decisión del owner:** son huecos permanentes, no hay forma de recuperarlos y no son un error. |
 | **Fin de año (16)** | 2006-12-24, 2006-12-31, 2008-12-31, 2009-12-30, 2010-12-29, 2011-12-28, 2014-12-24, 2015-12-23, 2015-12-30, 2016-12-28, 2017-12-24, 2017-12-31, 2022-12-25, 2022-12-28, 2023-12-24, 2023-12-31 | Navidad, Año Nuevo y la Lotería de fin de año (hipótesis para las fechas que no son feriado). |
-| **2019-09-25** | | **Huelga del gremio de la DNLQ** (informado por el owner): rechazo a eliminar a los "niños cantores" de las extracciones. Ese 5 de Oro se sorteó el **martes 2019-10-01**. Coincide con los 4 días `error` (25, 26, 27 y 30 de septiembre), en los que tampoco hubo Quiniela. |
+| **2019-09-25** | | **Paro de AFAL, el gremio de la DNLQ** (informado por el owner y confirmado en [prensa](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas)): rechazo a eliminar a los "niños cantores" de las extracciones. Ese 5 de Oro se sorteó el **martes 2019-10-01**. Coincide con los 4 días `error` (25, 26, 27 y 30 de septiembre), en los que tampoco hubo Quiniela. Detalle en [Q2](#los-4-días-error-de-septiembre-de-2019-paro-verificado). |
 | **2026-01-21** | | **Cambio de calendario de la DNLQ** (informado por el owner): para no superponerse con el sorteo extraordinario "La Revancha de Reyes" del viernes 2026-01-23, las apuestas pasaron al domingo 2026-01-25. El manifiesto lo confirma: el 23 trae un bloque `loteria` y el 25 trae el 5 de Oro. |
 | **2016-04-17** | | **Duelo Oficial nacional** (informado por el owner) decretado por el Poder Ejecutivo tras el tornado F3 de Dolores (Soriano) del 2016-04-15. Durante un duelo oficial, la DNLQ suspende la comercialización y los sorteos públicos. El sorteo anterior lo había anunciado y el siguiente fue el 2016-04-20. |
 | **Sin explicar (2)** | 2006-08-27, 2006-08-30 | Caen en las dos primeras semanas de la historia publicada. Hipótesis: carga incompleta al arrancar el sitio. Esos mismos sorteos tampoco anuncian el próximo, así que no hay forma de confirmarlo con los datos. |
 
-**Pendiente:** las páginas `error` de septiembre de 2019 no quedaron en bronce, porque bronce solo
-guarda sorteos. Para documentar qué muestran hay que volver a pedir esas 4 URLs (4 peticiones).
+La causa de las páginas `error` de septiembre de 2019 ya está explicada en
+[Q2](#los-4-días-error-de-septiembre-de-2019-paro-verificado).
 
 ---
 
@@ -247,3 +247,144 @@ están vacías también en el extracto. Hipótesis: el dato no se cargó. En pla
 ## Pendiente de Q1
 
 - Sumar los traslados de fecha a `calendar_events` con su resolución (UY-004).
+
+---
+
+## Q2 — ¿Qué devuelve una fecha sin sorteo? ¿Desde cuándo hay Quiniela en fin de semana?
+
+**Pregunta del brief:** cómo se ve un día sin sorteo (para no confundirlo con una falla) y desde
+cuándo se sortea Quiniela los sábados y domingos (para saber qué días esperar datos).
+
+### Fecha sin sorteo (verificado)
+
+- **HTTP 200**, `text/html; charset=UTF-8` y la misma plantilla de siempre, pero **sin bloques de
+  juego**: ni llamadas a `MostrarExtracto(...)` ni imágenes de cabecera. Pesa entre 45,8 y 48,0 KB,
+  y una página con sorteo pesa 53,7 KB o más. El tamaño orienta, pero la regla es el contenido. Fixture: `resultados_2025-12-25.html`.
+- El sitio **nunca** avisa con un código de estado. La única señal es el contenido, y es la regla de
+  `classify.py` (plantilla sin bloques → `no_draw`).
+- **Una página vacía no distingue "no hubo sorteo" de "todavía no se publicó".** El 2026-10-04
+  (domingo, 5 de Oro a las 22:00) se pidió a las 17:23 hora de Uruguay y llegó vacía, igual que un
+  feriado. Por eso `not_yet_published` sale de la **hora de la petición** y no de la página.
+- **457 de los 7.370 días** del backfill son `no_draw`: 10 son anteriores al primer día con datos
+  (2006-08-01 a 2006-08-10, ver [Q3](#q3--fecha-más-antigua-de-cada-juego-parte-ver_resultados))
+  y 447 caen dentro de la historia.
+
+Los feriados fijos que se repiten casi todos los años de 2006 a 2026:
+
+| Fecha | Años sin sorteo | Feriado |
+|---|---|---|
+| 01/01 | 20 | Año Nuevo |
+| 06/01 | 19 | Reyes |
+| 01/05 | 20 | Día de los Trabajadores |
+| 19/06 | 20 | Natalicio de Artigas |
+| 18/07 | 20 | Jura de la Constitución |
+| 25/08 | 21 | Declaratoria de la Independencia |
+| 02/11 | 19 | Difuntos |
+| 25/12 | 20 | Navidad |
+
+El **24 y el 31 de diciembre** no tienen sorteo en 10 años cada uno. Los otros años suele haber
+**solo la Vespertina**: de las 17 páginas de toda la historia cuyo único juego es la Vespertina,
+13 son un 24 o un 31 de diciembre (observado).
+
+### Quiniela en fin de semana (verificado)
+
+**El calendario semanal no cambió en 20 años.** No hay una fecha de inicio que buscar, así que la
+bisección prevista (~12 peticiones) no hace falta:
+
+| Día | Días desde 2006-08-11 | Vespertina + Nocturna | Solo Nocturna | Solo Vespertina | Sin sorteo |
+|---|---|---|---|---|---|
+| Lunes a viernes | 5.256 | 4.922 | 16 | 21 | 292 |
+| **Sábado** | 1.052 | 0 | **997** | 0 | 55 |
+| **Domingo** | 1.052 | 0 | 0 | 0 | 100 (+951 con solo 5 de Oro) |
+
+- **Sábado:** Quiniela **Nocturna** desde el primer sábado de la historia (2006-08-12), todos los
+  años. La Vespertina **nunca** se sorteó un sábado.
+- **Domingo:** **nunca** hubo Quiniela. El domingo es solo del 5 de Oro.
+- De lunes a viernes faltan en la tabla los 4 días `error` (el paro de 2019, ver abajo) y un
+  miércoles con otro juego y sin Quiniela.
+
+**Consecuencia para el diseño (UY-011):** el calendario esperado de la Quiniela es V+N de lunes a
+viernes, N los sábados y nada los domingos. Los días con una sola de las dos (37 de lunes a viernes)
+son excepciones que el detector de huecos tiene que tolerar, no alarmas.
+
+### Los 4 días `error` de septiembre de 2019 (paro, verificado)
+
+**Causa: un paro de AFAL**, la asociación de funcionarios de la DNLQ, contra la eliminación de la
+figura del "niño cantor" en las extracciones (informado por el owner). Lo confirma una nota de
+[FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas): el gremio
+"había decretado un paro desde la semana pasada", lo levantó tras reunirse con la DNLQ y el
+Ministerio de Trabajo, y la figura se mantuvo hasta el 31 de diciembre de 2019.
+
+Lo que muestra el manifiesto:
+
+| Fecha | Día | Estado | Página |
+|---|---|---|---|
+| 2019-09-24 | martes | `draw` | Quiniela V+N, el último día normal |
+| 2019-09-25 a 27 | miércoles a viernes | `error` | 48.072 bytes cada una: hay cabeceras de juego pero ningún `MostrarExtracto` |
+| 2019-09-28 y 29 | sábado y domingo | `no_draw` | Plantilla vacía |
+| 2019-09-30 | lunes | `error` | Igual que el 25 |
+| 2019-10-01 | martes | `draw` | Nocturna + el 5 de Oro del domingo 29 |
+
+- **El clasificador hizo lo que tenía que hacer.** Un bloque de juego sin código es una página que
+  no se entiende, y `classify.py` la marca como `error` en vez de adivinar.
+- **Contradicción con la prensa:** la nota dice que se volvió a sortear con el 5 de Oro del
+  "2 de octubre". El sitio oficial lo publica el **2019-10-01** en `ver_resultados` y en la cabecera
+  del extracto. Manda la fuente oficial.
+- **No es el único paro.** El miércoles **2017-08-09** hubo otro, también de los funcionarios
+  ([FocusGN, 2017-08-09](https://focusgn.com/latinoamerica/paro-loterias-quinielas-uruguay): "no
+  habrá sorteo de quinielas, Tómbola y 5 de Oro"). Ese día sale como `no_draw` con plantilla vacía,
+  y el 5 de Oro pasó al jueves 2017-08-10. **Un paro no siempre se ve igual en la página.**
+
+**Propuesta (se decide en UY-010 / UY-011):** el clasificador queda estricto. Los 4 días se pasan a
+`no_draw` con una corrección manual en el manifiesto, que cita una fila de `calendar_events`
+(causa `paro`, con la URL de la nota). Un `error` nuevo sigue pidiendo revisión humana.
+
+**Pendiente:** las 4 páginas no quedaron en bronce, porque bronce solo guarda sorteos. Para tener una
+como fixture hay que volver a pedirla (1 petición).
+
+---
+
+## Q3 — Fecha más antigua de cada juego (parte `ver_resultados`)
+
+**Respuesta (verificado):** la historia empieza el **2006-08-11**, no el 07/01/2007 que daba el brief
+(ver C8 en el roadmap). Del 2006-08-01 al 2006-08-10 la página sale vacía.
+
+| Juego | Primer día | Último día en el backfill | Páginas |
+|---|---|---|---|
+| Lotería | 2006-08-11 | 2026-09-18 | 421 |
+| Quiniela Nocturna | 2006-08-11 | 2026-10-03 | 5.935 |
+| Kini | 2006-08-15 | **2013-12-27** | 1.793 |
+| Quiniela Vespertina | 2006-08-16 | 2026-10-02 | 4.943 |
+| 5 de Oro | 2006-08-16 | 2026-09-30 | 2.072 |
+
+- **El Kini no aparece después de 2013-12-27** (verificado en `ver_resultados`). Si dejó de
+  sortearse o cambió de nombre se ve en UY-006.
+- **Códigos de Lotería que `sources.py` no conoce (verificado):** 15 páginas, del 2018-12-29 al
+  2023-01-20, traen códigos `MostrarExtracto` del **27 al 38**. `game_for_code` solo reconoce como
+  Lotería el 1 y del 6 al 26, así que quedan como `unknown_27` … `unknown_38`. Caen siempre a fin de
+  diciembre o entre el 15 y el 24 de enero. Hipótesis: sorteos extraordinarios de Lotería (fin de
+  año y Reyes), con un código nuevo cada año. Se resuelve con las rutas de Lotería en UY-006 (Q4).
+- La parte de `extractosweb` (desde qué fecha responde cada extracto) va en UY-003.
+
+---
+
+## Q7 — Encoding (parte HTML)
+
+**Respuesta (verificado): todo es UTF-8 y no hay que adivinar nada.**
+
+- Las **20.320 respuestas HTML** del backfill (7.370 de `ver_resultados` y 12.950 extractos PHP)
+  traen la cabecera `Content-Type: text/html; charset=UTF-8`. Los 25 PDF traen `application/pdf`.
+- Los **19.858 archivos HTML de bronce** decodifican como UTF-8 estricto sin un solo error, no
+  tienen BOM y declaran `<meta charset=utf-8>`. No aparece mojibake (`Ã©`, `Â`) en ninguno.
+- **El único carácter roto es `Pe?aloza`**, en el pie de firma de los extractos: 2.083 archivos de
+  2006 a 2022, nunca escrito bien. En los bytes es un `?` literal (0x3F), así que la `ñ` se perdió
+  en el origen cuando se cargó el dato y no se puede recuperar decodificando de otra forma. El
+  parser no lee el pie, así que no afecta a ningún campo.
+- Las 462 páginas que no quedaron en bronce (`no_draw`, `error` y `not_yet_published`) solo se
+  verificaron por la cabecera.
+
+**Consecuencia para los parsers (UY-022 a UY-024):** decodificar con `utf-8` estricto y fallar si algo no
+decodifica. Hoy `classify.py` usa `errors="replace"`, que sirve para clasificar pero escondería un
+cambio de encoding en plata.
+
+La parte de los PDF (el encoding del texto extraído) va en UY-003.
