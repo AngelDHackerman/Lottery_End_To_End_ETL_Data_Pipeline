@@ -494,13 +494,26 @@ su test, en un PR de código aparte.
 
 ### `not_yet_published`: cuándo se publica (verificado)
 
-**Sondeo del 2026-10-14 (miércoles):**
+**Sondeo del 2026-10-14 (miércoles).** Las fuentes de cada sorteo se pidieron cada 10 minutos
+hasta que aparecieron (3 peticiones por ronda). El 5 de Oro no se sorteó ese día: el calendario
+oficial lo había pasado al jueves 15 (ver UY-004), así que el sondeo solo siguió a la Nocturna.
 
-| Hora (Uruguay) | Vespertina | Nocturna | 5 de Oro |
+| Sorteo | Fin del sorteo | HTML (`ver_resultados` y extracto PHP) | PDF (`Last-Modified`) |
 |---|---|---|---|
-| 18:46 | Publicada: el PHP trae datos y el PDF tiene `Last-Modified` 15:29 | PHP con la plantilla vacía y PDF 404 | PHP con la plantilla vacía y PDF 404 |
+| Vespertina | 15:19 | Ya estaba a las 18:46 (primer sondeo) | 15:29:14, **10 min** después del fin |
+| Nocturna | 21:20 | Vacío a las 21:23:35 y publicado a las 21:33:36: **entre 3 y 13 min** después del fin | 21:33:44, **14 min** después del fin. A las 21:33:38 todavía daba 404 |
 
-<!-- UY-003: completar con el sondeo de la noche -->
+- **Antes de publicarse, la página es idéntica a la de un día sin sorteo:** el extracto PHP es la
+  plantilla vacía de 777 bytes, el PDF da 404 y `ver_resultados` no trae el bloque del juego.
+  Solo la hora distingue "todavía no" de "no hubo".
+- **El HTML sale antes que el PDF.** Es lo esperable, porque el PDF es una impresión que alguien
+  sube después.
+- Los PDF del día coinciden con su HTML en todos los campos.
+
+**Consecuencia para la ingesta diaria (UY-043):** una corrida a las ~23:30 hora de Uruguay ya
+encuentra la Quiniela y el 5 de Oro del día. Lo que falte se marca `not_yet_published` y se vuelve a
+pedir al día siguiente, como en `settle_days`. Se pasa a `no_draw` solo después de ese plazo y si
+el calendario esperado tampoco lo anunciaba.
 
 **Demora histórica entre el fin del sorteo y el `Last-Modified` del PDF** (2020–2026, sin los
 archivos migrados):
