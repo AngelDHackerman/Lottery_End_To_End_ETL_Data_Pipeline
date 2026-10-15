@@ -98,11 +98,19 @@ def test_php_extract_with_a_draw():
     assert verdict.outcome == DRAW
 
 
-def test_php_extract_empty_template():
-    verdict = classify.classify_extracto_php(
-        page("extracto_5_de_oro_2025-09-16.html"), date(2025, 9, 16)
-    )
-    assert verdict.outcome == EMPTY
+@pytest.mark.parametrize(
+    ("name", "day"),
+    [
+        # 5 de Oro: the full template with "//" for the date and 0,00 pozos.
+        ("extracto_5_de_oro_2025-09-16.html", date(2025, 9, 16)),
+        # Quiniela: no template at all, only the "sin info" image. Before 2026-10-14 these were
+        # classified as errors, so a not-yet-published Quiniela would have alarmed.
+        ("extracto_quiniela_vespertina_2006-08-10.html", date(2006, 8, 10)),
+        ("extracto_quiniela_nocturna_2006-08-10.html", date(2006, 8, 10)),
+    ],
+)
+def test_php_extract_empty_template(name, day):
+    assert classify.classify_extracto_php(page(name), day).outcome == EMPTY
 
 
 def test_php_extract_for_another_day_is_an_error():
