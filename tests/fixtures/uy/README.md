@@ -1,6 +1,6 @@
 # Uruguay fixtures (www.loteria.gub.uy)
 
-Real pages, fetched 2026-10-04 through `loteria_uy.http_client.PoliteClient` (1 req/s,
+Real pages, fetched 2026-10-04 (two on 2026-10-14) through `loteria_uy.http_client.PoliteClient` (1 req/s,
 identifiable User-Agent) and copied here with `scripts/uy_redact_fixture.py`. The script
 replaces every `href` naming `DET_INVALIDAS` with `#privacy-link-removed` and changes
 nothing else. Those links point at PDFs with national ID numbers; the PDFs themselves were
@@ -22,3 +22,5 @@ de 2026). That block is not the requested draw.
 | `extracto_5_de_oro_2007-01-07.html` | `extractosweb/5deOro/extracto_5_de_oro.php?vdia=07&vmes=01&vano=2007` | The oldest 5 de Oro in the brief: "SIN ACIERTO", cupones, `Pe?aloza` |
 | `extracto_5_de_oro_2025-09-16.html` | `…extracto_5_de_oro.php?vdia=16&vmes=09&vano=2025` | Empty template (a Tuesday): date `//`, pozos `0,00` |
 | `extracto_quiniela_vespertina_2007-01-02.html` | `extractosweb/quiniela/vespertina/extracto_QV_S.php?vdia=02&vmes=01&vano=2007` | Quiniela extract with Inicio / Primero / Fin |
+| `extracto_quiniela_vespertina_2006-08-10.html` | `extractosweb/quiniela/vespertina/extracto_QV_S.php?vdia=10&vmes=08&vano=2006` | Empty Quiniela template (fetched 2026-10-14): only the `extracto_sin_info.gif` image, no `//` |
+| `extracto_quiniela_nocturna_2006-08-10.html` | `extractosweb/quiniela/nocturna/extracto_QN_S.php?vdia=10&vmes=08&vano=2006` | Same for the Nocturna; byte-identical to the not-yet-published page of 2026-10-14 at 18:46 |

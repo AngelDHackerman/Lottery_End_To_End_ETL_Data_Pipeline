@@ -11,7 +11,9 @@ template), so every rule here reads content:
 - results page: the ``MostrarExtracto('<code>','dd','mm','yyyy')`` calls, one per game
   block. A code dated other than the requested day is a mismatch, never a draw. The block
   header images are checked against the codes as a second, independent signal.
-- PHP extract: the header date ``dd/mm/yyyy``; the empty template prints ``//``.
+- PHP extract: the header date ``dd/mm/yyyy``. The two empty templates differ: the 5 de Oro
+  one prints ``//`` where the date goes, the Quiniela one is a single ``extracto_sin_info.gif``
+  image and nothing else (observed 2026-10-14, see FINDINGS.md Q5).
 - PDF: ``%PDF`` magic with HTTP 200; 404 means nothing was published.
 """
 
@@ -27,7 +29,7 @@ from bs4 import BeautifulSoup
 from loteria_uy.http_client import blocked_pattern
 from loteria_uy.sources import BASE_URL, KINI, ORO, QN, QV, game_for_code
 
-CLASSIFIER_VERSION = "2026-10-04"
+CLASSIFIER_VERSION = "2026-10-14"
 
 DRAW = "draw"
 EMPTY = "empty"  # the caller turns this into no_draw / not_yet_published / missing
@@ -37,6 +39,9 @@ _ONCLICK = re.compile(r"MostrarExtracto\(\s*'(\d+)'\s*,\s*'(\d+)'\s*,\s*'(\d+)'\
 _HEADER_DATE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
 # A bare "//" where the date goes — but not the "//" of a URL printed in the page text.
 _EMPTY_DATE = re.compile(r"(?<![\w:/])//(?![\w/])")
+# The Quiniela extracts (both shifts) have no date slot to leave empty: their empty page is
+# just this "no information" image.
+_EMPTY_IMAGE = "extracto_sin_info"
 
 # Block header image -> game. Lotería's logo is renamed every year (LOGO_LOTERIA_2026.png
 # on pages from 2006), so it is deliberately not a marker.
@@ -109,7 +114,8 @@ def pozos_href(soup: BeautifulSoup) -> str | None:
 
 
 def classify_extracto_php(content: bytes, day: date) -> Classification:
-    text = BeautifulSoup(_decode(content), "html.parser").get_text(" ")
+    soup = BeautifulSoup(_decode(content), "html.parser")
+    text = soup.get_text(" ")
     match = _HEADER_DATE.search(text)
     if match:
         dd, mm, yyyy = (int(g) for g in match.groups())
@@ -121,6 +127,8 @@ def classify_extracto_php(content: bytes, day: date) -> Classification:
             return Classification(ERROR, detail=f"header dated {found.isoformat()}")
         return Classification(DRAW)
     if _EMPTY_DATE.search(text):
+        return Classification(EMPTY)
+    if any(_EMPTY_IMAGE in img.get("src", "") for img in soup.find_all("img")):
         return Classification(EMPTY)
     return Classification(ERROR, detail="no header date and no empty-template marker")
 
