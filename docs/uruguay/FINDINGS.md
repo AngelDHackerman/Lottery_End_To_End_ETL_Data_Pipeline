@@ -24,11 +24,11 @@ pendiente).
 |---|---|---|---|
 | **Q1** | El 5 de Oro en `ver_resultados` y sus campos | **Respondida** (verificado, campos y valores) | UY-002 |
 | **Q2** | Fecha sin sorteo y Quiniela en fin de semana | **Respondida** (verificado; los 4 `error` de 2019 son un paro) | UY-002 |
-| Q3 | Fecha más antigua por juego | **Respondida para `ver_resultados`** (verificado, 2006-08-11); falta `extractosweb` | UY-002 + UY-003 |
+| **Q3** | Fecha más antigua por juego | **Respondida** (verificado: 2006-08-11 en `ver_resultados` y en los extractos PHP; PDF desde el 2018-11-30) | UY-002 + UY-003 |
 | Q4 | Rutas de Lotería y Kini | Respondida en el Tracker, falta la sección | UY-006 |
-| Q5 | PDF frente a HTML | Parcial (PDF desde 2018-11-30, ver C9); falta la comparación | UY-003 |
+| **Q5** | PDF frente a HTML | **Respondida** (verificado: el PDF es una impresión del HTML y coincide en el 100% de los campos) | UY-003 |
 | Q6 | Frecuencia de la Lotería | Pendiente | UY-006 |
-| Q7 | Encoding | **Respondida para el HTML** (verificado, UTF-8); falta el texto de los PDF | UY-002 + UY-003 |
+| **Q7** | Encoding | **Respondida** (verificado: UTF-8 en el HTML; el texto de los PDF sale con tildes correctas) | UY-002 + UY-003 |
 | Q8 | Rango y reglas del 5 de Oro | Pendiente | UY-004 |
 | Q9 | Términos de uso | Pendiente | UY-004 |
 | Q10 | `ver_estadisticas` como control cruzado | Pendiente | UY-004 |
@@ -266,7 +266,7 @@ cuándo se sortea Quiniela los sábados y domingos (para saber qué días espera
   (domingo, 5 de Oro a las 22:00) se pidió a las 17:23 hora de Uruguay y llegó vacía, igual que un
   feriado. Por eso `not_yet_published` sale de la **hora de la petición** y no de la página.
 - **457 de los 7.370 días** del backfill son `no_draw`: 10 son anteriores al primer día con datos
-  (2006-08-01 a 2006-08-10, ver [Q3](#q3--fecha-más-antigua-de-cada-juego-parte-ver_resultados))
+  (2006-08-01 a 2006-08-10, ver [Q3](#q3--fecha-más-antigua-de-cada-juego))
   y 447 caen dentro de la historia.
 
 Los feriados fijos que se repiten casi todos los años de 2006 a 2026:
@@ -344,10 +344,12 @@ como fixture hay que volver a pedirla (1 petición).
 
 ---
 
-## Q3 — Fecha más antigua de cada juego (parte `ver_resultados`)
+## Q3 — Fecha más antigua de cada juego
 
 **Respuesta (verificado):** la historia empieza el **2006-08-11**, no el 07/01/2007 que daba el brief
 (ver C8 en el roadmap). Del 2006-08-01 al 2006-08-10 la página sale vacía.
+
+### Parte `ver_resultados` (UY-002)
 
 | Juego | Primer día | Último día en el backfill | Páginas |
 |---|---|---|---|
@@ -364,13 +366,198 @@ como fixture hay que volver a pedirla (1 petición).
   Lotería el 1 y del 6 al 26, así que quedan como `unknown_27` … `unknown_38`. Caen siempre a fin de
   diciembre o entre el 15 y el 24 de enero. Hipótesis: sorteos extraordinarios de Lotería (fin de
   año y Reyes), con un código nuevo cada año. Se resuelve con las rutas de Lotería en UY-006 (Q4).
-- La parte de `extractosweb` (desde qué fecha responde cada extracto) va en UY-003.
+
+### Parte `extractosweb` (UY-003, verificado)
+
+- **Los extractos PHP empiezan el mismo día que `ver_resultados`.** Los 15 sondeos anteriores al
+  2006-08-11 (2005-08-14, 2006-01-04, 2006-07-16, 2006-08-09 y 2006-08-10, en los tres juegos)
+  devuelven la plantilla vacía, byte a byte igual a la de cualquier día sin sorteo.
+- **El extracto PHP nunca falta.** En los 12.950 días en que `ver_resultados` lista uno de los tres
+  juegos, su extracto PHP trae datos con la fecha correcta. No hay ni un `missing`.
+- **El PDF existe desde el 2018-11-30**, la fecha en que `MostrarExtracto()` empieza a enlazarlo (C9).
+  Hay archivos sueltos de octubre de 2018 en la misma ruta, pero son pruebas y no sirven (ver
+  [Q5](#pdfs-anteriores-al-2018-11-30-verificado)).
 
 ---
 
-## Q7 — Encoding (parte HTML)
+## Q5 — ¿El PDF es la misma fuente que el HTML?
+
+**Pregunta del brief:** qué devuelve el PDF del extracto (`Content-Type`, `Content-Disposition`,
+redirecciones) y si dice lo mismo que el extracto HTML, comparando unas 30 fechas por juego.
+
+**Respuesta (verificado): sí. El PDF es una impresión del extracto HTML que alguien hace a mano
+desde un navegador, y coincide con el HTML en el 100% de los campos.** No aporta ningún dato
+que el extracto PHP no tenga.
+
+**Evidencia.** Un backfill acotado de la fuente `pdf` (226 peticiones el 2026-10-14, a 1 req/s,
+con el cliente de UY-001) sobre unas 4 fechas al azar por año y juego de 2018 a 2026, más el
+primer día de cada juego. Como el backfill pide los tres juegos de cada fecha, quedaron 245 PDF en
+bronce, contando los 21 del piloto de septiembre de 2025. Se agregan 34 peticiones de bisección
+para buscar el inicio y las sondas del día.
+
+### Qué es el PDF (verificado)
+
+- **Lo genera un navegador, no un sistema.** El `Creator` de los 245 PDF es Chrome (versiones 70 a
+  109, en Windows, `Skia/PDF`) desde 2018 y Firefox (versiones 141 a 157, `cairo`) desde septiembre
+  de 2025.
+- **Es una impresión de la página PHP.** En 41 PDF (2018, 2019 y 2023) quedó impresa la cabecera
+  del navegador, con la URL de la página (`…/extracto_5_de_oro.php?vdia=02&vmes=12&vano=2018`) y
+  la paginación `1/1`.
+- **Se imprime la noche del sorteo.** La `CreationDate` cae el mismo día o el siguiente. Es una foto
+  del extracto en el momento de publicarlo. En cambio, el HTML se regenera desde la base en cada
+  petición, así que compararlos también dice si la base cambió después de publicar. No cambió.
+- Siempre tiene una sola página.
+
+### Cabeceras y disponibilidad (verificado)
+
+- `Content-Type: application/pdf`, **sin `Content-Disposition`** y **sin redirecciones**: la URL
+  pedida es la final en todas las respuestas.
+- Si no existe, responde **404** con un `text/html` de 146 bytes.
+- Trae `Last-Modified`, que el extracto PHP no tiene. Pero los 52 PDF del 2018-11-30 al 2021-06-24
+  dicen todos `Thu, 22 Jul 2021 18:44:04 GMT`, señal de una migración de archivos. Antes de
+  mediados de 2021 no sirve como hora de publicación.
+- **El PDF tiene huecos y el PHP no.** Hay 2 sorteos sin PDF (404) que sí tienen extracto PHP: el
+  5 de Oro del **2019-01-07** (lunes, trasladado) y la Nocturna del **2022-06-01**. Ese mismo
+  2022-06-01, los PDF del 5 de Oro y de la Vespertina son **imágenes sin texto**: su `Creator` es
+  `Adobe Fireworks CS5` en uno y un firmware de tablet Samsung (`T835XXU5CUE2`) en el otro.
+  Hipótesis: ese día no estaba el equipo de siempre.
+
+### Comparación campo por campo (verificado)
+
+**Método.** Es un script desechable sin red. Lee el texto de cada PDF con pdfplumber y el de su
+extracto PHP con BeautifulSoup, y pasa los dos por **el mismo** extractor de campos. Los cupones se
+comparan en memoria y no se imprimen.
+
+**Resultado: en los 243 PDF con texto desde el 2018-11-30, todos los campos son iguales.**
+
+| Juego | PDF | Campos comparados | Distintos |
+|---|---|---|---|
+| 5 de Oro | 51 | Fecha, 5 números + extra, pozos de Oro, Plata y Revancha, ganadores (cupones y "Sin Aciertos"), números de la Revancha, próximo sorteo | 0 |
+| Quiniela Nocturna | 100 | Fecha, los 20 números de 3 cifras **en su orden**, horas de inicio, primero y fin, los 20 de 2 cifras, próximo sorteo | 0 |
+| Quiniela Vespertina | 92 | Los mismos | 0 |
+
+La única diferencia es de formato y no de dato: el próximo sorteo de la Nocturna del 2021-08-26
+dice `27/8/2021` en el PDF y `27/08/2021` en el HTML.
+
+**Decisión del owner (2026-10-14): el HTML es la fuente, y el PDF se baja como respaldo
+solo si no hace falta un proxy.**
+
+- **Plata sale siempre del HTML** (`ver_resultados` y los extractos PHP). El PDF no se parsea.
+- **Sin proxy** (si UY-005 confirma que AWS llega directo al sitio): se descargan el HTML y el PDF.
+  El PDF va a bronce como copia de la publicación de esa noche.
+- **Con proxy** (como Santa Lucía): solo el HTML. Cada petición cuesta créditos, y el PDF
+  duplicaría el costo sin aportar ningún dato.
+- **El PDF que falta no alarma.** Tiene huecos que el HTML no tiene (los 404 y las imágenes de
+  arriba), así que un PDF `missing` queda registrado en el manifiesto pero no dispara alertas. Lo
+  que alarma es que falte el HTML.
+- **Costo de guardarlo:** unos 300 KB por PDF frente a unos 15 KB por extracto HTML. Con 651
+  extractos al año (2025) son ~190 MB por año, menos de un centavo al mes en S3.
+- **Histórico:** no hace falta bajar los ~4.800 PDF que faltan desde el 2018-11-30 (~1,4 h a
+  1 req/s, ~1,4 GB). Si algún día se quieren, la fuente `pdf` del backfill ya los baja.
+
+### PDFs anteriores al 2018-11-30 (verificado)
+
+En la misma ruta hay archivos de **octubre de 2018**, antes de que el sitio los enlazara. La
+bisección encontró el primero el 2018-10-09 (Vespertina), el 2018-10-26 (Nocturna) y el 2018-10-28
+(5 de Oro), con huecos en medio (la Vespertina del 2018-10-10 no existe). En junio de 2017 no hay
+ninguno.
+
+**No sirven.** De los 7 que se bajaron, 5 no corresponden a su fecha:
+
+- `20181009v.pdf` trae el extracto del **23/10/2018**.
+- `20181026v.pdf`, `20181026n.pdf`, `20181027n.pdf` y `20181028o.pdf` dicen **29/10/2018** y no
+  traen números. Parecen pruebas de la plantilla.
+
+Solo los del 5 de Oro del 2018-10-31 y del 2018-11-11 coinciden con el HTML. **El inicio válido
+del PDF es el 2018-11-30 (C9).**
+
+### Plantilla vacía y `no_draw` (verificado)
+
+| Fuente | Cómo se ve vacía | Tamaño |
+|---|---|---|
+| Extracto PHP del 5 de Oro | Fecha `//`, pozos `0,00`, sin bolillas | 11.519 bytes |
+| **Extracto PHP de la Quiniela** | **Otra plantilla:** sin fecha ni pozos, solo la imagen `extracto_sin_info.gif` | 719 (V) y 777 (N) bytes |
+| PDF | 404 | 146 bytes |
+
+Las plantillas vacías son idénticas byte a byte en todas las fechas probadas.
+
+**Una página vacía no dice por qué está vacía.** La misma plantilla sale antes de 2006, en un día
+sin sorteo y en un sorteo que todavía no se publicó (verificado el 2026-10-14, abajo). Pasa igual
+en el HTML y en el PDF.
+
+**Bug en `classify.py` (verificado):** `classify_extracto_php` busca la fecha o el `//`, así que la
+plantilla vacía de la Quiniela sale como `error` ("no header date and no empty-template marker")
+en lugar de vacía. El backfill no lo vio porque solo pide un extracto cuando `ver_resultados` lista
+el juego, y ninguno vino vacío. **En la ingesta diaria, una Quiniela todavía no publicada saldría
+como `error`.** Arreglo: reconocer `extracto_sin_info.gif` como marcador de vacío, con su fixture y
+su test, en un PR de código aparte.
+
+### `not_yet_published`: cuándo se publica (verificado)
+
+**Sondeo del 2026-10-14 (miércoles).** Las fuentes de cada sorteo se pidieron cada 10 minutos
+hasta que aparecieron (3 peticiones por ronda). El 5 de Oro no se sorteó ese día: el calendario
+oficial lo había pasado al jueves 15 (ver UY-004), así que el sondeo solo siguió a la Nocturna.
+
+| Sorteo | Fin del sorteo | HTML (`ver_resultados` y extracto PHP) | PDF (`Last-Modified`) |
+|---|---|---|---|
+| Vespertina | 15:19 | Ya estaba a las 18:46 (primer sondeo) | 15:29:14, **10 min** después del fin |
+| Nocturna | 21:20 | Vacío a las 21:23:35 y publicado a las 21:33:36: **entre 3 y 13 min** después del fin | 21:33:44, **14 min** después del fin. A las 21:33:38 todavía daba 404 |
+
+- **Antes de publicarse, la página es idéntica a la de un día sin sorteo:** el extracto PHP es la
+  plantilla vacía de 777 bytes, el PDF da 404 y `ver_resultados` no trae el bloque del juego.
+  Solo la hora distingue "todavía no" de "no hubo".
+- **El HTML sale antes que el PDF.** Es lo esperable, porque el PDF es una impresión que alguien
+  sube después.
+- Los PDF del día coinciden con su HTML en todos los campos.
+
+**Consecuencia para la ingesta diaria (UY-043):** una corrida a las ~23:30 hora de Uruguay ya
+encuentra la Quiniela y el 5 de Oro del día. Lo que falte se marca `not_yet_published` y se vuelve a
+pedir al día siguiente, como en `settle_days`. Se pasa a `no_draw` solo después de ese plazo y si
+el calendario esperado tampoco lo anunciaba.
+
+**Demora histórica entre el fin del sorteo y el `Last-Modified` del PDF** (2020–2026, sin los
+archivos migrados):
+
+| Juego | PDF | Mediana | p90 | Máximo |
+|---|---|---|---|---|
+| Quiniela Vespertina | 73 | 9 min | 14 min | 84 min |
+| Quiniela Nocturna | 78 | 9 min | 16 min | 74 min |
+| 5 de Oro | 42 | 42 min | 53 min | — |
+
+Para la Quiniela se mide desde la hora de "Fin" del propio extracto. El 5 de Oro no publica la
+hora, así que se mide desde las 22:00 nominales. Los extremos son sorteos que se corrieron a otra
+hora.
+
+### PDF de pozos del 5 de Oro (verificado)
+
+- **Este sí lo genera un sistema:** `JasperReports (reporteInformacionDePozos)` con iText. Se emite
+  **antes** del sorteo (por ejemplo, a las 21:07 para el de las 22:00).
+- **Trae el número de sorteo**, la única fuente que lo tiene: 1856, 1857, 1858 y 1859 en los
+  4 sorteos de julio de 2016 que hay en bronce, consecutivos.
+- Sus tres montos son iguales a los pozos del extracto en los 4 casos.
+
+### Biblioteca de PDF: pdfplumber (verificado)
+
+| | pdfplumber 0.11 | pypdf 6.20 |
+|---|---|---|
+| Extractos (243 PDF) | 243 bien | **Falla en los 51 del 5 de Oro**: pega la bolilla extra a la etiqueta (`41Bolilla`) |
+| PDF de pozos | Cada etiqueta en su línea con su monto | Separa las etiquetas de los montos en bloques |
+| Tiempo para unos 250 PDF | 7,9 s | 3,4 s |
+
+**Propuesta:** pdfplumber. La velocidad no importa con unos pocos PDF por día. Como los extractos
+salen del HTML, solo haría falta para el PDF de pozos. El PDF de pozos no es un respaldo, porque trae
+el único dato que el HTML no tiene (el número de sorteo). **Inclinación del owner (2026-10-14):**
+bajarlo aunque haga falta un proxy, porque es una fuente distinta y no una impresión del HTML. Son
+~104 peticiones al año, y está enlazado en 1.055 de los 2.072 sorteos (desde el 2016-06-01). Se
+confirma en UY-010, con el resultado de UY-005.
+
+---
+
+## Q7 — Encoding
 
 **Respuesta (verificado): todo es UTF-8 y no hay que adivinar nada.**
+
+### HTML (UY-002)
 
 - Las **20.320 respuestas HTML** del backfill (7.370 de `ver_resultados` y 12.950 extractos PHP)
   traen la cabecera `Content-Type: text/html; charset=UTF-8`. Los 25 PDF traen `application/pdf`.
@@ -387,4 +574,8 @@ como fixture hay que volver a pedirla (1 petición).
 decodifica. Hoy `classify.py` usa `errors="replace"`, que sirve para clasificar pero escondería un
 cambio de encoding en plata.
 
-La parte de los PDF (el encoding del texto extraído) va en UY-003.
+### PDF (UY-003, verificado)
+
+El texto que extrae pdfplumber de los 243 PDF con texto trae las tildes y la `ñ` bien (`Próximo`,
+`NÚMEROS`, `Miércoles`, `Cupón`, `Sábado`). No aparece ni un `?` ni un carácter de reemplazo
+(U+FFFD) fuera de las URLs. El PDF de pozos también sale limpio (`INFORMACIÓN DE POZOS`).
