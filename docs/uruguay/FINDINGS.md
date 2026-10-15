@@ -25,9 +25,9 @@ pendiente).
 | **Q1** | El 5 de Oro en `ver_resultados` y sus campos | **Respondida** (verificado, campos y valores) | UY-002 |
 | **Q2** | Fecha sin sorteo y Quiniela en fin de semana | **Respondida** (verificado; los 4 `error` de 2019 son un paro) | UY-002 |
 | **Q3** | Fecha más antigua por juego | **Respondida** (verificado: 2006-08-11 en `ver_resultados` y en los extractos PHP; PDF desde el 2018-11-30) | UY-002 + UY-003 |
-| Q4 | Rutas de Lotería y Kini | Respondida en el Tracker, falta la sección | UY-006 |
+| **Q4** | Rutas de Lotería y Kini | **Respondida** (verificado: PDF `…l.pdf` desde 2018-11-30; los PHP de Lotería leen por fecha; el Kini ya está en bronce) | UY-006 |
 | **Q5** | PDF frente a HTML | **Respondida** (verificado: el PDF es una impresión del HTML y coincide en el 100% de los campos) | UY-003 |
-| Q6 | Frecuencia de la Lotería | Pendiente | UY-006 |
+| **Q6** | Frecuencia de la Lotería | **Respondida** (verificado: viernes; ~42 al año hasta 2012 y 12 al año desde 2014) | UY-006 |
 | **Q7** | Encoding | **Respondida** (verificado: UTF-8 en el HTML; el texto de los PDF sale con tildes correctas) | UY-002 + UY-003 |
 | **Q8** | Rango y reglas del 5 de Oro | **Respondida** (verificado: 01–44 hasta 2014-03-16, 01–48 desde 2014-03-19; reglas 2012–2026 en CSV) | UY-004 |
 | **Q9** | Términos de uso | **Respondida** (no hay términos ni aviso legal; pie y `robots.txt` transcritos, sin conclusión legal) | UY-004 |
@@ -369,13 +369,14 @@ como fixture hay que volver a pedirla (1 petición).
 | Quiniela Vespertina | 2006-08-16 | 2026-10-02 | 4.943 |
 | 5 de Oro | 2006-08-16 | 2026-09-30 | 2.072 |
 
-- **El Kini no aparece después de 2013-12-27** (verificado en `ver_resultados`). Si dejó de
-  sortearse o cambió de nombre se ve en UY-006.
+- **El Kini no aparece después de 2013-12-27** (verificado en `ver_resultados`). Ver
+  [Q4 y Q6](#q4-y-q6--lotería-uruguaya-y-kini).
 - **Códigos de Lotería que `sources.py` no conoce (verificado):** 15 páginas, del 2018-12-29 al
   2023-01-20, traen códigos `MostrarExtracto` del **27 al 38**. `game_for_code` solo reconoce como
   Lotería el 1 y del 6 al 26, así que quedan como `unknown_27` … `unknown_38`. Caen siempre a fin de
   diciembre o entre el 15 y el 24 de enero. Hipótesis: sorteos extraordinarios de Lotería (fin de
   año y Reyes), con un código nuevo cada año. Se resuelve con las rutas de Lotería en UY-006 (Q4).
+  **Resuelto en UY-006:** ver [Q4 y Q6](#q4-y-q6--lotería-uruguaya-y-kini).
 
 ### Parte `extractosweb` (UY-003, verificado)
 
@@ -825,3 +826,79 @@ bronce local. IP de salida: `44.205.19.58`.
 confirmación definitiva es la primera ejecución real en la Fase 5. Si una Lambda de la VPC del
 proyecto sale sin NAT (`enable_internet=false` en prod), además hace falta una ruta de salida, pero
 eso es diseño de UY-040 y no un bloqueo del sitio.
+
+---
+
+## Q4 y Q6 — Lotería Uruguaya y Kini
+
+**Contexto.** Los dos juegos están **fuera de la v1** (roadmap: UL1 y UL2). Esta sección deja
+documentado lo necesario para sumarlos después, sin implementar nada. Todo sale del bronce y del
+manifiesto, más 12 peticiones el 2026-10-15.
+
+### Q4 — Dónde está el extracto de la Lotería (verificado)
+
+`ver_resultados.php` decide la ruta con `MostrarExtracto(código, día, mes, año)`:
+
+- **Sorteos desde el 2018-11-30:** para **cualquier** código de Lotería, el sitio arma el PDF
+  `/extractosweb/{aaaammdd}l.pdf` (la `l` es de Lotería, como la `o`, la `v` y la `n` de Q5). El
+  código no se usa, así que los 27–38 que `sources.py` no conocía (Q3) ni siquiera tienen otra
+  ruta.
+- **Sorteos anteriores:** los códigos 1 y 6–26 abren cada uno un extracto PHP distinto
+  (`extracto_loteria_2_nvo.php`, `extracto_loteria_fin.php`, `Extracto_Loteria_2014_reyes.php`…).
+- **`ver_resultados_pdf.php`** (UY-004) es una versión alternativa de la página de resultados. Su
+  mapa llega a 75 códigos, y ofrece también un PHP para cada sorteo posterior a 2018.
+
+**Las plantillas PHP de la Lotería leen el sorteo por la fecha.** Se pidieron, para las fechas de
+los códigos 35–38, el PHP que indica el mapa y el del código siguiente, más el PDF `l`:
+
+| Código | Fecha | PHP del mapa | PHP del código siguiente | PDF `l` |
+|---|---|---|---|---|
+| 35 | 2021-12-30 | 1.º premio 29909 | 29909 | 29909 |
+| 36 | 2022-01-21 | 33029 | 33029 | 33029 |
+| 37 | 2022-12-30 | 39551 | 39551 | 39551 |
+| 38 | 2023-01-20 | 21984 | 21984 | 21984 |
+
+Los dos PHP devuelven los mismos números, que son los del PDF. Solo cambia el título de la página
+(por ejemplo, "LOTERÍA ESPECIAL DE AGOSTO 2022" en lugar de "Extracto de LOTERIA URUGUAYA"). **El
+corrimiento que parecía haber en el mapa de los códigos 35–38 es cosmético: no cambia los datos.**
+
+**Consecuencia para UL1:** el adaptador de la Lotería pide el PDF `l` desde el 2018-11-30, o un
+PHP de Lotería con la fecha (por ejemplo `extracto_loteria_2_nvo.php`, que es el código 1), y no
+necesita el mapa de códigos. `game_for_code` solo debería tratar como Lotería todo código que no
+sea 2–5 ni 19, en lugar de `unknown_N`. Es un cambio para cuando se implemente UL1, no ahora.
+
+### Q6 — Frecuencia real de la Lotería (verificado)
+
+Hay 436 días con Lotería en `ver_resultados` (contando los códigos 27–38):
+
+| Período | Sorteos por año | Nota |
+|---|---|---|
+| 2006 (desde el 11/08) | 18 | |
+| 2007–2012 | 40 a 43 | Casi semanal |
+| 2013 | 14 | Transición |
+| 2014–2025 | 11 a 12 | **Mensual** |
+| 2026 (hasta el 30/09) | 9 | |
+
+- **Se sortea los viernes:** 416 de 436. Los otros 20 caen de lunes a sábado (observado: en su mayoría
+  extraordinarios y traslados).
+- **Hay extraordinarios fijos:** el Gordo de fin de año (~30/12) y la Revancha de Reyes (enero),
+  que son los códigos 27–38 de Q3. Hubo también ediciones especiales: "200 años" el 2019-07-15 y
+  "Especial de Agosto" en 2022 y 2023.
+- **Hipótesis:** el paso a mensual coincide con el fin del Kini (2013-12-27), así que quizá hubo
+  una reestructuración de los juegos en 2013. No se buscó la resolución.
+
+### Kini (verificado)
+
+- **Juego histórico:** el último sorteo publicado es el **2013-12-27**. El primero en el sitio es
+  el 2006-08-15, pero ese es el inicio de la historia del sitio, no del juego: hay noticias del
+  Kini en 2005 (informado por el owner).
+- **Se sorteaba de lunes a viernes**, unas 245 veces al año: 1.793 sorteos en total.
+- **Formato observado:** 5 números distintos entre **01 y 36**, un pozo ("Pozo Kini") y ganadores
+  o "Sin Aciertos". Son 1.793 de 1.793 bloques leídos sin error.
+- **Los datos ya están en el bronce.** El bloque del Kini viene completo dentro de cada página de
+  `ver_resultados`, así que un backfill futuro no necesita ni una petición. El extracto propio es
+  el código 2 (`Extracto_QV_QN_K.php`; por el nombre, compartido con la Quiniela, no se pidió).
+- **Decisión del owner (2026-10-15):** se queda como **UL2, diferido y solo con backfill**.
+
+**Corrección al roadmap:** el Kini no es "2007–2014" ni "descontinuado en 2014". Lo verificado es
+**2006-08-15 a 2013-12-27** en el sitio.
