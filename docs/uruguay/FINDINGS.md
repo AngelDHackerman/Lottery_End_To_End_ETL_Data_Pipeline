@@ -29,10 +29,10 @@ pendiente).
 | **Q5** | PDF frente a HTML | **Respondida** (verificado: el PDF es una impresión del HTML y coincide en el 100% de los campos) | UY-003 |
 | Q6 | Frecuencia de la Lotería | Pendiente | UY-006 |
 | **Q7** | Encoding | **Respondida** (verificado: UTF-8 en el HTML; el texto de los PDF sale con tildes correctas) | UY-002 + UY-003 |
-| Q8 | Rango y reglas del 5 de Oro | Pendiente | UY-004 |
-| Q9 | Términos de uso | Pendiente | UY-004 |
-| Q10 | `ver_estadisticas` como control cruzado | Pendiente | UY-004 |
-| — | Acceso desde AWS | Pendiente | UY-005 |
+| **Q8** | Rango y reglas del 5 de Oro | **Respondida** (verificado: 01–44 hasta 2014-03-16, 01–48 desde 2014-03-19; reglas 2012–2026 en CSV) | UY-004 |
+| **Q9** | Términos de uso | **Respondida** (no hay términos ni aviso legal; pie y `robots.txt` transcritos, sin conclusión legal) | UY-004 |
+| **Q10** | `ver_estadisticas` como control cruzado | **Respondida** (verificado: coincide con el bronce; sin descarga) | UY-004 |
+| **—** | Acceso desde AWS | **Respondida** (verificado: us-east-1 llega sin proxy) | UY-005 |
 
 ---
 
@@ -141,7 +141,7 @@ No hay sorteo de 5 de Oro en ese día ni en los 3 días siguientes:
 |---|---|---|
 | **Semana de Turismo (13)** | 2007-04-08, 2008-03-23, 2009-04-12, 2010-04-04, 2011-04-24, 2012-04-08, 2013-03-31, 2014-04-20, 2015-04-05, 2016-03-27, 2017-04-16, 2019-04-21, 2020-04-08 | No se sortea. **Decisión del owner:** son huecos permanentes, no hay forma de recuperarlos y no son un error. |
 | **Fin de año (16)** | 2006-12-24, 2006-12-31, 2008-12-31, 2009-12-30, 2010-12-29, 2011-12-28, 2014-12-24, 2015-12-23, 2015-12-30, 2016-12-28, 2017-12-24, 2017-12-31, 2022-12-25, 2022-12-28, 2023-12-24, 2023-12-31 | Navidad, Año Nuevo y la Lotería de fin de año (hipótesis para las fechas que no son feriado). |
-| **2019-09-25** | | **Paro de AFAL, el gremio de la DNLQ** (informado por el owner y confirmado en [prensa](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas)): rechazo a eliminar a los "niños cantores" de las extracciones. Ese 5 de Oro se sorteó el **martes 2019-10-01**. Coincide con los 4 días `error` (25, 26, 27 y 30 de septiembre), en los que tampoco hubo Quiniela. Detalle en [Q2](#los-4-días-error-de-septiembre-de-2019-paro-verificado). |
+| **2019-09-25** | | **Paro de AFAL, el gremio de la DNLQ** (informado por el owner, confirmado en [prensa](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas) y en los OIS 2036 y 2037 de la DNLQ): rechazo a eliminar a los "niños cantores" de las extracciones. Ese 5 de Oro se sorteó el **martes 2019-10-01**. Coincide con los 4 días `error` (25, 26, 27 y 30 de septiembre), en los que tampoco hubo Quiniela. Detalle en [Q2](#los-4-días-error-de-septiembre-de-2019-paro-verificado). |
 | **2026-01-21** | | **Cambio de calendario de la DNLQ** (informado por el owner): para no superponerse con el sorteo extraordinario "La Revancha de Reyes" del viernes 2026-01-23, las apuestas pasaron al domingo 2026-01-25. El manifiesto lo confirma: el 23 trae un bloque `loteria` y el 25 trae el 5 de Oro. |
 | **2016-04-17** | | **Duelo Oficial nacional** (informado por el owner) decretado por el Poder Ejecutivo tras el tornado F3 de Dolores (Soriano) del 2016-04-15. Durante un duelo oficial, la DNLQ suspende la comercialización y los sorteos públicos. El sorteo anterior lo había anunciado y el siguiente fue el 2016-04-20. |
 | **Sin explicar (2)** | 2006-08-27, 2006-08-30 | Caen en las dos primeras semanas de la historia publicada. Hipótesis: carga incompleta al arrancar el sitio. Esos mismos sorteos tampoco anuncian el próximo, así que no hay forma de confirmarlo con los datos. |
@@ -227,10 +227,10 @@ equivocado). Esto confirma que las dos páginas salen de la misma base.
   para el análisis (UY-032):** el orden de extracción no se publica, así que en el 5 de Oro no se
   puede analizar la frecuencia **por posición**, solo por número. En la Quiniela sí se puede,
   porque sus 20 posiciones están numeradas.
-- **Rango observado de 01 a 48** en las dos épocas (2006–2016 y 2016–2026), tanto en el 5 de Oro
-  como en la Revancha y la extra. Es **observado** y no una regla: el rango oficial y sus
-  versiones se confirman con las resoluciones en Q8 (UY-004). El brief había visto como máximo
-  46.
+- **Rango: 01–44 hasta el 2014-03-16 y 01–48 desde el 2014-03-19** (corregido en UY-004). Aquí
+  decía "01 a 48 en las dos épocas (2006–2016 y 2016–2026)": era cierto para esos dos bloques,
+  pero escondía el cambio de reglas de la As. 176/2014. Ver
+  [Q8](#q8--rango-válido-del-5-de-oro-y-versiones-de-las-reglas).
 
 **Ganadores: "Vacío" es distinto de "Sin Aciertos" (verificado).** En `ver_resultados` hay:
 
@@ -246,7 +246,9 @@ están vacías también en el extracto. Hipótesis: el dato no se cargó. En pla
 
 ## Pendiente de Q1
 
-- Sumar los traslados de fecha a `calendar_events` con su resolución (UY-004).
+- ~~Sumar los traslados de fecha a `calendar_events` con su resolución (UY-004).~~ Hecho en
+  UY-004 para 2016–2026: ver [Calendario oficial](#calendario-oficial-y-calendar_events). Antes
+  de 2016 casi no hay resoluciones publicadas.
 
 ---
 
@@ -310,7 +312,13 @@ son excepciones que el detector de huecos tiene que tolerar, no alarmas.
 ### Los 4 días `error` de septiembre de 2019 (paro, verificado)
 
 **Causa: un paro de AFAL**, la asociación de funcionarios de la DNLQ, contra la eliminación de la
-figura del "niño cantor" en las extracciones (informado por el owner). Lo confirma una nota de
+figura del "niño cantor" en las extracciones (informado por el owner). **La DNLQ lo confirma
+oficialmente** en el [OIS 2036](https://www.loteria.gub.uy/Comunicados/2019/OIS_2036_%5B25_09_2019%5D.pdf)
+("paro parcial dispuesto por A.F.A.L. desde las 13:30 hasta las 23:59", con el 5 de Oro
+trasladado al jueves 26) y en el
+[OIS 2037](https://www.loteria.gub.uy/Comunicados/2019/OIS_2037_%5B26_09_2019%5D.jpg) (paro desde
+las 14:00 del 26, con el 5 de Oro pasado al viernes 27). El motivo del niño cantor no figura en los
+OIS. Lo confirma una nota de
 [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas): el gremio
 "había decretado un paro desde la semana pasada", lo levantó tras reunirse con la DNLQ y el
 Ministerio de Trabajo, y la figura se mantuvo hasta el 31 de diciembre de 2019.
@@ -334,6 +342,8 @@ Lo que muestra el manifiesto:
   ([FocusGN, 2017-08-09](https://focusgn.com/latinoamerica/paro-loterias-quinielas-uruguay): "no
   habrá sorteo de quinielas, Tómbola y 5 de Oro"). Ese día sale como `no_draw` con plantilla vacía,
   y el 5 de Oro pasó al jueves 2017-08-10. **Un paro no siempre se ve igual en la página.**
+  UY-004 encontró más paros con resolución oficial (2017, 2021 y 2024): ver
+  [Calendario oficial](#calendario-oficial-y-calendar_events).
 
 **Propuesta (se decide en UY-010 / UY-011):** el clasificador queda estricto. Los 4 días se pasan a
 `no_draw` con una corrección manual en el manifiesto, que cita una fila de `calendar_events`
@@ -579,3 +589,239 @@ cambio de encoding en plata.
 El texto que extrae pdfplumber de los 243 PDF con texto trae las tildes y la `ñ` bien (`Próximo`,
 `NÚMEROS`, `Miércoles`, `Cupón`, `Sábado`). No aparece ni un `?` ni un carácter de reemplazo
 (U+FFFD) fuera de las URLs. El PDF de pozos también sale limpio (`INFORMACIÓN DE POZOS`).
+
+---
+
+## Q8 — Rango válido del 5 de Oro y versiones de las reglas
+
+**Pregunta del brief:** el rango válido de números del 5 de Oro (las fuentes de terceros decían
+01–48) y cómo cambiaron las reglas con los años, para armar `game_rules` con vigencias.
+
+**Respuesta (verificado): el rango cambió el 2014-03-19. Antes era 01–44 y desde entonces es
+01–48.** Lo fija la As. 176/2014: "cinco (5) números entre 01 al 48 inclusive", a partir del sorteo
+del 19 de marzo de 2014. Los datos lo confirman:
+
+| Período | Sorteos | Mínimo | Máximo |
+|---|---|---|---|
+| 2006-08-16 a 2014-03-16 | 779 | 01 | **44** |
+| 2014-03-19 a 2026-09-30 | 1.293 | 01 | **48** |
+
+- En los 779 sorteos anteriores, ningún número del 5 de Oro, la extra o la Revancha pasa de 44.
+- El primer sorteo con las reglas nuevas (2014-03-19) ya trae un 45 y un 48.
+- Desde entonces, del 45 al 48 salieron entre 262 y 323 veces cada uno.
+- No encontramos la resolución que fijó el 01–44: sale de los datos.
+
+**Esto corrige a Q1**, que decía "rango observado de 01 a 48 en las dos épocas (2006–2016 y
+2016–2026)". Era cierto para esos dos bloques, pero escondía el cambio de 2014.
+
+**Consecuencia para las validaciones (UY-025):** el rango depende de la fecha del sorteo. Un 45
+antes del 2014-03-19 es un error de datos, no un número válido. Por eso `game_rules` lleva
+vigencias.
+
+### Las resoluciones del 5 de Oro (verificado, leídas)
+
+La página del juego (`Juego_Quiniela.php?xjue=4&xpos=1`) enlaza 4 resoluciones, y `noticias.php`
+otras 4. Todas son **escaneos sin texto**, así que se leyeron como imagen:
+
+| Vigencia | Resolución | 5 de Oro | Revancha | Pozo de Oro | Dividendos fijos (4/5 · 3/5+E · 3/5 · 2/5+E · 2/5) |
+|---|---|---|---|---|---|
+| 2012-02-01 | Del 23/01/2012 (citada; no está publicada) | $ 25 | $ 10 | — | — |
+| 2012-03-04 | As. 144/2012 | — | $ 15 (pozo 45,47%) | — | — |
+| **2014-03-19** | **As. 176/2014** (rango 01–48) | $ 20 | $ 10 (pozo 55%) | 31,47% | 4.000 · 800 · 200 · 80 · 30 |
+| 2019-01-07 | Res. 923/2018 (corrige la 920/2018) | $ 30 | $ 10 | 32,59% | 6.000 · 1.200 · 300 · 120 · 40 |
+| 2020-01-02 | Res. 1334/2019 | $ 35 | $ 15 | 31,95% | 7.000 · 1.400 · 350 · 140 · 50 |
+| 2022-10-16 | Res. 519/2022 | $ 40 | $ 20 | 31,47% | 8.000 · 1.600 · 400 · 160 · 60 |
+| 2025-09-17 | Res. 147/2025 | $ 45 | $ 20 | 31,84% | 9.000 · 1.800 · 450 · 180 · 65 |
+| 2026-01-04 | Res. 222/2025 y 222(1)/2025 | $ 50 | $ 20 | 32,14% | 10.000 · 2.000 · 500 · 200 · 70 |
+
+El Pozo de Plata es 3% en todas las versiones desde 2014, y el Pozo Revancha 55%.
+
+- **Las vigencias caen en sorteos reales.** Dos son traslados: el lunes 2019-01-07 (del domingo 6,
+  Reyes) y el jueves 2020-01-02 (del miércoles 1, Año Nuevo). La excepción es la Res. 519/2022,
+  que rige "a partir del sorteo del día 16 de octubre de 2022": ese domingo no hubo sorteo, y el
+  primero con los valores nuevos fue el lunes 2022-10-17. Ese traslado no figura en las noticias.
+- **Las resoluciones se corrigen entre sí.** La 923/2018 corrige "la fecha de vigencia, el monto del
+  premio 2/5 y el porcentaje del Pozo de Oro" de la 920/2018. La 222(1)/2025 cambia el Pozo de Oro
+  de 31,84% a 32,14%. `game_rules` tiene que citar la versión final.
+- **El calendario es miércoles y domingo, y el miércoles "puede correrse al jueves siguiente en
+  caso de feriados"** (texto vigente de la página del juego). Ya vimos en Q1 que en la práctica
+  también hay lunes, martes y viernes.
+
+**Borrador:** [`drafts/game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv) tiene 29 filas,
+cada una con vigencia, resolución y URL.
+
+**Pendiente:** las reglas anteriores a 2012 (precio y porcentajes) y la resolución del 01–44. Ya
+no están en el sitio. El Decreto 635/989 (que la As. 176/2014 cita como marco) queda por buscar
+fuera de `loteria.gub.uy`.
+
+---
+
+## Calendario oficial y `calendar_events`
+
+### `ver_calendario.php` (verificado)
+
+- **Muestra solo el mes en curso.** No acepta parámetros: ni el formulario ni los enlaces piden
+  otro mes.
+- **Está hecho de imágenes.** Cada día es una imagen con su número (`14.png`) seguida de los logos
+  de sus juegos: `logo_tombola_quiniela`, `logo_5deoro`, `logo_quiniela_tombola_5deoro`,
+  `logo_loteria_10` y `logo_No_Hay_Sorteos`. Se puede parsear, pero el logo de la Quiniela no
+  distingue Vespertina de Nocturna (los sábados lo muestra aunque solo hay Nocturna).
+- **Ya refleja los traslados.** El de octubre de 2026 muestra el 5 de Oro el **jueves 15** y no el
+  miércoles 14, y marca el lunes 12 como "No hay sorteos".
+- **Tiene errores de armado:** el viernes 23 de octubre no aparece en la grilla.
+
+**Consecuencia (UY-043):** sirve como calendario esperado **del mes en curso** para la ingesta
+diaria, no para la historia. Hay dos fuentes más del día: el bloque "Sorteos para el día de hoy"
+de `ver_resultados` (juegos y horas) y el "Próximo sorteo" del último extracto.
+
+### Suspensiones y traslados (verificado)
+
+`noticias.php` publica las resoluciones de la DNLQ, de ~2013 a hoy, cada una con un resumen
+("Trasladar la realización del sorteo del 5 de Oro con Revancha del domingo 19 de julio de 2026
+para el lunes 20 de julio de 2026") y su documento (218 PDF, más algunos JPG).
+
+**Borrador:** [`drafts/calendar_events.csv`](drafts/calendar_events.csv) tiene 54 eventos, 30
+suspensiones y 24 traslados:
+
+- 30 se extrajeron con un parser de los resúmenes.
+- 19 se cargaron a mano, por estar redactados de otra forma (OIS escaneados, varias fechas en
+  uno).
+- 5 vienen del brief (2014–2015) y todavía **no tienen URL**.
+
+**Los 54 coinciden con el manifiesto:** cada suspensión es un día sin esos juegos, y cada traslado
+es un juego que falta en la fecha de origen y aparece en la de destino.
+
+Lo que explican:
+
+- **Paros con resolución oficial:**
+  - 2017-06-21: paro general de COFE.
+  - 2017-07-20: paro general del PIT-CNT.
+  - **2019-09-25 y 26:** "paro parcial dispuesto por A.F.A.L." (OIS 2036 y 2037). El 5 de Oro se
+    trasladó al 26 y después al 27.
+  - 2021-06-17: PIT-CNT y COFE.
+  - 2024-04-18 y 2024-08-07.
+
+  Junto con el 2017-08-09 de Q2, ya son al menos siete.
+- **2016-12-05:** se suspendió la Nocturna por "inconvenientes técnicos". Es uno de los 17 días
+  con solo Vespertina de Q2.
+- **2020-08-27 → 2020-08-26:** el 5 de Oro se **adelantó** un día.
+- **Fin de 2022:** se suspendieron los sorteos del lunes 26 y el jueves 29 de diciembre, y los
+  pozos pasaron al martes 2023-01-03 (Res. 670/2022).
+- **2026-01-21:** la Res. 021/2026 confirma lo que había informado el owner en Q1.
+- **Semana de Turismo 2020** (OIS 2077) y **2022** (el 5 de Oro del domingo de Pascua pasó al
+  martes 19).
+- **2020-05-31 → 06-01:** traslado por **duelo nacional** (OIS 2089).
+
+**Límites del borrador:** antes de 2016 la página casi no tiene eventos, así que 2006–2015 sigue
+cubierto solo por la regla de "Próximo sorteo" de Q1. El OIS 2038 (27/09/2019) no se leyó: su
+fila sale del título. Tampoco se cargaron los cambios de horario (por ejemplo, el de los sábados
+del 2022-09-22) ni los traslados de la Lotería.
+
+---
+
+## Q10 — `ver_estadisticas.php` como control cruzado
+
+**Respuesta (verificado): sirve, coincide con nuestros datos, y además encontró un registro mal
+fechado en la base del sitio.**
+
+- **Qué es:** un formulario POST que devuelve cuántas veces salió cada número en un rango de fechas
+  (`xdia`, `xmes`, `xano` hasta `hdia`, `hmes`, `hano`). Hay uno por juego (`xjue`); el de la
+  Quiniela también filtra por posición (1.º a 20.º).
+- **No se puede descargar:** la respuesta es solo HTML, sin CSV ni API.
+- **Cómo cuenta el 5 de Oro:** solo los 5 números, **sin la bolilla extra**. La "cantidad de
+  sorteos consultados" cuenta el 5 de Oro y la Revancha por separado (210 en 2025 = 105 + 105).
+
+**Comparación con el bronce (2 peticiones: 2025 y toda la historia):**
+
+| | Sitio | Bronce | Resultado |
+|---|---|---|---|
+| 5 de Oro, 2006-01-01 a 2026-09-30 | 10.360 números | 10.360 | **Los 48 conteos iguales** |
+| Revancha, mismo rango | 10.365 | 10.360 | 5 de más en el sitio |
+| 2025 completo | 525 y 525 | 525 y 525 | Iguales |
+
+**La Revancha de más es un error de fecha en la base del sitio (verificado).** Por bisección de
+fechas (13 peticiones) aparece el **2010-10-07**: un jueves sin sorteo según `ver_resultados`. El
+extracto PHP de ese día trae el 5 de Oro vacío (`//`, pozos `0,00`) pero una Revancha completa
+(06 08 13 40 44, pozo $ 11.495.998,22). Es **la Revancha del 2010-11-07** copiada con el mes
+equivocado: mismos números y mismo pozo. Las estadísticas oficiales la cuentan dos veces.
+
+- **Nuestra capa 1 no la ve**, porque `ver_resultados` no lista el 5 de Oro ese día. Está bien que
+  no la vea.
+- **La plantilla "vacía" puede traer datos a medias.** El clasificador ve el `//` y la marca como
+  vacía, aunque tiene una Revancha. Es el único caso conocido.
+
+**Consecuencia (UY-026 / UY-030):** las estadísticas sirven como control agregado del 5 de Oro y de
+la Revancha, con una excepción documentada (−1 Revancha el 2010-10-07). La Quiniela por posición
+queda para cuando exista su plata.
+
+---
+
+## Q9 — Términos de uso y pie legal
+
+**Se transcribe y se cita. No se saca ninguna conclusión legal.**
+
+- **No encontramos términos de uso, aviso legal ni política de privacidad.** Revisamos los enlaces
+  de la página de inicio, `ver_resultados`, el calendario, las estadísticas, las noticias y las
+  páginas de los juegos.
+- **Pie de página (transcripción del 2026-10-14):** "Ministerio de Economía y Finanzas | Dirección
+  Nacional de Loterías y Quinielas Edificio Central: Cerrito 220 Horarios al público: 9:15 a 15:30
+  | Central tel.: 2916 0376 Resolución recomendada de monitor: 1360 x 768 o superior | Sitio
+  optimizado para Mozilla Firefox".
+- **`robots.txt`** (pedido de nuevo el 2026-10-14, `Last-Modified` 2021-06-14): solo tiene grupos
+  para `Googlebot`, `Googlebot-Image` y `AdsBot-Google`, todos con `Disallow:` vacío. No hay grupo
+  para otros user-agents.
+- **No se revisó** el subdominio `www2.loteria.gub.uy` (contactos, sugerencias) ni la sección
+  Transparencia.
+
+Si hace falta algo más que esta transcripción, lo decide el owner.
+
+---
+
+## Otros hallazgos de UY-004
+
+- **Mapa completo de los códigos de Lotería (para UY-006).** `ver_resultados_pdf.php` es otra
+  versión de la página de resultados. Su `MostrarExtracto()` mapea **75 códigos**, cada uno a un
+  extracto PHP por año (`Extracto_Loteria_2026_9.php`, `Extracto_El_Gordo_2025.php`,
+  `Extracto_Revancha_2026.php`…). Ahí están los códigos 27–38 que `sources.py` no conoce (Q3).
+- **El PDF de prueba de octubre de 2018, en el código del sitio.** `ver_resultados.php` todavía
+  tiene la línea comentada `//var filePath = '/extractosweb/20181023v.pdf';`. Es el mismo
+  extracto del 23/10/2018 que encontramos dentro de `20181009v.pdf` (Q5).
+
+---
+
+## UY-005 — ¿Se puede llegar al sitio desde AWS?
+
+**Respuesta (verificado el 2026-10-15 a las 00:36 UTC, desde CloudShell en us-east-1, corrido por
+el owner): sí, sin proxy.**
+
+**Método.** El script [`drafts/uy005_cloudshell.sh`](drafts/uy005_cloudshell.sh) hace 4
+peticiones, a 1 por segundo y con el User-Agent de UY-001, y compara el resultado contra el
+bronce local. IP de salida: `44.205.19.58`.
+
+| Petición | Estado | Bytes en AWS | Bytes en local | Tiempo |
+|---|---|---|---|---|
+| `index.php` | 200 | 23.822 | 23.822 | 0,86 s |
+| `ver_resultados` del 2026-09-23 | 200 | 87.841 | 87.421 | 0,76 s |
+| Extracto PHP del 5 de Oro del 2026-09-23 | 200 | 11.870 | 11.870 | 0,54 s |
+| PDF `20260923o.pdf` | 200 | 352.607 | 352.607 | 0,96 s |
+
+- **No hay CDN ni WAF delante del sitio.** Todas las respuestas traen `Server: nginx`, sin `cf-ray`
+  ni otras cabeceras de Cloudflare o de un WAF. No apareció texto de desafío ni de bloqueo.
+- **El contenido es el mismo.** El SHA-256 del PDF es idéntico al del bronce (`a1598f7b…`).
+  `ver_resultados` trae el `MostrarExtracto('5','23','09','2026')` esperado, y el extracto trae su
+  fecha. Los 420 bytes de diferencia en `ver_resultados` son el bloque "Sorteos para el día de
+  hoy", que cambia con el día de la petición.
+- **No hizo falta probar desde `sa-east-1`.**
+
+**Consecuencias (decisión del owner en UY-003):**
+
+- **Sin proxy.** El extractor de la nube baja el HTML (`ver_resultados` y los extractos PHP) **y el
+  PDF del extracto como respaldo**.
+- **El PDF de pozos también se baja**, porque es la única fuente del número de sorteo.
+- **UY-040 se simplifica:** no hay credenciales de proxy ni costo por petición. Sí se mantienen la
+  cortesía (1 req/s) y el guard de `DET_INVALIDAS`.
+
+**Límite.** CloudShell sale por una IP de AWS, como una Lambda, pero no por la misma. La
+confirmación definitiva es la primera ejecución real en la Fase 5. Si una Lambda de la VPC del
+proyecto sale sin NAT (`enable_internet=false` en prod), además hace falta una ruta de salida, pero
+eso es diseño de UY-040 y no un bloqueo del sitio.

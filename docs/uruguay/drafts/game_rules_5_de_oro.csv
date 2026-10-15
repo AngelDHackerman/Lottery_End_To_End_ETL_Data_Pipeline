@@ -1,0 +1,30 @@
+game,rule,value,valid_from,valid_to,source,source_url,evidence
+5_de_oro,numeros_por_sorteo,5 + bolilla extra (5 de Oro); 5 (Revancha),2006-08-16,,Página del juego y As. 176/2014,https://www.loteria.gub.uy/Juego_Quiniela.php?xjue=4&xpos=1,verificado en los 2.072 sorteos (UY-002)
+5_de_oro,rango_numeros,01-44,2006-08-16,2014-03-18,Sin resolución encontrada,,"verificado: ningún número pasa de 44 en los 779 sorteos anteriores (5 de Oro, extra y Revancha)"
+5_de_oro,rango_numeros,01-48,2014-03-19,,As. 176/2014 numeral 1,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,"verificado: el primer sorteo (2014-03-19) ya trae 45 y 48; máximo 48 en 1.293 sorteos"
+5_de_oro,dias_de_sorteo,miércoles y domingo; el miércoles puede correrse al jueves por feriado,,,Página del juego (texto vigente) y As. 176/2014 numeral 3,https://www.loteria.gub.uy/Juego_Quiniela.php?xjue=4&xpos=1,"observado: 12,6% de los sorteos cae fuera de mié./dom. (UY-002)"
+5_de_oro,precio_5_de_oro,$ 25,2012-02-01,2014-03-18,Resolución del 23/01/2012 (citada en As. 144/2012),https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,citada; la resolución original no está publicada
+5_de_oro,precio_revancha,$ 10,2009-02,2012-03-03,Citado en As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,citada
+5_de_oro,precio_revancha,$ 15,2012-03-04,2014-03-18,As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,leído
+5_de_oro,pozo_revancha_pct,45.47,2012-03-04,2014-03-18,As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,leído
+5_de_oro,precio_5_de_oro,$ 20,2014-03-19,2019-01-06,As. 176/2014 numeral 8,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,leído
+5_de_oro,precio_revancha,$ 10,2014-03-19,2020-01-01,As. 176/2014 numeral 8,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,leído
+5_de_oro,pozos_pct,oro 31.47; plata 3.00; revancha 55,2014-03-19,2019-01-06,As. 176/2014 numeral 2,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,leído
+5_de_oro,dividendo_fijo,4/5=4000; 3/5+E=800; 3/5=200; 2/5+E=80; 2/5=30,2014-03-19,2019-01-06,As. 176/2014 numeral 2,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,leído
+5_de_oro,precio_5_de_oro,$ 30,2019-01-07,2020-01-01,Res. 923/2018 (corrige la 920/2018),https://www.loteria.gub.uy/Resoluciones/Resolucion_923_2018.pdf,leído; 2019-01-07 es lunes (traslado del domingo 6 por Reyes)
+5_de_oro,pozos_pct,oro 32.59; plata 3; revancha 55,2019-01-07,2020-01-01,Res. 923/2018,https://www.loteria.gub.uy/Resoluciones/Resolucion_923_2018.pdf,leído
+5_de_oro,dividendo_fijo,4/5=6000; 3/5+E=1200; 3/5=300; 2/5+E=120; 2/5=40,2019-01-07,2020-01-01,Res. 923/2018,https://www.loteria.gub.uy/Resoluciones/Resolucion_923_2018.pdf,leído
+5_de_oro,precio_5_de_oro,$ 35,2020-01-02,2022-10-15,Res. 1334/2019,https://www.loteria.gub.uy/Resoluciones/Resolucion_1334_2019.pdf,leído; 2020-01-02 es jueves (traslado del miércoles 1 por Año Nuevo)
+5_de_oro,precio_revancha,$ 15,2020-01-02,2022-10-15,Res. 1334/2019,https://www.loteria.gub.uy/Resoluciones/Resolucion_1334_2019.pdf,leído
+5_de_oro,pozos_pct,oro 31.95; plata 3.00; revancha 55,2020-01-02,2022-10-15,Res. 1334/2019,https://www.loteria.gub.uy/Resoluciones/Resolucion_1334_2019.pdf,leído
+5_de_oro,dividendo_fijo,4/5=7000; 3/5+E=1400; 3/5=350; 2/5+E=140; 2/5=50,2020-01-02,2022-10-15,Res. 1334/2019,https://www.loteria.gub.uy/Resoluciones/Resolucion_1334_2019.pdf,leído
+5_de_oro,precio_5_de_oro,$ 40,2022-10-16,2025-09-16,Res. 519/2022,https://www.loteria.gub.uy/Resoluciones/Resolucion_519_2022_5deOro.pdf,"leído; el domingo 2022-10-16 no hubo sorteo, el primero fue el lunes 2022-10-17"
+5_de_oro,precio_revancha,$ 20,2022-10-16,,Res. 519/2022; mantenido en 147/2025 y 222/2025,https://www.loteria.gub.uy/Resoluciones/Resolucion_519_2022_5deOro.pdf,leído
+5_de_oro,pozos_pct,oro 31.47; plata 3.00; revancha 55,2022-10-16,2025-09-16,Res. 519/2022,https://www.loteria.gub.uy/Resoluciones/Resolucion_519_2022_5deOro.pdf,leído
+5_de_oro,dividendo_fijo,4/5=8000; 3/5+E=1600; 3/5=400; 2/5+E=160; 2/5=60,2022-10-16,2025-09-16,Res. 519/2022,https://www.loteria.gub.uy/Resoluciones/Resolucion_519_2022_5deOro.pdf,leído
+5_de_oro,precio_5_de_oro,$ 45,2025-09-17,2026-01-03,Res. 147/2025,https://www.loteria.gub.uy/Resoluciones/Resolucion_147_30_07_2025.pdf,leído
+5_de_oro,pozos_pct,oro 31.84; plata 3.00; revancha 55,2025-09-17,2026-01-03,Res. 147/2025,https://www.loteria.gub.uy/Resoluciones/Resolucion_147_30_07_2025.pdf,leído
+5_de_oro,dividendo_fijo,4/5=9000; 3/5+E=1800; 3/5=450; 2/5+E=180; 2/5=65,2025-09-17,2026-01-03,Res. 147/2025,https://www.loteria.gub.uy/Resoluciones/Resolucion_147_30_07_2025.pdf,leído
+5_de_oro,precio_5_de_oro,$ 50,2026-01-04,,Res. 222/2025,https://www.loteria.gub.uy/Resoluciones/Resoluci%C3%B3n_222_2025_25_11.pdf,leído
+5_de_oro,pozos_pct,oro 32.14; plata 3.00; revancha 55,2026-01-04,,Res. 222(1)/2025 (corrige el 31.84 de la 222/2025),https://www.loteria.gub.uy/Resoluciones/Resolucion_222_2025_anexo1_4_12.pdf,leído
+5_de_oro,dividendo_fijo,4/5=10000; 3/5+E=2000; 3/5=500; 2/5+E=200; 2/5=70,2026-01-04,,Res. 222/2025 y 222(1)/2025,https://www.loteria.gub.uy/Resoluciones/Resolucion_222_2025_anexo1_4_12.pdf,leído
