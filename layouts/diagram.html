@@ -18,7 +18,7 @@
 <div class="wrap">
   <header>
     <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
-      <span>lago al día hasta el Ordinario 3138</span><span>·</span><span>11 oct 2026</span></p>
+      <span>lago al día hasta el Ordinario 3139</span><span>·</span><span>15 oct 2026</span></p>
     <h1>Arquitectura Lotería Santa Lucía</h1>
     <p>Lo que está desplegado hoy, comprobado contra la cuenta y no contra la documentación.
       Hacé clic en cualquier pieza para ver sus nombres reales y su estado, o reproducí la
@@ -28,7 +28,7 @@
   <div class="bar">
     <button id="play" class="primary">▶ Reproducir la corrida semanal</button>
     <div class="sep"></div>
-    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: el linaje</button>
+    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: la fase 9</button>
     <button id="tgl-bad" aria-pressed="false">Resaltar defectos</button>
     <div class="keys">
       <span class="key"><span class="sw ok"></span>Desplegado</span>
@@ -79,7 +79,7 @@
             toda la configuración que las nombraba y repuntó el grant de lectura de SageMaker
             —su único permiso de datos— a <code>silver/</code> y <code>gold/</code>. Queda
             abierto porque los bytes siguen ahí: 347 objetos congelados —el mismo número el
-            11 oct—, y 041.3 no los borra antes del 20 oct. Esa espera no es burocracia — CloudTrail de datos
+            15 oct, con los cuatro jueves de la espera ya pasados—, y 041.3 no los borra antes del 20 oct. Esa espera no es burocracia — CloudTrail de datos
             está apagado para este bucket, así que compra con tiempo la prueba que la
             evidencia no puede dar.</td></tr>
         <tr><td class="pr done">042</td><td>Gold no es atómica — <b>cerrado: el swap el
@@ -210,18 +210,18 @@
   </details>
 
   <details>
-    <summary>Fase 9: cuatro defectos que los PRs anteriores dejaron anotados — uno cerrado, dos por verificar, uno por desplegar</summary>
+    <summary>Fase 9: cuatro defectos que los PRs anteriores dejaron anotados — tres cerrados, uno desplegado a la espera de su corrida</summary>
     <div class="dbody">
       <p class="hint">Ninguno rompía producción el día en que se anotó; por eso se quedaron
         fuera del PR que los encontró. Se atendieron después del 8 de octubre, para que esa
         corrida verificara la fase 8 sin cambios mezclados. Color de la columna PR:
         <b class="c-done">verde</b>, cerrado; <b class="c-pend">ámbar</b>, desplegado pero
-        sin una corrida que lo pruebe todavía —la del 15 de octubre, sorteo 3139—;
+        sin una corrida que lo pruebe todavía —la del 22 de octubre—;
         <b class="c-open">rojo</b>, sigue abierto en producción.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr pend">047</td><td>El <code>Retry</code> del extractor no veía el 502
-          del proxy — <b>desplegado el 8 oct</b></td>
+        <tr><td class="pr done">047</td><td>El <code>Retry</code> del extractor no veía el 502
+          del proxy — <b>cerrado el 15 oct</b></td>
           <td>Anotado la noche del 24 sep. El <code>Retry</code> de
             <code>RunExtractorLambda</code> cubría solo faltas de transporte, y un 502 del
             proxy llegaba como un <code>ValueError</code> genérico: la corrida tenía un solo
@@ -230,23 +230,26 @@
             a la primera, porque reintentarlos no arregla nada. De paso, la alarma
             <code>loteria-sfn-execution-failed-prod</code> dejó de decir «la máquina no tiene
             Retry ni Catch» —lo primero que se leía en el correo de alerta—. El deploy se
-            comprobó leyendo la máquina desplegada; el reintento en sí solo se verá el día
-            que el proxy devuelva un 502.</td></tr>
-        <tr><td class="pr pend">048</td><td><code>transform()</code> leía de un bucket y
-          escribía en otro — <b>desplegado el 9 oct</b></td>
+            comprobó leyendo la máquina desplegada, y la corrida del 15 trajo el 3139 al primer
+            intento sin romper nada. El reintento en sí solo se verá el día que el proxy
+            devuelva un 502.</td></tr>
+        <tr><td class="pr done">048</td><td><code>transform()</code> leía de un bucket y
+          escribía en otro — <b>cerrado el 15 oct</b></td>
           <td>Anotado en PR-030. Descargaba del bucket que recibía como argumento pero subía
             Silver a una variable global. Producción coincidía solo porque
             <code>main()</code> pasaba el mismo bucket a las dos cosas; un test, un backfill o
             un segundo entorno habrían escrito en otro sitio sin ningún error. Ahora escribe
             donde lee, y tres tests con dos buckets de moto lo comprueban. La corrida del
-            15 oct es la primera que pasa por este código.</td></tr>
-        <tr><td class="pr">049</td><td>El gate no comprobaba la integridad referencial —
-          <b>arreglo escrito, se despliega el 15 oct</b></td>
+            15 oct, la primera que pasó por este código, escribió el Silver del 3139 en el
+            bucket del que leyó su <code>.txt</code>.</td></tr>
+        <tr><td class="pr pend">049</td><td>El gate no comprobaba la integridad referencial —
+          <b>desplegado el 15 oct</b></td>
           <td>Anotado en PR-032. Ninguna expectativa exigía que cada premio apuntara a un
             sorteo que existe: un premio huérfano pasaba el gate y llegaba a Gold. La
             expectativa nueva se probó contra el Silver real (pasa) y contra un huérfano
-            fabricado (falla). Se despliega <b>después</b> de la corrida del 15 de octubre
-            para que esa corrida verifique 047 y 048 solos; la primera corrida con el gate
+            fabricado (falla), y el gate desplegado vuelve a pasar contra el Silver real con 14
+            expectativas en premios. Se desplegó <b>después</b> de la corrida del 15 de octubre
+            para que esa corrida verificara 047 y 048 solos; la primera corrida con el gate
             nuevo será la del 22.</td></tr>
         <tr><td class="pr done">050</td><td>ruff podía «modernizar» código que corre en
           Python 3.9 — <b>cerrado el 4 oct</b></td>
