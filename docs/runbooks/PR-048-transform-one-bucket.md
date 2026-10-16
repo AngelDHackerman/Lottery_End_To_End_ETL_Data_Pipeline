@@ -103,6 +103,21 @@ The run is also PR-047's first scheduled run after its deploy. They touch differ
 (the state machine's extractor retry vs the transformer's write), so a failure would still
 point at one of them.
 
+### ✅ Result, 2026-10-15 (the scheduled run, sorteo 3139)
+
+Execution `c8f31649-…_a3efaac7-…` **SUCCEEDED**, 15:00:37 → 15:11:26 (-03:00).
+`RunTransformerGlueJob` ran 15:00:43 → 15:01:40, and both files landed inside that window,
+in the bucket the job reads from:
+
+```
+2026-10-15 15:01:28  17052 silver/premios/year=2026/sorteo=3139/premios.parquet
+2026-10-15 15:01:28  11560 silver/sorteos/year=2026/sorteo=3139/sorteos.parquet
+```
+
+The DQ gate downstream saw them: `[PASS] silver_sorteos: 15 expectations, 120 rows from 120
+files`, `[PASS] silver_premios: 13 expectations, 126229 rows from 120 files` (119 → 120).
+Gold rebuilt, and every alarm is `OK`.
+
 ## 6. Rollback
 
 `git revert` + `make deploy`. Nothing stored changes: the bucket is the same before and

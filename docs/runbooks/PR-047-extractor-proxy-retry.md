@@ -169,6 +169,15 @@ the extractor still succeeds and returns its file. The retry path stays proven b
 until the day scrape.do has a bad minute. On that day, the execution history should show
 `RunExtractorLambda` failing with `ProxyRetryableError` and then succeeding 5 minutes later.
 
+### ✅ Result, 2026-10-15 (the scheduled run, sorteo 3139)
+
+No regression. Execution `c8f31649-…_a3efaac7-…` **SUCCEEDED** (15:00:37 → 15:11:26,
+-03:00). `RunExtractorLambda` entered at 15:00:37 and exited at 15:00:43 on its first
+attempt, returning `{"status":"ok","file":"…lista_del_sorteo_ordinario_no._3139.txt"}`. The
+history holds no `Failed` or `TimedOut` event, so neither retrier fired. `extractor-errors`,
+`scrapedo-failed` and `sfn-execution-failed` are all `OK`. The retry path is still proven
+only by the tests, until a real 502.
+
 ## 8. Rollback
 
 `git revert` + `make deploy`. The previous definition simply lacks the second retrier, and
