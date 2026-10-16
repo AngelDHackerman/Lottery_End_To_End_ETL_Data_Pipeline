@@ -113,6 +113,21 @@ aws logs filter-log-events --log-group-name /aws-glue/jobs/loteria-silver-dq-pro
 # expect: [PASS] silver_premios: 14 expectations, … rows from 121 files (119 + 3139 + 3140)
 ```
 
+### ✅ Result, 2026-10-15 (after the owner's `make deploy`)
+
+1. **Apply:** `0 added, 2 changed, 0 destroyed`, against a plan of `0/3/0`. The missing
+   change is the `gold_purge` phantom, which collapses at apply: `lottery-gold-purge-prod`
+   kept `LastModified 2026-09-27T17:34:57Z` and `CodeSha256 +F/pVYr3…OpHI=`. The two real
+   changes are `lambda_package` and the extractor (`LastModified 2026-10-16T00:33:31Z`,
+   layer still `loteria-deps-prod:6`).
+2. **Deployed DQ library:** `loteria_dq_lib.zip` uploaded `2026-10-16T00:33:43Z`. Its
+   `runner.py` has `REFERENCES = {` (l.54) and `def referential_checks` (l.396).
+3. **Gate from a checkout against prod Silver:** `[PASS] silver_sorteos: 15 expectations,
+   120 rows from 120 files`, `[PASS] silver_premios: 14 expectations, 126229 rows from 120
+   files`, `DQ RESULT: PASS`. 13 → 14, green.
+
+Still open: the 2026-10-22 run, the first one gated by this check.
+
 ## 6. Rollback
 
 `git revert` + `make deploy`. The gate reads Silver and writes nothing, so a rollback never
