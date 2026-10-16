@@ -13,8 +13,7 @@ una etiqueta:
 (`data/uy/manifest.sqlite`) del backfill del **2026-10-04**: 7.370 páginas de `ver_resultados.php`
 y 2.072 extractos del 5 de Oro, todas con **HTTP 200** y `Content-Type: text/html; charset=UTF-8`,
 descargadas entre las 14:43 y las 20:23 UTC. Los análisis de esta fase se hicieron **sin peticiones
-nuevas**. Los cupones se citan solo por su formato (`#########-#`), nunca por su valor (decisión C7
-pendiente).
+nuevas**. Los cupones se citan solo por su formato (`#########-#`), nunca por su valor. Por la decisión C7 (2026-10-15), los cupones se quedan solo en bronce.
 
 ---
 
@@ -29,10 +28,85 @@ pendiente).
 | **Q5** | PDF frente a HTML | **Respondida** (verificado: el PDF es una impresión del HTML y coincide en el 100% de los campos) | UY-003 |
 | **Q6** | Frecuencia de la Lotería | **Respondida** (verificado: viernes; ~42 al año hasta 2012 y 12 al año desde 2014) | UY-006 |
 | **Q7** | Encoding | **Respondida** (verificado: UTF-8 en el HTML; el texto de los PDF sale con tildes correctas) | UY-002 + UY-003 |
-| **Q8** | Rango y reglas del 5 de Oro | **Respondida** (verificado: 01–44 hasta 2014-03-16, 01–48 desde 2014-03-19; reglas 2012–2026 en CSV) | UY-004 |
+| **Q8** | Rango y reglas del 5 de Oro | **Respondida** (verificado: 01–44 hasta 2014-03-16, 01–48 desde 2014-03-19; reglas 2012–2026 en CSV; el decreto de 1989 decía 01–36, y lo de 1990–2011 es un hueco) | UY-004 + UY-007 |
 | **Q9** | Términos de uso | **Respondida** (no hay términos ni aviso legal; pie y `robots.txt` transcritos, sin conclusión legal) | UY-004 |
 | **Q10** | `ver_estadisticas` como control cruzado | **Respondida** (verificado: coincide con el bronce; sin descarga) | UY-004 |
 | **—** | Acceso desde AWS | **Respondida** (verificado: us-east-1 llega sin proxy) | UY-005 |
+
+**Cierre (UY-007, 2026-10-15).** Las diez preguntas y la de AWS tienen respuesta. Lo que sigue en
+esta sección junta lo que está repartido en el resto del archivo: las decisiones ya tomadas, lo
+que se deja para el diseño, los huecos conocidos y las contradicciones con el brief. **Esto es lo
+que el owner revisa para el gate G1.**
+
+### Decisiones del owner en la Fase 1
+
+| Fecha | Decisión | Dónde |
+|---|---|---|
+| 2026-10-06 | Las 13 fechas de Semana de Turismo sin 5 de Oro son **huecos permanentes**, no errores | [Calendario](#miércoles-o-domingos-sin-5-de-oro-y-sin-reemplazo-34-fechas-verificado) |
+| 2026-10-14 | **El HTML es la fuente.** El PDF del extracto se baja solo como respaldo | [Q5](#comparación-campo-por-campo-verificado) |
+| 2026-10-14 | El **PDF de pozos** se baja siempre, aunque haga falta un proxy: trae el número de sorteo, que el HTML no tiene (era una inclinación; UY-005 la confirmó el 15) | [Q5](#biblioteca-de-pdf-pdfplumber-verificado) |
+| 2026-10-15 | Con UY-005 verificado, la nube baja HTML, PDF del extracto y PDF de pozos, **sin proxy** | [UY-005](#uy-005--se-puede-llegar-al-sitio-desde-aws) |
+| 2026-10-15 | **Kini: UL2, diferido y solo con backfill.** La Lotería Uruguaya sigue fuera de la v1 (UL1) | [Kini](#kini-verificado) |
+| 2026-10-15 | **C7: los números de cupón se quedan solo en bronce.** No entran en plata porque no aportan análisis, pero tampoco se descartan: el bronce guarda la página entera, cupones incluidos | Abajo |
+| 2026-10-15 | Las **reglas anteriores a 2012** que no aparezcan se documentan como hueco y **no bloquean G1** | [Q8](#q8--rango-válido-del-5-de-oro-y-versiones-de-las-reglas) |
+
+**Qué implica C7 para el diseño.** Bronce es inmutable, así que nunca se le borran los cupones.
+Plata no lleva ninguna columna con números de cupón. La celda del premio sí da un dato que plata
+necesita: si hubo ganadores, si fue "Sin Aciertos" o si está vacía (25 celdas, ver
+[Q1](#comparación-valor-por-valor)), y eso se guarda como estado del premio. Si plata guarda
+además **cuántos** cupones ganaron se decide en UY-010. En este repo los cupones se siguen citando
+solo por su formato (`#########-#`).
+
+### Lo que se decide en el diseño (UY-010 / UY-011)
+
+Son propuestas escritas durante la exploración. Ninguna está aprobada todavía:
+
+1. **Datos contaminados:** bronce inmutable, plata conserva el valor publicado con `dq_flags`, el
+   vacío se carga como nulo y nunca como cero, y la cuarentena es solo para lo que no se puede
+   interpretar ([Q1](#calidad-de-los-datos-de-2006-verificado)).
+2. **Los 4 días `error` de 2019:** el clasificador queda estricto y los días pasan a `no_draw` con
+   una corrección manual que cita `calendar_events` ([Q2](#los-4-días-error-de-septiembre-de-2019-paro-verificado)).
+   Desde UY-007 uno de ellos es fixture (`resultados_2019-09-25.html`) y tiene su test.
+3. **Detector de huecos:** el "Próximo sorteo" del sorteo anterior (acierta en el 98,3%) con
+   +3 días de tolerancia, más `calendar_events`, porque no hay número de sorteo antes de 2016 (C10, C11).
+4. **`game_rules` con vigencias**, sembrado desde [`drafts/game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv)
+   (el rango depende de la fecha), y **`calendar_events`** desde
+   [`drafts/calendar_events.csv`](drafts/calendar_events.csv).
+5. **pdfplumber** para el PDF de pozos ([Q5](#biblioteca-de-pdf-pdfplumber-verificado)).
+6. **El runtime de destino** (C6), antes de escribir un parser: si es Glue 3.9, el guard de
+   PR-050 se amplía al paquete nuevo.
+7. **Un parser de montos por fuente**, no por época (C12).
+
+### Huecos conocidos (no bloquean G1)
+
+- **El rango 01–44 no tiene resolución.** El Decreto 635/989 creó el 5 de Oro con **01–36**, así
+  que entre 1990 y 2006 hubo al menos un cambio que no encontramos ([Q8](#q8--rango-válido-del-5-de-oro-y-versiones-de-las-reglas)).
+  Para la v1 basta lo verificado en los datos: 01–44 hasta el 2014-03-16.
+- **Precios y porcentajes anteriores a 2012** del 5 de Oro: no están en el sitio.
+- **`calendar_events` antes de 2016** casi no tiene eventos. 2006–2015 queda cubierto solo por
+  "Próximo sorteo", y 5 eventos de 2014–2015 no tienen URL.
+- **Dos domingos de 2006 sin explicar** (2006-08-27 y 2006-08-30). Hipótesis: carga incompleta al
+  arrancar el sitio.
+- **El paso de la Lotería a mensual en 2013** (hipótesis: una reestructuración junto con el fin del
+  Kini). No se buscó la resolución porque la Lotería está fuera de la v1.
+- **No se revisaron** `www2.loteria.gub.uy` ni la sección Transparencia (Q9).
+
+### Contradicciones con el brief que verificó la Fase 1
+
+La tabla completa, con su resolución, está en
+[`roadmap-uruguay.md`](../../roadmap-uruguay.md#contradicciones-y-huecos-del-brief-resueltos-aquí-o-abiertos).
+Estas son las que salieron de los datos:
+
+| # | El brief dice | Lo verificado |
+|---|---|---|
+| C8 | El sorteo más antiguo es del 07/01/2007 | La historia publicada empieza el **2006-08-11** (el 5 de Oro, el 2006-08-16) |
+| C9 | Desde ~2010 algunas URLs bajan un PDF | El PDF aparece el **2018-11-30**, y el PHP sigue respondiendo en todas las fechas |
+| C10 | El 5 de Oro se sortea miércoles y domingo | El **12,6%** de los sorteos cae otro día |
+| C11 | El número de sorteo sirve de clave y para detectar huecos | No se publica en el HTML; solo en el PDF de pozos, desde 2016 |
+| C12 | El HTML de 2016 usa montos en estilo EE.UU. | `ver_resultados` lo usa **desde 2006**; el extracto nunca |
+| C13 | El Kini terminó el 31/01/2014 | El último sorteo publicado es el **2013-12-27** (el primero en el sitio, el 2006-08-15) |
+| C14 | La Lotería es mensual (dato del owner, no verificado) | **Casi semanal** hasta 2012 (40 a 43 al año) y **mensual desde 2014**, los viernes |
+| C15 | Fuentes de terceros dicen 01–48 para el 5 de Oro | **01–44 hasta el 2014-03-16** y 01–48 desde el 2014-03-19. El decreto de 1989 decía 01–36 |
 
 ---
 
@@ -349,8 +423,12 @@ Lo que muestra el manifiesto:
 `no_draw` con una corrección manual en el manifiesto, que cita una fila de `calendar_events`
 (causa `paro`, con la URL de la nota). Un `error` nuevo sigue pidiendo revisión humana.
 
-**Pendiente:** las 4 páginas no quedaron en bronce, porque bronce solo guarda sorteos. Para tener una
-como fixture hay que volver a pedirla (1 petición).
+**Fixture (UY-007, verificado):** las 4 páginas no quedaron en bronce, porque bronce solo guarda
+sorteos, así que se volvió a pedir la del 2019-09-25 (1 petición, 2026-10-16 01:26 UTC, HTTP 200).
+Sigue clasificando como `error` ("game blocks without extract codes"): muestra la cabecera de la
+Vespertina y ningún `MostrarExtracto` con código. Pesa 48.803 bytes contra los 48.072 del backfill,
+por el bloque "Sorteos para el día de hoy". Quedó en `tests/fixtures/uy/resultados_2019-09-25.html`,
+con un test que la clasifica.
 
 ---
 
@@ -651,9 +729,22 @@ El Pozo de Plata es 3% en todas las versiones desde 2014, y el Pozo Revancha 55%
 **Borrador:** [`drafts/game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv) tiene 29 filas,
 cada una con vigencia, resolución y URL.
 
-**Pendiente:** las reglas anteriores a 2012 (precio y porcentajes) y la resolución del 01–44. Ya
-no están en el sitio. El Decreto 635/989 (que la As. 176/2014 cita como marco) queda por buscar
-fuera de `loteria.gub.uy`.
+### Antes de 2012: el decreto de 1989 y un hueco (verificado, UY-007)
+
+El Decreto 635/989 (que la As. 176/2014 cita como marco) está en
+[IMPO](https://www.impo.com.uy/bases/decretos/635-1989), consultado el 2026-10-15. **Crea el 5 de
+Oro el 28/12/1989 con un rango de 01 a 36**: "consiste en elegir cinco números desde el 01 al 36
+inclusive". Fija además el Pozo de Oro en 20% y el de Plata en 3,20% de lo apostado. IMPO lista dos
+modificaciones, el Decreto 360/990 y el 155/998, y **ninguna toca el artículo del rango**.
+
+Así que el rango cambió al menos una vez entre 1990 y 2006 (de 01–36 a 01–44), por un instrumento
+que no encontramos. Seguramente fue una resolución de la Dirección, porque el decreto le da
+facultades para reglamentar el juego.
+
+**Hueco (decisión del owner, 2026-10-15: no bloquea G1):** la resolución del 01–44, y los precios y
+porcentajes de 2006 a 2012. Para la v1 alcanza con lo verificado en los datos, porque la historia
+publicada empieza en 2006 y en ese período el rango es 01–44 sin excepciones. Si la resolución
+aparece, entra en `game_rules` como fuente de una fila que ya existe.
 
 ---
 

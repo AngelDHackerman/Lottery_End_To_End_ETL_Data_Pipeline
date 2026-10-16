@@ -1,6 +1,6 @@
 # Uruguay fixtures (www.loteria.gub.uy)
 
-Real pages, fetched 2026-10-04 (two on 2026-10-14) through `loteria_uy.http_client.PoliteClient` (1 req/s,
+Real pages, fetched 2026-10-04 (two on 2026-10-14, one on 2026-10-16) through `loteria_uy.http_client.PoliteClient` (1 req/s,
 identifiable User-Agent) and copied here with `scripts/uy_redact_fixture.py`. The script
 replaces every `href` naming `DET_INVALIDAS` with `#privacy-link-removed` and changes
 nothing else. Those links point at PDFs with national ID numbers; the PDFs themselves were
@@ -18,6 +18,7 @@ de 2026). That block is not the requested draw.
 | `resultados_2010-09-03.html` | `ver_resultados.php?vdia=3&vmes=9&vano=2010` | Pre-2016 layout: Lotería, Quiniela V+N, Kini |
 | `resultados_2016-07-06.html` | `ver_resultados.php?vdia=6&vmes=7&vano=2016` | Post-2016 layout: Quiniela V+N, 5 de Oro, the pozos link. 4 privacy links removed |
 | `resultados_2026-10-03.html` | `ver_resultados.php?vdia=3&vmes=10&vano=2026` | A Saturday: Nocturna only. 2 privacy links removed |
+| `resultados_2019-09-25.html` | `ver_resultados.php?vdia=25&vmes=9&vano=2019` | An `error` day (fetched 2026-10-16 01:26 UTC, UY-007): AFAL strike, the Vespertina header with no extract code. 48,803 bytes against the backfill's 48,072; its "today" block is dated Jueves 15 de Octubre de 2026. 2 privacy links removed |
 | `resultados_2025-12-25.html` | `ver_resultados.php?vdia=25&vmes=12&vano=2025` | A day with no draw: HTTP 200, no game blocks |
 | `extracto_5_de_oro_2007-01-07.html` | `extractosweb/5deOro/extracto_5_de_oro.php?vdia=07&vmes=01&vano=2007` | The oldest 5 de Oro in the brief: "SIN ACIERTO", cupones, `Pe?aloza` |
 | `extracto_5_de_oro_2025-09-16.html` | `…extracto_5_de_oro.php?vdia=16&vmes=09&vano=2025` | Empty template (a Tuesday): date `//`, pozos `0,00` |
