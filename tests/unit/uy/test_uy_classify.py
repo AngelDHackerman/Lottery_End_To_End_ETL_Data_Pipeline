@@ -78,6 +78,14 @@ def test_block_images_with_no_codes_at_all_are_an_error():
     assert verdict.outcome == ERROR
 
 
+def test_the_2019_strike_page_is_an_error_not_a_guess():
+    # The real thing the synthetic case above imitates: on 2019-09-25 (AFAL strike) the
+    # page shows the Vespertina header and no extract code at all.
+    verdict = classify.classify_resultados(page("resultados_2019-09-25.html"), date(2019, 9, 25))
+    assert verdict.outcome == ERROR
+    assert verdict.detail == "game blocks without extract codes"
+
+
 def test_pozos_href_is_an_allowlist():
     soup = BeautifulSoup(
         '<a href="invalidas/1/X_DET_INVALIDAS_RES_INFORMACION_DE_POZOS.PDF">a</a>'

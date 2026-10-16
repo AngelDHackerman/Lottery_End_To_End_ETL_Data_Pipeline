@@ -1,6 +1,6 @@
 game,rule,value,valid_from,valid_to,source,source_url,evidence
 5_de_oro,numeros_por_sorteo,5 + bolilla extra (5 de Oro); 5 (Revancha),2006-08-16,,Página del juego y As. 176/2014,https://www.loteria.gub.uy/Juego_Quiniela.php?xjue=4&xpos=1,verificado en los 2.072 sorteos (UY-002)
-5_de_oro,rango_numeros,01-44,2006-08-16,2014-03-18,Sin resolución encontrada,,"verificado: ningún número pasa de 44 en los 779 sorteos anteriores (5 de Oro, extra y Revancha)"
+5_de_oro,rango_numeros,01-44,2006-08-16,2014-03-18,Sin resolución encontrada (el Decreto 635/989 creó el juego con 01-36),https://www.impo.com.uy/bases/decretos/635-1989,"verificado: ningún número pasa de 44 en los 779 sorteos anteriores (5 de Oro, extra y Revancha)"
 5_de_oro,rango_numeros,01-48,2014-03-19,,As. 176/2014 numeral 1,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,"verificado: el primer sorteo (2014-03-19) ya trae 45 y 48; máximo 48 en 1.293 sorteos"
 5_de_oro,dias_de_sorteo,miércoles y domingo; el miércoles puede correrse al jueves por feriado,,,Página del juego (texto vigente) y As. 176/2014 numeral 3,https://www.loteria.gub.uy/Juego_Quiniela.php?xjue=4&xpos=1,"observado: 12,6% de los sorteos cae fuera de mié./dom. (UY-002)"
 5_de_oro,precio_5_de_oro,$ 25,2012-02-01,2014-03-18,Resolución del 23/01/2012 (citada en As. 144/2012),https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,citada; la resolución original no está publicada
