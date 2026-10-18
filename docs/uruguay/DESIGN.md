@@ -1,0 +1,410 @@
+# DESIGN — Diseño de la extensión a Uruguay (UY-010)
+
+Entregable de UY-010 en [`roadmap-uruguay.md`](../../roadmap-uruguay.md). Parte de lo verificado en
+[`FINDINGS.md`](FINDINGS.md) (gate G1, aprobado el 2026-10-16). UY-011 le suma la ingesta, las
+pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el gate **G2**. Usa las
+mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
+owner**.
+
+**Cómo leerlo.** Las [decisiones D1–D7](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+[propuestas P1–P7](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
+y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
+
+---
+
+## Decisiones del owner (2026-10-16)
+
+| # | Tema | Decisión | Por qué |
+|---|---|---|---|
+| D1 | **Paquete y país en la ruta** | `src/sorteos/core/` (núcleo sin país) más `src/sorteos/<país>/`, con el código **ISO 3166-1 alfa-2 en minúscula** (`uy`, más adelante `gt`, `ar`). En plata, cada juego se identifica con `country` + `operator` + `game` (por ejemplo `uy` / `dnlq` / `quiniela_nocturna`). | Hay juegos con el mismo nombre en distintos países, y el país solo no alcanza: en Argentina cada provincia tiene su propia lotería y casi todas tienen una "Quiniela". Los códigos ISO no tienen tildes ni dependen del idioma, y el bronce ya usa `country=uy`. `src/loteria/` (Santa Lucía) no se toca hasta UY-050. |
+| D2 | **Runtime de destino (C6)** | **Lambda con Python 3.12** para el extractor y el transform. El backfill de plata se parsea en local o con un `Map` de Step Functions por año. **Glue Python Shell queda descartado.** | Python Shell no pasa de 3.9, que llegó a fin de vida en octubre de 2025, y ataría todo `sorteos/core/` a esa versión. El costo no decide: los dos salen por centavos al año. Una corrida diaria son 3 o 4 páginas (segundos). Los 15 minutos de Lambda solo importan en el backfill (~20.000 HTML, ~0,9 GB), y por eso se reparte. El DQ con GX puede seguir en Glue Spark como en PR-050 (lo decide UY-011). |
+| D3 | **Orden de los números** | Formato largo `draw_numbers` con `position`, `ball_type` y el número **como texto con sus ceros** (`'043'`). Cada juego declara si el orden es real o viene ordenado (`order: drawn` o `sorted`). En la Quiniela la clave es **(sorteo, posición)**, no (sorteo, número). | La Quiniela publica sus 20 números en el orden de extracción, y la posición es lo que se apuesta (el 1.º es "la cabeza"). El mismo número puede repetirse dentro de un sorteo. La Tómbola y el 5 de Oro se publican ordenados: son conjuntos y no admiten análisis por posición. Ver [Evidencia](#evidencia-verificada-el-2026-10-16). |
+| D4 | **Un YAML por juego** | Un archivo de configuración por juego dentro del paquete (`src/sorteos/uy/games/*.yaml`), cargado con `yaml.safe_load` y validado contra un esquema estricto que falla al arrancar. Las reglas con vigencia **no** van en el YAML: siguen en `game_rules` y el YAML solo las referencia. | Separa lo que cambia entre juegos (URLs, calendario, forma de los números, épocas, fuentes) del código que parsea. Sumar un juego o un país es sumar un archivo. El YAML no es un dato: no va a bronce ni a plata (ver [Configuración](#configuración-los-yaml)). |
+| D5 | **Épocas del parser** | El mecanismo existe (`parser_epochs` con `valid_from` y `valid_to` en el YAML), pero se arranca con **una sola época por fuente**. Si una página no tiene la forma esperada, va a cuarentena y el parser nunca adivina. Solo se agrega una época cuando un parseo real falla. Hay un fixture por cada variante conocida, y `parser_version` va en el linaje. | El HTML de Uruguay casi no cambió en 20 años (ver [Evidencia](#evidencia-verificada-el-2026-10-16)). Lo que cambió fueron las fuentes y las reglas: el PDF desde 2018, el de pozos desde 2016, el rango del 5 de Oro en 2014 y los datos tipeados a mano en 2006. |
+| D6 | **Montos** | Un parser por **fuente** con una expresión regular estricta: `^\d{1,3}(,\d{3})*\.\d{2}$` para `ver_resultados` (estilo EE.UU.) y `^\d{1,3}(\.\d{3})*,\d{2}$` para el extracto (estilo uruguayo). Siempre `Decimal`, guardado como `decimal(18,2)` en Parquet y en el catálogo. El vacío (`$` sin monto o `0,00` de plantilla) pasa a **nulo, nunca a 0**. Lleva una columna `currency` (`'UYU'`). Plata guarda pesos nominales, y el ajuste por inflación va en oro. `ver_resultados` es la fuente principal, el extracto es el control, y si difieren queda un `dq_flag`. | Un monto como `365,323` o `1.234` es ambiguo si se lee sin saber de qué fuente vino. Lo que no encaja va a cuarentena. `currency` hace falta desde ya por D1 (Guatemala es `GTQ` y Argentina `ARS`). El PDF de pozos será un tercer formato, que se fija cuando se construya su parser (hoy hay solo 4 muestras verificadas). |
+| D7 | **C7: cuántos cupones ganaron** | Plata guarda, por premio (Oro, Plata y Revancha), la **cantidad** de cupones ganadores, nunca sus números (que siguen solo en bronce). "Sin Aciertos" es `0` y la celda vacía es **nulo**. | Permite medir qué tan común es que un pozo se reparta entre varios o que un solo cupón se lo lleve entero, y calcular el premio por cupón. Es un conteo de **cupones**, no de personas: alguien con dos cupones ganadores cuenta dos veces, y eso se aclara en el diccionario de datos. |
+
+## Propuestas de este documento (se aprueban en G2)
+
+| # | Propuesta | Por qué |
+|---|---|---|
+| P1 | **Un sorteo es un extracto publicado:** un juego en una fecha. La Revancha va dentro del 5 de Oro y la Tómbola dentro de cada Quiniela, como valores de `ball_type`. La clave de `draws` es (`country`, `operator`, `game`, `draw_date`). | Es como lo publica el sitio: un bloque en `ver_resultados`, un extracto, un PDF y un "Próximo sorteo" para los dos. La Revancha nunca se sorteó sin el 5 de Oro, ni la Tómbola sin su Quiniela. Si hace falta ver la Revancha como juego aparte, es un filtro o una vista de oro. |
+| P2 | **Los horarios de la Quiniela van como columnas de `draws`**, sin una tabla `draw_timing`. | Son tres valores por sorteo (inicio, primera bolilla y fin) y solo existen en la Quiniela. Una tabla aparte obligaría a un join para nada. En el 5 de Oro quedan nulos. |
+| P3 | **El bronce no se mueve.** Se queda en `data/uy/bronze/country=uy/source=…/year=…/`, que ya lleva el país. | Ya tiene el país, como pide D1. Mover ~20.000 archivos y reescribir el `bronze_key` del manifiesto no aporta nada. La organización por fuente es la correcta, porque `ver_resultados` trae varios juegos en un archivo. Esto reemplaza la ruta `game=…/draw_date=…` que el roadmap proponía para UY-021. |
+| P4 | **El YAML se valida con dataclasses propias, sin pydantic.** Las dependencias nuevas (`pyyaml` y `pdfplumber`) van en un extra `uy` de `pyproject.toml`. | pydantic suma un binario al paquete de la Lambda solo para validar 4 archivos. Con un cargador estricto de ~100 líneas alcanza: rechaza claves que no conoce, comprueba tipos y cruza referencias. Hoy pydantic llega al repo solo de la mano de GX, que está fuera de la Lambda a propósito (PR-032). |
+| P5 | **El guard de privacidad `DET_INVALIDAS` queda en el código, nunca en el YAML.** | Un error en un archivo de configuración nunca debe poder apagar el guard. El patrón vive en `sorteos/uy/` y se le pasa al cliente HTTP, con sus tests de UY-001 sin cambios. |
+| P6 | **Se reordena la Fase 3:** UY-022 y UY-023 se juntan en un solo parser de `ver_resultados`. | Las dos épocas que suponía el roadmap no existen (D5 y [Evidencia](#la-estructura-del-html-casi-no-cambió)). Ver [Impacto en la Fase 3](#impacto-en-la-fase-3). |
+| P7 | **`is_replacement` se define con los datos:** un número de la Tómbola es reposición si no está entre las dos últimas cifras de los 20 números de esa Quiniela. | Así se cumple en el 99,7% de los sorteos, y todas las excepciones son de 2006 ([Evidencia](#la-tómbola-sale-de-la-quiniela)). El mecanismo exacto (cómo se sortean las reposiciones) es una **hipótesis** hasta leer el reglamento. Lo que plata guarda no depende de ella. |
+
+---
+
+## Evidencia verificada el 2026-10-16
+
+Hecha con scripts desechables sobre el bronce local del backfill del 2026-10-04, **sin peticiones
+nuevas**.
+
+### La estructura del HTML casi no cambió
+
+**Método:** para cada archivo se tomó el conjunto de clases CSS y de nombres de imagen, y se
+registró en qué fecha aparece y desaparece cada uno.
+
+| Fuente | Archivos | Resultado |
+|---|---|---|
+| Extracto del 5 de Oro | 2.072 | **Una sola plantilla** de 2006 a 2026 |
+| Extracto de la Quiniela Nocturna | 5.935 | **Una sola plantilla** de 2006 a 2026 |
+| Extracto de la Quiniela Vespertina | 4.943 | **Una sola plantilla** de 2006 a 2026 |
+| `ver_resultados` | 6.908 | Solo dos cambios: el bloque del Kini desaparece después del **2013-12-27** (fin del juego) y entre el **2016-05-29 y el 2016-06-01** aparecen los botones de pozos e inválidas |
+
+La "frontera de julio de 2016" que suponía el brief son esos botones, no un diseño nuevo. Este
+método no detecta cambios de texto dentro de las mismas clases: eso lo cubren los fixtures por año
+y la cuarentena de D5.
+
+### El orden de los números por juego
+
+**Método:** sobre los 10.877 extractos de Quiniela con datos (Nocturna y Vespertina) se separaron
+los 20 números de 3 cifras de la Quiniela y los 20 de 2 cifras de la Tómbola. Un extracto de 2006
+no tiene la Tómbola y quedó fuera.
+
+| Juego | Lo verificado |
+|---|---|
+| Quiniela (20 de 3 cifras) | No sale ordenada en **ninguno** de los 10.877 extractos. El mismo número se repite dentro de un sorteo en **1.908 (17,5%)**, casi lo que da el azar con extracciones independientes de 000–999 (1 − e^(−190/1000) ≈ 17,3%). **Cada posición es una extracción aparte.** |
+| Tómbola (20 de 2 cifras) | Sale **ordenada de menor a mayor en el 100%**. Los 31 sorteos con números repetidos son **todos de 2006** (la misma suciedad de 2006 de FINDINGS → `dq_flags`). |
+| 5 de Oro y Revancha | Ordenados en el 100% (ya verificado en Q1). La bolilla extra va aparte. |
+
+### `ver_resultados` y el extracto coinciden también en la Quiniela
+
+Q1 comparó las dos fuentes solo para el 5 de Oro. Ahora se hizo para la Quiniela: en los
+**10.877** sorteos, los 20 números de `ver_resultados` están **en el mismo orden** que en el
+extracto, y los 20 de la Tómbola también coinciden. La única diferencia que dio el script fue un
+falso positivo, el 2023-09-29: ese día el "Próximo" de la Nocturna dice `30 / 09 / 203` en las dos
+fuentes, y el script tomó el `203` como un número más. Es otro error de tipeo compartido, como los
+de 2006, y en plata debe quedar `next_draw_date` nulo con un `dq_flag`.
+
+**Consecuencia:** `ver_resultados` alcanza como fuente principal de todos los juegos. El extracto
+de la Quiniela agrega solo los horarios (P2).
+
+### La Tómbola sale de la Quiniela
+
+| Comprobación | Sorteos |
+|---|---|
+| Las dos últimas cifras de los 20 números de la Quiniela están **todas** en la Tómbola | 10.847 de 10.877 |
+| Además, la Tómbola completa 20 con **tantos números nuevos como terminaciones repetidas** tuvo la Quiniela | 10.846 de 10.877 |
+| Excepciones | 30 a 31, **todas de 2006** |
+
+La Tómbola son las terminaciones distintas de la Quiniela más reposiciones hasta llegar a 20.
+Coincide con lo que da el azar: el promedio esperado de reposiciones es 20 − 100·(1 − 0,99²⁰) ≈ 1,8,
+la cifra que el roadmap ya anotaba para UY-032. Esto define `is_replacement` (P7) y da una
+validación cruzada fuerte para UY-025.
+
+### Los montos
+
+| Fuente | Formas encontradas | Ejemplo |
+|---|---|---|
+| `ver_resultados` | `9,999,999.99` y `999,999.99`. Siempre con 2 decimales | `$ 110,629,426.70` |
+| Extracto del 5 de Oro | `9.999.999,99` y `999.999,99`. Siempre con 2 decimales | `110.629.426,70` |
+| Vacío | `$` sin monto (`ver_resultados`) y `0,00` (plantilla del extracto) | 2006-08-20 |
+
+La Quiniela y la Tómbola no publican montos en estas fuentes.
+
+---
+
+## El paquete `src/sorteos/`
+
+```
+src/sorteos/
+├── core/                      # no sabe de ningún país
+│   ├── http_client.py         # el de UY-001: token bucket, backoff, caché, blocklist recibida por parámetro
+│   ├── bronze.py              # almacén y manifiesto; el país entra como parámetro
+│   ├── config.py              # carga y valida site.yaml y games/*.yaml (P4)
+│   ├── money.py               # parse_amount(texto, estilo) -> Decimal | None (D6)
+│   ├── shapes.py              # valida los números de un sorteo contra el YAML
+│   └── silver.py              # esquemas pyarrow explícitos, escritura y cuarentena
+└── uy/
+    ├── site.yaml              # lo común a Uruguay: operador, URL base, zona horaria, moneda
+    ├── games/
+    │   ├── 5_de_oro.yaml
+    │   ├── quiniela_vespertina.yaml
+    │   └── quiniela_nocturna.yaml
+    ├── reference/
+    │   ├── game_rules.csv     # hoy en docs/uruguay/drafts/
+    │   └── calendar_events.csv
+    ├── privacy.py             # el patrón DET_INVALIDAS (P5)
+    ├── sources.py             # arma las URLs a partir de los YAML
+    ├── classify.py            # el de hoy, sin cambios
+    ├── parsers/
+    │   ├── resultados.py      # ver_resultados: todos los juegos del día
+    │   ├── extracto_5_de_oro.py
+    │   ├── extracto_quiniela.py
+    │   └── pozos_pdf.py       # número de sorteo (pdfplumber)
+    └── backfill.py            # la CLI de hoy
+```
+
+Un país nuevo es una carpeta hermana de `uy/` con su `site.yaml`, sus juegos y sus parsers. Lo que
+resulte común a dos países sube a `core/` cuando exista el segundo, no antes.
+
+### Migración desde `src/loteria_uy/` (en UY-020)
+
+El bronce y el manifiesto **no se tocan** (P3). Solo se mueve el código:
+
+1. `git mv` de los cinco módulos a sus lugares nuevos, para conservar la historia. `http_client.py`
+   y `bronze.py` reciben el país y la blocklist por parámetro en vez de tenerlos escritos.
+2. `sources.py` deja de tener URLs escritas a mano (`_PHP_PATHS`, `_PDF_LETTERS`,
+   `PDF_EXTRACTS_FROM`, `_FIXED_CODES`) y las lee de los YAML. Los **nombres de las fuentes no
+   cambian**, porque son la clave del manifiesto: así el backfill retoma donde quedó.
+3. **Test de oro de las URLs:** cada fila del manifiesto guarda la URL que se pidió. El código nuevo
+   tiene que reproducirlas todas: las ~20.000 en local (un target de Make), y una muestra fija de
+   unas 50 filas, de todas las fuentes y épocas, como fixture para CI.
+4. `pyproject.toml` pasa de `--cov=src/loteria_uy` a `--cov=src/sorteos` (es la línea que agregó
+   esta misma rama). El `Makefile` cambia `loteria_uy.backfill` por `sorteos.uy.backfill`, con los
+   mismos nombres de targets. Los tests pasan a `tests/unit/sorteos/`.
+5. `src/loteria_uy/` se borra en el mismo PR, sin módulo puente: nadie más lo importa.
+
+**Aceptación:** `make uy-report` da los mismos números antes y después, y el gate de 98 se
+mantiene.
+
+---
+
+## Configuración: los YAML
+
+### Qué es y qué no es
+
+- **No es un dato.** El bronce guarda lo que publicó el sitio y plata guarda lo que entendimos de
+  eso. El YAML son las **instrucciones** para pasar de lo uno a lo otro. Vive en git, junto al código,
+  y viaja dentro del paquete de la Lambda.
+- **Lo leen todos los pasos:**
+  - el extractor, para saber qué URLs pedir;
+  - el clasificador, para saber qué días se espera sorteo y desde qué hora;
+  - el parser, para elegir la época;
+  - las validaciones, para comprobar la forma de los números;
+  - la escritura en plata, para poner `country`, `operator`, `game` y `currency`.
+- **Lo que no lleva:** las reglas con vigencia y su resolución (`game_rules`) ni los eventos del
+  calendario (`calendar_events`). Esas son datos que cambian con el tiempo y tienen fuente, así que
+  son CSV en `reference/` que se cargan como tablas de plata.
+
+### `site.yaml`: lo común al país
+
+```yaml
+country: "uy"
+operator: "dnlq"
+operator_name: "Dirección Nacional de Loterías y Quinielas"
+base_url: "https://www.loteria.gub.uy"
+timezone: "America/Montevideo"
+currency: "UYU"
+history_starts: "2006-08-11"
+pages:
+  resultados:                       # una página por día con todos los juegos
+    path: "/ver_resultados.php"
+    params: {vdia: "{day}", vmes: "{month}", vano: "{year}"}   # sin ceros, como el calendario del sitio
+    money_style: "us"
+    parser_epochs:
+      - {version: 1, valid_from: "2006-08-11"}
+```
+
+### Un juego: `quiniela_nocturna.yaml`
+
+```yaml
+game: "quiniela_nocturna"
+name: "Quiniela y Tómbola Nocturna"
+site_code: 4                        # primer argumento de MostrarExtracto()
+calendar:
+  weekdays: ["mon", "tue", "wed", "thu", "fri", "sat"]   # nunca domingo (Q2)
+  next_draw_label: "Próximo Nocturno"
+  publish_after_local: "21:30"      # termina ~21:20 y el HTML sale 3-13 min después (UY-003)
+sources:
+  - {name: "resultados", role: "primary"}
+  - name: "extracto_quiniela_nocturna"
+    kind: "extracto_php"
+    path: "/extractosweb/quiniela/nocturna/extracto_QN_S.php"
+    role: "timing"                  # aporta los horarios (P2) y es el control cruzado
+    parser_epochs: [{version: 1, valid_from: "2006-08-11"}]
+  - name: "extracto_pdf_quiniela_nocturna"
+    kind: "extracto_pdf"
+    letter: "n"
+    valid_from: "2018-11-30"
+    role: "backup"                  # solo bronce, no se parsea (decisión del owner, UY-003)
+numbers:
+  quiniela: {count: 20, digits: 3, order: "drawn",  repeats: true}
+  tombola:  {count: 20, digits: 2, order: "sorted", repeats: false, replacements_from: "quiniela"}
+```
+
+### Otro juego: `5_de_oro.yaml`
+
+```yaml
+game: "5_de_oro"
+name: "5 de Oro y Revancha"
+site_code: 5
+calendar:
+  weekdays: ["wed", "sun"]          # se esperan, pero el 12,6% cae otro día (C10)
+  next_draw_label: "Próximo 5 de Oro y Rev."
+  publish_after_local: "22:30"
+sources:
+  - {name: "resultados", role: "primary"}
+  - name: "extracto_5_de_oro"
+    kind: "extracto_php"
+    path: "/extractosweb/5deOro/extracto_5_de_oro.php"
+    money_style: "uy"
+    role: "cross_check"
+    parser_epochs: [{version: 1, valid_from: "2006-08-11"}]
+  - {name: "extracto_pdf_5_de_oro", kind: "extracto_pdf", letter: "o", valid_from: "2018-11-30", role: "backup"}
+  - {name: "pozos_5_de_oro", kind: "pozos_pdf", role: "draw_number"}   # la URL sale del link de la página
+numbers:
+  oro:      {count: 5, digits: 2, order: "sorted", repeats: false, range_rule: "rango_numeros"}
+  extra:    {count: 1, digits: 2, range_rule: "rango_numeros", not_in: ["oro"]}
+  revancha: {count: 5, digits: 2, order: "sorted", repeats: false, range_rule: "rango_numeros"}
+prizes: ["oro", "plata", "revancha"]
+```
+
+`range_rule` apunta a una regla de `game_rules`. El rango 01–44 o 01–48 se resuelve con la fecha
+del sorteo, no se escribe en el YAML.
+
+### Reglas del cargador (P4)
+
+- `yaml.safe_load`, y después el cargador estricto: una clave que no conoce es un error, y los
+  tipos se comprueban. Los textos van **siempre entre comillas** en los YAML del repo, y el
+  cargador exige `str` donde corresponde. Así un `no` (Noruega) nunca llega como `false`, ni una
+  fecha como objeto `date`.
+- Referencias cruzadas al arrancar: cada `range_rule` existe en `game_rules.csv`, cada
+  `replacements_from` y cada `not_in` existen en `numbers`, y las épocas de una fuente no se
+  superponen ni dejan huecos.
+- Un test carga todos los YAML del repo. Una configuración rota falla en CI, nunca en producción.
+
+---
+
+## Plata
+
+### Convenciones
+
+- **Ruta:** `silver/<tabla>/country=uy/game=<juego>/year=<aaaa>/`. `game_rules` y
+  `calendar_events` se parten solo por país.
+- **Tamaño:** unos 13.000 sorteos y ~460.000 números en toda la historia. No hace falta nada más fino:
+  por el piso de 10 MiB de Athena, partir más no ahorra plata (ver la memoria de PR-043.1).
+- **Linaje** (como PR-045, más dos columnas): `ingested_at timestamp` (UTC), `run_id string`,
+  `source_key string` (la clave de bronce de la que salió la fila), `source_sha256 string` y
+  `parser_version string`. Van en todas las tablas.
+- **Tipos explícitos:** cada tabla tiene su esquema pyarrow escrito en `core/silver.py`, con `int32`
+  donde el catálogo dice `int`. Una columna que viene toda en `None` se escribe con su tipo, nunca
+  como `Null`. Son las dos trampas de la memoria sobre tipos de Parquet. En la nube, las tablas se
+  declaran en Terraform y no las crea un crawler (la lección de PR-045.2).
+- **Datos sucios** (propuesta 1 de FINDINGS): se guarda el valor publicado y se marca en
+  `dq_flags array<string>`. El vacío es nulo. Solo va a cuarentena lo que no se puede interpretar.
+- **Cuarentena:** un sorteo que no parsea va **entero** a `silver/quarantine/` (fuente, fecha,
+  `source_key`, `parser_version`, motivo y linaje), como en PR-044. Nunca quedan filas a medias en
+  plata. Bronce guarda la página, así que la cuarentena no copia contenido.
+
+### `draws`: un sorteo por fila (P1)
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `country`, `operator`, `game` | string | D1. Por ejemplo `uy`, `dnlq`, `quiniela_nocturna` |
+| `draw_date` | date | Clave natural junto con las tres de arriba |
+| `draw_number` | int | Solo el 5 de Oro, y solo desde 2016 (PDF de pozos, C11). Nulo antes |
+| `next_draw_text` | string | El "Próximo sorteo" tal como se publicó |
+| `next_draw_date` | date | El mismo, interpretado. Nulo si no parsea (por ejemplo `30 / 09 / 203`), con su `dq_flag` |
+| `started_local`, `first_ball_local`, `ended_local` | timestamp | Solo la Quiniela (P2). La hora **de reloj de Montevideo**, tal como se publica y sin zona, porque la puntualidad se mide contra la hora local (las 21:00). Nulos si el extracto los trae vacíos (2006) |
+| `timezone` | string | `America/Montevideo`, de `site.yaml`. El instante UTC se deriva con `zoneinfo` y nunca con un -03:00 fijo, porque Uruguay tuvo horario de verano hasta 2015 (C5) |
+| `cross_source_check` | string | `match`, `mismatch` o `not_checked` (extracto ausente) |
+| `dq_flags` | array\<string\> | |
+| linaje | | ver convenciones |
+
+Solo los días con sorteo llegan a plata. Los `no_draw` y la detección de huecos viven en el
+manifiesto y se diseñan en UY-011.
+
+### `draw_numbers`: formato largo (D3)
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `country`, `operator`, `game`, `draw_date` | | Referencia al sorteo |
+| `ball_type` | string | `oro`, `extra`, `revancha` (5 de Oro); `quiniela`, `tombola` (Quiniela) |
+| `position` | int | 1 a N en el orden publicado |
+| `is_draw_order` | boolean | `true` si `position` es el orden de extracción (`order: drawn` del YAML). Está en la tabla para que quien use Athena lo vea sin leer el YAML |
+| `number` | string | Con sus ceros: `'043'`, `'07'` |
+| `is_replacement` | boolean | Solo la Tómbola (P7). Nulo en los demás tipos de bolilla |
+| linaje | | |
+
+Clave: (`country`, `operator`, `game`, `draw_date`, `ball_type`, `position`).
+
+### `prizes`: solo el 5 de Oro
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `country`, `operator`, `game`, `draw_date` | | Referencia al sorteo |
+| `prize` | string | `oro`, `plata` o `revancha` |
+| `pool_amount` | decimal(18,2) | D6. Nulo si está vacío |
+| `currency` | string | `UYU`, sale de `site.yaml` |
+| `winners_status` | string | `winners`, `no_winners` ("Sin Aciertos") o `unknown` (celda vacía, las 25 de Q1) |
+| `winning_coupons` | int | D7. Cuántos cupones ganaron: `0` con "Sin Aciertos" y nulo con `unknown`. Los números se cuentan en memoria y nunca se escriben |
+| `dq_flags` | array\<string\> | Por ejemplo, Pozo de Plata igual al de Oro (2006-12-06) |
+| linaje | | |
+
+Clave: (`country`, `operator`, `game`, `draw_date`, `prize`).
+
+### `game_rules` y `calendar_events`
+
+Salen de `src/sorteos/uy/reference/*.csv`, con las mismas columnas que los borradores de UY-004
+([`game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv) y
+[`calendar_events.csv`](drafts/calendar_events.csv)), más `country` y `operator`. Son datos de
+referencia con su fuente y su vigencia, y se versionan en git porque cada cambio es una decisión
+revisada. El escritor de plata los pasa a Parquet sin transformarlos.
+
+---
+
+## Parsers y montos
+
+### Un parser por fuente, una época al arrancar (D5)
+
+| Parser | Lee | Escribe |
+|---|---|---|
+| `resultados.py` | `ver_resultados`, todos los juegos del día, separados por su `MostrarExtracto('<código>', …)` | `draws`, `draw_numbers` y `prizes` (fuente principal) |
+| `extracto_5_de_oro.py` | El extracto PHP | Nada propio: es el control cruzado de `draws`, `draw_numbers` y `prizes` |
+| `extracto_quiniela.py` | El extracto PHP de cada turno | Los horarios de `draws` (P2), y el control cruzado de los números |
+| `pozos_pdf.py` | El PDF de pozos (pdfplumber) | `draws.draw_number` |
+
+Reglas comunes:
+
+- **Parsear es una función pura** de los bytes de bronce a filas. No toca la red ni el reloj: el
+  bloque "Sorteos para el día de hoy" se ignora porque trae la fecha de la descarga (Q1).
+- **Cada parser declara la forma que espera.** Si falta un marcador o sobra un bloque, levanta un
+  error con el motivo y el sorteo va a cuarentena. Nunca se rellena con un valor "probable".
+- **Los cupones** se leen solo para contarlos (D7) y para comparar el conteo entre fuentes. No
+  salen de la función.
+- **Fixtures, uno por variante conocida:** 2006 sucio, con y sin Kini, antes y después de los
+  botones de 2016, la plantilla vacía, el `error` de 2019, el "Próximo" mal tipeado y una Quiniela
+  con números repetidos.
+
+### `core/money.py` (D6)
+
+```python
+def parse_amount(text: str, style: Literal["us", "uy"]) -> Decimal | None: ...
+```
+
+- Primero quita el `$` y los espacios. Si no queda nada, devuelve `None` (el vacío de
+  `ver_resultados`).
+- `style` lo da la configuración de la fuente (`money_style`), nunca el valor.
+- `"0,00"` en un extracto es el marcador de plantilla vacía y devuelve `None` (FINDINGS, calidad de
+  2006).
+- Lo que no encaja con la expresión regular del estilo levanta un error, y el sorteo va a
+  cuarentena.
+
+---
+
+## Impacto en la Fase 3
+
+Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
+
+| PR | Antes | Ahora |
+|---|---|---|
+| UY-020 | Esqueleto, YAML y registro | Igual, más la [migración](#migración-desde-srcloteria_uy-en-uy-020) y el test de oro de las URLs |
+| UY-021 | Manifiesto y bronce con rutas `game=…/draw_date=…` | Lo que UY-011 decida del manifiesto (estados y reintentos). **El bronce no se mueve** (P3) |
+| UY-022 | Parser de `ver_resultados` 2007 → 2016-06 | **Un solo parser de `ver_resultados`** para 2006–2026 |
+| UY-023 | Parser de `ver_resultados` desde 2016-07 | **Parsers de los extractos PHP** (5 de Oro y Quiniela con horarios) |
+| UY-024 | Parsers de extractos (HTML y PDF) | **Parser del PDF de pozos** (número de sorteo) y `core/money.py` completo |
+| UY-025 a 027 | | Sin cambios. En UY-025, la validación de la Tómbola pasa a ser la de P7 |
+
+## Lo que queda para UY-011
+
+- El manifiesto: estados, la transición `not_yet_published` → `no_draw` y la corrección manual de
+  los 4 días de 2019 (propuesta 2 de FINDINGS).
+- El detector de huecos: "Próximo sorteo" más `calendar_events` (propuesta 3 de FINDINGS).
+- Backfill e incremental: horarios, reanudación e idempotencia.
+- El catálogo completo de `dq_flags` y las suites de GX.
+- El plan de pruebas y los riesgos.
