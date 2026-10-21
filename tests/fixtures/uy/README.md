@@ -7,6 +7,15 @@ nothing else. Those links point at PDFs with national ID numbers; the PDFs thems
 never requested. `tests/unit/uy/test_uy_privacy.py` fails if any file here names the
 pattern or the word "cédula".
 
+Winning coupon numbers stay in bronze only (owner decision C7). Since UY-011.1 the script also
+replaces each coupon with a fake of the same shape, numbered per page: `000000001-0`,
+`000000002-0`, and so on. Check digits become `0`, and the bare 10-digit form becomes
+`0000000001`. The parser still counts the same coupons, and the scanner fails on any
+coupon-shaped number that does not start with `000000`. Two files carry fakes:
+`extracto_5_de_oro_2007-01-07.html` (2) and `resultados_2016-07-06.html` (3). The real numbers
+are still in the git history from before UY-011.1; the owner accepted that rather than
+rewriting a protected branch.
+
 The site regenerates every page from its database with today's template, so these are
 "the page as served on 2026-10-04", not the original documents. Each page also carries a
 "Sorteos para el día de hoy" block dated on the day it was fetched (Domingo 4 de Octubre
