@@ -126,7 +126,24 @@ aws logs filter-log-events --log-group-name /aws-glue/jobs/loteria-silver-dq-pro
    120 rows from 120 files`, `[PASS] silver_premios: 14 expectations, 126229 rows from 120
    files`, `DQ RESULT: PASS`. 13 → 14, green.
 
-Still open: the 2026-10-22 run, the first one gated by this check.
+### ✅ Result, 2026-10-22 (the first scheduled run on this gate)
+
+Execution `57f6af34-db03-9243-ddd5-76b1f1cae8ea_9e5cc006-b9b1-9d33-f13e-5adebd2153bf`,
+SUCCEEDED, 18:00:37 → 18:10:21 UTC. The new draw was **Extraordinario 416**, not the 3140
+§5 predicted: the 121 files are 119 + 3139 + 416.
+
+1. **Gate verdict** (`RunSilverDQ` exited 18:07:27): `[PASS] silver_sorteos: 15
+   expectations, 121 rows from 121 files`, `[PASS] silver_premios: 14 expectations, 127837
+   rows from 121 files`, `DQ RESULT: PASS`.
+2. **The counts agree with lineage:** `silver_lineage_runs` gives premios 124,447 + 890 +
+   892 + 1,608 = 127,837 and sorteos 118 + 1 + 1 + 1 = 121, matching the gate. The run's
+   own row: 1,608 premios / 1 sorteo, `source_key raw/year=2026/sorteo=416/…id_297…`.
+3. **Gold after it:** all seven tables non-empty; `gold_draw_summary` = 121 rows. Its
+   `MAX(numero_sorteo)` stays 3139 because an extraordinario's number is lower — count
+   rows, not the max, to see a new extraordinario arrive.
+4. **No alarm left OK.**
+
+PR-049 is closed.
 
 ## 6. Rollback
 
