@@ -2438,8 +2438,8 @@ versions *and* delete markers correctly.
 > `removed { lifecycle { destroy = false } }` blocks (root `required_version` → `>= 1.7`)
 > and the two unused outputs were dropped; targeted plan `0/0/0`, four objects forgotten.
 > `destroy = false` is what made the order irrelevant. Out of scope: the partitioned
-> bucket's `processed/` prefix, preserved by PR-012's decision. Still open (owner, harmless):
-> the secret's `s3_bucket_simple_data_storage_prod_arn` key. Runbook §7.
+> bucket's `processed/` prefix, preserved by PR-012's decision. The secret's
+> `s3_bucket_simple_data_storage_prod_arn` key was removed the same night (owner). Runbook §7.
 
 
 ## PR-042 — Make the Gold publication atomic
@@ -3577,6 +3577,48 @@ them cleanly. PR-050 changes lint config and a test only, deploys nothing, and g
 > and 045.2 with nothing else new in the artifact, and all four verified (notes under each).
 > 047 → 048 → 049 may now redeploy the state machine and the transformer.
 
+## PR-046.2 — The shell's umask leaked into every zip
+
+**Found 2026-10-22, at the deploy after PR-041.3.** PR-046 made `make build` reproducible
+across *days*; it was not reproducible across *shells*. `scripts/_zipdir.py` already fixed
+timestamps and entry order, but stored each file's mode exactly as it sat on disk — and
+that mode is whatever the umask of the shell running `make build` allowed.
+
+**What happened.** The instructions for the §6 secret edit (PR-041 runbook) began with
+`umask 077`, so the temporary file holding the scrape.do token would be private. That umask
+stayed in the owner's terminal. The next command in the same block was `make deploy`, whose
+build copied every source file as `-rw-------`. Same files, same bytes, new hashes: a plan
+read-only half an hour earlier was `0/0/0`; this one was **`1/4/1`** — the Lambda layer
+replaced, `lambda_layer`/`lambda_package` objects and the extractor updated, plus the
+`gold_purge` phantom that appears whenever anything else changes. The owner answered `no`.
+`unzip -Z` on the deployed zip against the local one showed identical file lists and
+contents and a single difference, the mode column (`-rw-r--r--` vs `-rw-------`). Re-run
+with `umask 022`: `0/0/0`, applied.
+
+**Why it was more than churn.** Lambda reads the function code and the layer as a user
+that does not own the files. A 0600 file in either can fail at import with *Permission
+denied*, and nothing between `apply` and Thursday's run would have tried to import it.
+`upload-glue` would have shipped the same modes to both Glue jobs.
+
+**The fix.** `_zipdir.normalised_mode()`: every entry is stored as a regular file with
+`0644`, or `0755` when the owner can execute it (the layer's five `bin/` console scripts).
+That reproduces the deployed zips byte for byte. Measured on this branch:
+
+| build | layer · package · transformer · DQ lib |
+|---|---|
+| deployed (S3 / Lambda) | `0d42de5e` · `7bf2d18b` · `ad0a1669` · `7bf2d18b` |
+| `umask 022`, with the fix | identical |
+| `umask 077`, with the fix | identical |
+| `umask 077`, **without** the fix | `aaf0add2` · `b1972ab1` · `d6ca5935` · `b1972ab1` — the owner's 10-22 hashes |
+
+`tests/unit/test_zipdir.py` builds one tree under both umasks and asserts the two zips are
+byte-identical, plus the mode table. No AWS change: the next `make deploy` plans `0/0/0`
+from any shell.
+
+**And the process half.** A `umask` change must never share an instruction block with a
+deploy. The runbook's secret edit now scopes it to a subshell, `( umask 077; … )`, so it
+dies with the subshell instead of with the terminal.
+
 ## PR-047 — The extractor's Retry does not catch the failure that actually happens
 **Filed in PR-031.2 (2026-09-24). Includes the stale alarm description, filed the same day.**
 
@@ -3841,6 +3883,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
+| 046.2 | **The shell's umask leaked into every zip** — a leftover `umask 077` made identical code plan `1/4/1` (layer replace + extractor) at the 2026-10-22 deploy, and 0600 files can fail Lambda's import. `_zipdir.py` normalises modes to 0644/0755 | **built** (2026-10-22) — builds under umask 022 and 077 are byte-identical to the deployed zips; no AWS change | [PR #105](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/105) |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; **10-15 run (sorteo 3139): no regression** — extractor succeeded on its first attempt (6 s), no retrier fired | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. **verified end to end 2026-10-15** — sorteo 3139's Silver landed in the prod bucket during the run; DQ PASS on 120 files | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
