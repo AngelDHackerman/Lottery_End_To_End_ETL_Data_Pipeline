@@ -108,7 +108,7 @@ global, and a freed name is a name someone else can claim.
 
 ## 6. Manual follow-ups PR-041.2 could not make
 
-### The Secrets Manager payload — **owner edit, still open**
+### The Secrets Manager payload — **owner edit, done 2026-10-22**
 
 `lottery_secret_prod_2` still contains `s3_bucket_simple_data_storage_prod_arn`.
 **Terraform does not own the secret's contents** (only the secret is referenced, by name),
@@ -117,14 +117,24 @@ so no `apply` will remove it. `get_secrets()` stopped reading the key in PR-041.
 at any time — and safe to forget, which is why it is written down here.
 
 ```bash
-aws secretsmanager get-secret-value --secret-id lottery_secret_prod_2 \
-  --query SecretString --output text | jq 'del(.s3_bucket_simple_data_storage_prod_arn)' \
-  > /tmp/secret.json
-# review /tmp/secret.json, then:
-aws secretsmanager put-secret-value --secret-id lottery_secret_prod_2 \
-  --secret-string file:///tmp/secret.json
-shred -u /tmp/secret.json        # it holds the scrape.do token
+# The subshell matters: a bare `umask 077` outlives this block, and the next `make build`
+# in the same terminal then zips every file as 0600 (PR-046.2 — it happened on 2026-10-22).
+(
+  umask 077
+  TMP=$(mktemp)                  # it will hold the scrape.do token
+  aws secretsmanager get-secret-value --secret-id lottery_secret_prod_2 \
+    --query SecretString --output text \
+    | jq 'del(.s3_bucket_simple_data_storage_prod_arn)' > "$TMP"
+  jq 'keys' "$TMP"               # review: the same keys, minus that one
+  aws secretsmanager put-secret-value --secret-id lottery_secret_prod_2 \
+    --secret-string "file://$TMP"
+  shred -u "$TMP"
+)
 ```
+
+> **Done 2026-10-22 (owner):** new `AWSCURRENT` version at 22:36 local, the old one kept
+> as `AWSPREVIOUS`. The block above is the corrected form — the one used that night set
+> `umask 077` at top level, and it leaked into the deploy that followed.
 
 Do this **after** 041.2 is deployed, not before: code that still read the key would fail at
 import, which in the extractor's case means the weekly run dies before it starts.
@@ -181,5 +191,5 @@ The owner chose **deletion** over §5's "keep it empty", and ran it from the ter
 
 **Not in scope, deliberately:** the `processed/` prefix in the *partitioned* bucket (267
 objects). PR-012 decided to preserve it, and PR-041 only removed the job argument that
-named it. **Still open, owner edit:** §6's secret key `s3_bucket_simple_data_storage_prod_arn`
-— harmless, nothing reads it, but it now names a bucket that does not exist.
+named it. §6's secret key `s3_bucket_simple_data_storage_prod_arn` was removed by the
+owner the same night.
