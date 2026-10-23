@@ -10,7 +10,7 @@ executed before the date in §4.**
 |---|---|---|
 | **041.1** (#53) | Gated all **three** writes behind `enable_simple_bucket_writes`, flipped it to `false`. Deleted nothing. | **Applied 2026-09-20 22:31 UTC.** Bucket frozen at **347 objects**. |
 | **041.2** (this PR) | Removed the write code, the job/env wiring, the IAM write grants, the `"simple"` key in `get_secrets()`, and **repointed the SageMaker read grant**. Deleted nothing. | Code merged; see §5 for the owner's manual follow-up. |
-| **041.3** | Empties and disposes of the bucket. **Irreversible.** | **Not before 2026-10-20.** See §4. |
+| **041.3** | Emptied and deleted the bucket (owner, by hand), then dropped it from Terraform with `removed` blocks. | **Done 2026-10-22.** See §7. |
 
 ---
 
@@ -149,3 +149,37 @@ Nothing is running today (two domains `InService`, zero apps, zero notebook inst
 this cannot break a workload — but a role whose sole data permission points at a deleted
 bucket is a trap for whoever next opens a notebook. Reading Silver/Gold through **Athena**
 additionally needs a Lake Formation grant; this policy covers the direct S3 read.
+
+## 7. ✅ Result — PR-041.3, 2026-10-22
+
+The owner chose **deletion** over §5's "keep it empty", and ran it from the terminal as
+`angel-adming`.
+
+1. **Abort condition (§4):** 347 on 2026-10-22, two days past the end of the grace period
+   and after five Thursdays without a write (09-24 → 10-22). It held.
+2. **What was there** (read-only, same day, before the purge): 347 current objects —
+   232 `processed/`, 115 `raw/` — 540 versions, 2 delete markers, 9,275,153 bytes. The full
+   key + version list is committed as
+   `docs/inventory/lottery-data-simple-prod_2026-10-22-final.txt`. Nothing pointed at the
+   bucket: no Glue table location, no crawler target, no Lake Formation registration, no
+   event notification.
+3. **The purge:** bucket policy backed up and deleted (§2); one `list-object-versions`
+   projected into a `delete-objects` payload of 542 entries (versions and delete markers
+   together — under the 1,000-key limit, so one call); a second `list-object-versions`
+   returned `None None`; then `delete-bucket`. Afterwards `head-bucket` → **404 Not Found**
+   and `aws s3 ls` no longer lists it.
+4. **Terraform:** the four resources (bucket, versioning, SSE, public-access block) became
+   `removed { lifecycle { destroy = false } }` blocks in `modules/storage`, and the two
+   unused outputs went with them. Read-only targeted plan: `0 to add, 0 to change, 0 to
+   destroy`, with the four listed as "will no longer be managed by Terraform, but will not
+   be destroyed". `destroy = false` is what makes the order safe: had the code merged
+   before the manual delete, no apply could have tried to delete the bucket. The root
+   `required_version` moved to `>= 1.7`, the first release with `removed` blocks.
+5. **Also removed:** the bucket from `scripts/00_inventory_and_protect.sh`'s list, its
+   policy file `scripts/policies/lottery-data-simple-prod_protect.json` (§2 quotes it; git
+   history keeps it), and its Checkov baseline entry.
+
+**Not in scope, deliberately:** the `processed/` prefix in the *partitioned* bucket (267
+objects). PR-012 decided to preserve it, and PR-041 only removed the job argument that
+named it. **Still open, owner edit:** §6's secret key `s3_bucket_simple_data_storage_prod_arn`
+— harmless, nothing reads it, but it now names a bucket that does not exist.

@@ -261,6 +261,11 @@
 
   tp.addEventListener("click", () => spotlight(tp, tb, D.SPOT));
   tb.addEventListener("click", () => spotlight(tb, tp, D.BAD));
+  /* Sin defectos abiertos, el foco atenuaría todo sin resaltar nada. */
+  if (!D.BAD.length) {
+    tb.disabled = true;
+    tb.textContent = "Sin defectos abiertos";
+  }
 
   /* ============================ LA CORRIDA ============================ */
 

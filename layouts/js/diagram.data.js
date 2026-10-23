@@ -42,7 +42,11 @@
    del 15 oct) y su rollback (la del 8), los contadores del parser, silver_lineage_runs
    (tres corridas), el veredicto y la duración del gate, el zip del gate desplegado
    (referential_checks), el estado de las 9 alarmas y el conteo del bucket simple
-   (347). */
+   (347).
+
+   Re-leído el 2026-10-22, tras PR-041.3: lottery-data-simple-prod ya no existe
+   (head-bucket → 404); antes del borrado tenía 347 objetos, 540 versiones y 2 delete
+   markers. Lo demás no se volvió a leer ese día. */
 (function (global) {
   "use strict";
 
@@ -119,10 +123,9 @@
      title:"El lago", desc:"El bucket que sostiene las tres capas. Tiene versionado, una política que deniega el borrado a todo el mundo salvo la raíz de la cuenta, y prevent_destroy en Terraform. Desde PR-041.2 es el único bucket de datos que recibe escrituras.",
      kv:{"Prefijos":"raw/ · silver/ · quarantine/ · gold/ · sql/gold/","Raw":"120 archivos .txt","Silver":"120 sorteos y 126 229 premios en 240 Parquet","Quarantine":"vacío — su estado normal","Gold":"39 objetos · 13 vivos · 1,0 MB","Al día hasta":"Ordinario 3139 (sorteado el 10 oct) · ingerido el 15 oct, corrida programada","Protección":"versionado + Deny + prevent_destroy"}},
 
-    {id:"s3s", x:1064, y:400, w:268, h:96, st:"off", t:"S3 · lottery-data-simple-prod", s:["sin escritor · sin lector · sin grant","347 objetos congelados","solo faltan los bytes"],
-     title:"El tanque huérfano, ya desconectado", desc:"El transformer y el extractor escribían aquí una copia plana de cada Parquet y cada .txt. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas. El 20 de septiembre se apagaron las tres escrituras por bandera; el 25 se le quitó toda la configuración y el grant. Ya no queda nada que lo nombre salvo los bytes.",
-     kv:{"Defecto":"A → PR-041 (último paso pendiente)","Escrituras":"detenidas el 20 sep 2026 (PR-041.1)","Configuración":"retirada el 25 sep 2026 (PR-041.2)","Contenido":"347 objetos · 540 versiones · 9 MB","Lectores":"ninguno — el grant de SageMaker ya apunta a silver/ y gold/","Borrado":"no antes del 20 oct 2026 (PR-041.3)"},
-     warn:{k:"b",t:"Nada de aquí es único: los 115 .txt y los 116 Parquet tienen su contraparte en raw/ y silver/, así que borrarlo no pierde datos. Pero borrarlo no es una línea: la política Deny de PR-002 bloquea el borrado a todo principal salvo la raíz, y con versionado encendido un borrado normal solo deja delete markers. La espera de 30 días no es formalidad: CloudTrail de datos está apagado para este bucket, así que compra con tiempo lo que la evidencia no puede probar. Condición de aborto, comprobada el 20 oct: si el conteo ya no es 347, algo sigue escribiendo. El 15 de octubre seguían siendo 347, con los cuatro jueves de la espera ya pasados."}},
+    {id:"s3s", x:1064, y:400, w:268, h:96, st:"off", t:"S3 · lottery-data-simple-prod", s:["borrado el 22 oct 2026","347 objetos · 540 versiones","PR-041.3 · nada era único"],
+     title:"El tanque huérfano, ya retirado", desc:"El transformer y el extractor escribían aquí una copia plana de cada Parquet y cada .txt. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas. El 20 de septiembre se apagaron las tres escrituras por bandera; el 25 se le quitó toda la configuración y el grant; el 22 de octubre, pasada la espera de 30 días sin que nadie escribiera, se vació y se borró. La caja queda aquí como historia: ya no existe en la cuenta.",
+     kv:{"Defecto":"A → PR-041, cerrado","Escrituras":"detenidas el 20 sep 2026 (PR-041.1)","Configuración":"retirada el 25 sep 2026 (PR-041.2)","Borrado":"22 oct 2026 (PR-041.3) · head-bucket → 404","Contenido al borrar":"347 objetos · 540 versiones + 2 delete markers · 9 MB","Inventario final":"docs/inventory/lottery-data-simple-prod_2026-10-22-final.txt","En Terraform":"bloques removed (destroy = false): solo se olvida"}},
 
     {id:"cat", x:424, y:536, w:290, h:72, st:"ok", t:"Glue Data Catalog", s:["lottery_santalucia_db","12 tablas + 2 vistas · 3 en Terraform"],
      title:"El catálogo", desc:"Las dos tablas silver están declaradas en Terraform desde PR-045.2 —importadas, no creadas, para no perder sus 118 particiones— y los crawlers solo les registran la partición nueva. Las siete gold las publica el swap: el CTAS crea una tabla de staging y el Lambda repunta la publicada con un UpdateTable. Dos vistas de Athena responden qué corrida escribió cada fila.",
@@ -226,8 +229,9 @@
   /* Nodos que resalta el botón «Resaltar defectos»: los que hoy cargan un defecto
      abierto y anotado, no los que están apagados sin más. El extractor (Retry ciego al
      502) y CloudWatch (la alarma que negaba el Retry) salieron el 11 oct: PR-047 cerró
-     los dos el 8. Queda el bucket simple, cuyo borrado (PR-041.3) espera al 20 oct. */
-  const BAD = ["s3s"];
+     los dos el 8. El bucket simple salió el 22 oct, cuando PR-041.3 lo borró. Vacía:
+     diagram.js desactiva el botón en vez de atenuar el lienzo entero. */
+  const BAD = [];
 
   /* Nodos que resalta el botón «Resaltar lo nuevo»: la fase 9, desplegada entre el 8 y
      el 15 de octubre. El extractor reintenta el 502 del proxy y CloudWatch dejó de

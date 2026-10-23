@@ -18,5 +18,11 @@ policy** (every principal except the account root is denied `s3:DeleteBucket` /
 [`scripts/policies/`](../../scripts/policies/). To lift the protection later, an
 admin can replace the bucket policy (the policy does **not** deny `s3:PutBucketPolicy`).
 
+**`lottery-data-simple-prod` no longer exists** — retired by PR-041 and deleted on
+2026-10-22 (PR-041.3). Its last snapshot is
+[`lottery-data-simple-prod_2026-10-22-final.txt`](lottery-data-simple-prod_2026-10-22-final.txt),
+which also lists every version that was deleted; its protection policy was removed from
+`scripts/policies/` with it (git history keeps it).
+
 Object Lock is intentionally **not** enabled here — it can only be turned on at
 bucket creation and will be handled in a later, deliberate PR.

@@ -264,16 +264,6 @@
                     ]
                 },
                 {
-                    "resource": "module.storage.aws_s3_bucket.lottery_simple",
-                    "check_ids": [
-                        "CKV2_AWS_61",
-                        "CKV2_AWS_62",
-                        "CKV_AWS_144",
-                        "CKV_AWS_145",
-                        "CKV_AWS_18"
-                    ]
-                },
-                {
                     "resource": "module.storage.aws_s3_bucket_lifecycle_configuration.athena_results",
                     "check_ids": [
                         "CKV_AWS_300"

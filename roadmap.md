@@ -1938,7 +1938,8 @@ never written.** Either write it or delete the target; do not leave it pointing 
    2026-10-04), then the README, last, so it describes a finished thing rather than a moving
    one and links the live diagram.
 5. **PR-041.3** — on or after **2026-10-20**, owner-run, irreversible. The only item with a
-   hard date; it does not block anything above it.
+   hard date; it does not block anything above it. **✅ Done 2026-10-22 — Phase 8 is closed
+   and Phase 9 with it (049 verified the same day). What is left on the path is PR-036.**
 
 ---
 
@@ -2219,6 +2220,10 @@ and the decision that followed.
 > 043 (measured, full rebuild kept), 044 and 045 (both verified by the 10-08 run). **The only
 > row left is 041**, waiting for `.3` on or after 2026-10-20.
 
+> **✅ Phase 8 done, 2026-10-22.** 041.3 deleted the bucket; the diagram's five-defect table
+> now names the PR that closed each row (041, 042, 044, 045) and, for 043, the measurement
+> and the decision to keep the full rebuild.
+
 ---
 
 ## PR-041 — Retire the `simple` bucket and the legacy `processed/` prefix
@@ -2413,6 +2418,9 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 >
 > **Checkpoint 2026-10-03: 347.** Two of the four runs (09-24, 10-01) have passed without
 > a write.
+>
+> **Final check 2026-10-22: 347** — all four runs of the window and the 10-22 run after it
+> passed without a write. Deleted the same day; see below.
 
 **PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
 stated grace period of **at least 30 days** from 041.1's apply, with the date written down.
@@ -2420,6 +2428,18 @@ Abort condition: if the final object count differs from 041.1's snapshot, someth
 writes to it — find it before deleting anything. The version purge should lift
 `purge_and_load._empty_prefix`'s pattern rather than reinvent it; it already handles
 versions *and* delete markers correctly.
+
+> **PR-041.3 outcome (2026-10-22). Deleted.** The owner chose deletion over keeping the
+> bucket empty. 347 current objects (232 `processed/`, 115 `raw/`), 540 versions and 2
+> delete markers were listed into one 542-entry `delete-objects` call — small enough that
+> the CLI did what `_empty_prefix` does without needing it — after backing up and removing
+> PR-002's Deny; then `delete-bucket`, and `head-bucket` returns 404. The final key/version
+> list is committed in `docs/inventory/`. In Terraform the four resources became
+> `removed { lifecycle { destroy = false } }` blocks (root `required_version` → `>= 1.7`)
+> and the two unused outputs were dropped; targeted plan `0/0/0`, four objects forgotten.
+> `destroy = false` is what made the order irrelevant. Out of scope: the partitioned
+> bucket's `processed/` prefix, preserved by PR-012's decision. Still open (owner, harmless):
+> the secret's `s3_bucket_simple_data_storage_prod_arn` key. Runbook §7.
 
 
 ## PR-042 — Make the Gold publication atomic
@@ -3814,7 +3834,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 (count still 347 on 2026-10-03) | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` **done 2026-10-22** — abort condition held (347); the owner emptied (540 versions + 2 delete markers) and deleted the bucket, `head-bucket` → 404; Terraform forgets it via `removed` blocks, plan `0/0/0` | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
 | 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed + VERIFIED in prod 2026-10-08** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — sorteo 3138's two Parquets carry `run_id` = the scheduled execution's name, `source_key`, `ingested_at`, `parser_version 1`; gate PASS with the lineage expectations on real rows · `.2` **applied 2026-10-04 + VERIFIED 2026-10-08** ([#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79)) — 119 partitions, `silver_lineage_runs` answers *two runs*: the NULL one (118 sorteos, 124,447 premios) and 2026-10-08's (1 sorteo, 890 premios); Gold rebuilt to 3138 on the declared schema | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) · [#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79) |
 | 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed + VERIFIED in prod 2026-10-08** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained); on 3138 the counters logged `lines_total 1047 / parsed 967 / rejected 80`, all 80 `section_header`, `unrecognised 0` · `.2` **applied 2026-09-27 + VERIFIED 2026-10-08** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; the writer ran and logged `quarantined: 0`, `quarantine/` empty, both alarms `OK` | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |

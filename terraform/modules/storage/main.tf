@@ -5,7 +5,8 @@
 #
 # Holds:
 #   - lottery_partitioned  (raw + silver + gold data; prevent_destroy)
-#   - lottery_simple       (EDA-friendly dataset; prevent_destroy)
+#   - (lottery_simple was here — emptied and deleted by hand 2026-10-22, PR-041.3;
+#     the `removed` blocks below drop it from state without touching AWS)
 #   - lambda_code_zip      (Lambda deployment artifacts)
 #   - athena_results       (Athena query output; force_destroy, 30-day expiry)
 
@@ -57,44 +58,37 @@ resource "aws_s3_bucket_public_access_block" "lottery_partitioned" {
   restrict_public_buckets = true
 }
 
-# Bucket for the simple / EDA-friendly dataset
-resource "aws_s3_bucket" "lottery_simple" {
-  bucket = "lottery-data-simple-${var.environment}"
-
+# PR-041.3 — lottery-data-simple-prod no longer exists. It was emptied (540 versions + 2
+# delete markers) and deleted by the owner on 2026-10-22, by hand, because PR-002's Deny
+# policy and prevent_destroy were there precisely so Terraform could never do it. These
+# blocks only forget the four resources; `destroy = false` means no apply can reach AWS
+# for them, whichever order the plan runs in. See docs/runbooks/PR-041-retire-simple-bucket.md.
+removed {
+  from = aws_s3_bucket.lottery_simple
   lifecycle {
-    prevent_destroy = true
-  }
-
-  tags = {
-    Name        = "lottery-simple-storage-${var.environment}"
-    Environment = var.environment
-    Owner       = "Angel Hackerman"
-    Project     = "Lottery ETL"
+    destroy = false
   }
 }
 
-resource "aws_s3_bucket_versioning" "lottery_simple" {
-  bucket = aws_s3_bucket.lottery_simple.id
-  versioning_configuration {
-    status = "Enabled"
+removed {
+  from = aws_s3_bucket_versioning.lottery_simple
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "lottery_simple" {
-  bucket = aws_s3_bucket.lottery_simple.id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
+removed {
+  from = aws_s3_bucket_server_side_encryption_configuration.lottery_simple
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "lottery_simple" {
-  bucket                  = aws_s3_bucket.lottery_simple.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+removed {
+  from = aws_s3_bucket_public_access_block.lottery_simple
+  lifecycle {
+    destroy = false
+  }
 }
 
 # ---------------------------------------------------------------------------
