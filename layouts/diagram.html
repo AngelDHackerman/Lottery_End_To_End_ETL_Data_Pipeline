@@ -61,7 +61,7 @@
   </div>
 
   <details>
-    <summary>Los cinco defectos de la auditoría: tres cerrados, uno medido y aceptado, uno a medio cerrar</summary>
+    <summary>Los cinco defectos de la auditoría: cuatro cerrados, uno medido y aceptado</summary>
     <div class="dbody">
       <p class="hint">La auditoría del 14 de septiembre (fase 8 del roadmap) encontró cinco
         defectos de diseño. Aquí un defecto cuenta como <b>cerrado</b> cuando una corrida
@@ -70,18 +70,19 @@
         regla.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras
-          detenidas, configuración retirada, bytes en pie</b></td>
+        <tr><td class="pr done">041</td><td>Tubería doble al bucket simple — <b>cerrado: el
+          bucket se borró el 22 oct</b></td>
           <td>Cada Parquet se escribía dos veces — tres escrituras en realidad, contando el
             <code>.txt</code> crudo del extractor. La segunda copia no la leía nadie: pagaba
             almacenamiento e invitaba a deriva, porque nada verificaba que coincidieran.
             Desde el 20 sep las tres están apagadas por bandera; desde el 25, 041.2 borró
             toda la configuración que las nombraba y repuntó el grant de lectura de SageMaker
-            —su único permiso de datos— a <code>silver/</code> y <code>gold/</code>. Queda
-            abierto porque los bytes siguen ahí: 347 objetos congelados —el mismo número el
-            15 oct, con los cuatro jueves de la espera ya pasados—, y 041.3 no los borra antes del 20 oct. Esa espera no es burocracia — CloudTrail de datos
-            está apagado para este bucket, así que compra con tiempo la prueba que la
-            evidencia no puede dar.</td></tr>
+            —su único permiso de datos— a <code>silver/</code> y <code>gold/</code>. Después
+            vino una espera de 30 días, porque CloudTrail de datos estaba apagado para este
+            bucket y solo el tiempo podía probar que nadie más escribía. El 22 oct seguía en
+            347 objetos, el mismo número del 20 sep: 041.3 lo vació —540 versiones y 2 delete
+            markers— y lo borró. Nada de ahí era único, y el inventario final quedó en el
+            repo.</td></tr>
         <tr><td class="pr done">042</td><td>Gold no es atómica — <b>cerrado: el swap el
           25 sep, la limpieza el 27</b></td>
           <td>Borraba la tabla y vaciaba su prefijo <b>antes</b> del CTAS. Si el CTAS fallaba,

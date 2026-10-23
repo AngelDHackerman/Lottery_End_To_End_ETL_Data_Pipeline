@@ -46,6 +46,7 @@ button{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink);
        background:var(--surface2);border:1px solid var(--rule);border-radius:3px;
        padding:7px 13px;cursor:pointer}
 button:hover{border-color:var(--flow)}
+button:disabled{cursor:default;color:var(--muted);border-color:var(--rule)}
 button:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
 button.primary{background:var(--flow);border-color:var(--flow);color:var(--surface)}
 button[aria-pressed="true"]{background:var(--flow-soft);border-color:var(--flow);color:var(--ink)}
