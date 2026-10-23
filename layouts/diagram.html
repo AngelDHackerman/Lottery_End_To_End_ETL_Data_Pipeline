@@ -210,13 +210,13 @@
   </details>
 
   <details>
-    <summary>Fase 9: cuatro defectos que los PRs anteriores dejaron anotados — tres cerrados, uno desplegado a la espera de su corrida</summary>
+    <summary>Fase 9: cuatro defectos que los PRs anteriores dejaron anotados — los cuatro cerrados</summary>
     <div class="dbody">
       <p class="hint">Ninguno rompía producción el día en que se anotó; por eso se quedaron
         fuera del PR que los encontró. Se atendieron después del 8 de octubre, para que esa
         corrida verificara la fase 8 sin cambios mezclados. Color de la columna PR:
         <b class="c-done">verde</b>, cerrado; <b class="c-pend">ámbar</b>, desplegado pero
-        sin una corrida que lo pruebe todavía —la del 22 de octubre—;
+        sin una corrida que lo pruebe todavía;
         <b class="c-open">rojo</b>, sigue abierto en producción.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
@@ -242,15 +242,16 @@
             donde lee, y tres tests con dos buckets de moto lo comprueban. La corrida del
             15 oct, la primera que pasó por este código, escribió el Silver del 3139 en el
             bucket del que leyó su <code>.txt</code>.</td></tr>
-        <tr><td class="pr pend">049</td><td>El gate no comprobaba la integridad referencial —
-          <b>desplegado el 15 oct</b></td>
+        <tr><td class="pr done">049</td><td>El gate no comprobaba la integridad referencial —
+          <b>cerrado el 22 oct</b></td>
           <td>Anotado en PR-032. Ninguna expectativa exigía que cada premio apuntara a un
             sorteo que existe: un premio huérfano pasaba el gate y llegaba a Gold. La
             expectativa nueva se probó contra el Silver real (pasa) y contra un huérfano
             fabricado (falla), y el gate desplegado vuelve a pasar contra el Silver real con 14
             expectativas en premios. Se desplegó <b>después</b> de la corrida del 15 de octubre
-            para que esa corrida verificara 047 y 048 solos; la primera corrida con el gate
-            nuevo será la del 22.</td></tr>
+            para que esa corrida verificara 047 y 048 solos. La corrida del 22, la primera
+            con el gate nuevo, trajo el Extraordinario 416 y pasó: 14 expectativas en premios,
+            127 837 filas de 121 archivos.</td></tr>
         <tr><td class="pr done">050</td><td>ruff podía «modernizar» código que corre en
           Python 3.9 — <b>cerrado el 4 oct</b></td>
           <td>Anotado en PR-045.1. ruff apunta a Python 3.12, el de los Lambdas, pero el
