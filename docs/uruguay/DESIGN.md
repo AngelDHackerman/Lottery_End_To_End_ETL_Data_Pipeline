@@ -503,13 +503,16 @@ una tabla aparte o como ítems con sufijo. Esa elección se cierra en la Fase 5,
   2026-10-21). Eso es del parser y del escritor de plata, no del manifiesto.
 - **No decide si faltó un sorteo.** Eso es del detector de huecos.
 
-### Pendiente para G2
+### Los 4 días del paro ya tienen qué citar
 
-- **El 2019-09-30 no tiene fila en `calendar_events`.** Es uno de los 4 días del paro, pero
-  [`calendar_events.csv`](drafts/calendar_events.csv) solo trae el 25, el 26 y el 27, con su OIS.
-  Su corrección necesita algo que citar: la nota de
-  [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas) ("había
-  decretado un paro desde la semana pasada") o un OIS de ese día, si existe.
+El 2019-09-30 era el único de los 4 sin fila en `calendar_events`. `noticias.php` lo explica con el
+**OIS N° 2039, "Sorteos suspendidos el lunes 30/09/2019"** (una petición, 2026-10-25). La misma
+página trae dos OIS de esa semana que el borrador de UY-004 tampoco tenía: el **2040** (Vespertina
+suspendida el martes 2019-10-01) y el **2041** (el 5 de Oro del miércoles 2019-10-02 pasa al
+viernes 2019-10-04). Los tres coinciden con el manifiesto, y
+[`calendar_events.csv`](drafts/calendar_events.csv) pasa de 54 a 57 filas. Como con el OIS 2038,
+los documentos no se leyeron: el contenido sale de su título, y la causa del 30 (el paro), de la
+nota de [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas).
 
 ## Impacto en la Fase 3
 
@@ -526,8 +529,7 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 
 ## Lo que queda para UY-011
 
-- ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011), salvo la fila de
-  `calendar_events` del 2019-09-30.
+- ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011).
 - El detector de huecos: "Próximo sorteo" más `calendar_events` (propuesta 3 de FINDINGS).
 - Backfill e incremental: horarios, reanudación e idempotencia.
 - El catálogo completo de `dq_flags` y las suites de GX.
