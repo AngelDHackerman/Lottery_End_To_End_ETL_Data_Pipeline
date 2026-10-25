@@ -68,6 +68,17 @@ pip install \
 # dependencies do.
 find "$BUILD_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
 
+# PR-046.3: drop the console scripts (`bin/idna`, `bin/normalizer`) and their RECORD lines.
+# pip writes each script's shebang from the interpreter that RAN pip, so the layer depended
+# on which `pip` came first on PATH: `/usr/bin/pip` gave `#!/usr/bin/python3` and matched the
+# deployed loteria-deps-prod:6, while a shell with `.venv` first gave
+# `#!/home/<user>/.../.venv/bin/python3` and put a layer replacement into PR-052's plan.
+# Nothing in Lambda can run them anyway — /opt/python/.../bin is not on PATH and the
+# shebang names the build machine. RECORD lists them as `../../bin/<name>`, a path that is
+# wrong under --target in the first place, and carries their hashes, so those lines go too.
+rm -rf "${SITE_PACKAGES}/bin"
+find "$SITE_PACKAGES" -path '*.dist-info/RECORD' -exec sed -i '\#^\.\./\.\./bin/#d' {} +
+
 (cd "$BUILD_DIR" && python3 "$REPO_ROOT/scripts/_zipdir.py" "$OUT_ZIP")
 
 echo "✅  lambda_layer.zip ready -> $OUT_ZIP"
