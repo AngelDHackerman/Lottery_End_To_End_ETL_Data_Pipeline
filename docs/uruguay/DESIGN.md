@@ -6,7 +6,7 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D22](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+**Cómo leerlo.** Las [decisiones D1–D23](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
 [propuestas P1–P14](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
 y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
 
@@ -38,6 +38,7 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D20 | **GX en un job aparte, con GX ya empaquetado** | Un job de Glue 5.0 propio para las suites de UY, que no instala GX desde PyPI al arrancar. Ver [Calidad de datos](#calidad-de-datos-dq_flags-y-gx-uy-011). | En `master`, `--additional-python-modules` llegó a gastar ~21 minutos de arranque por corrida (PR-033.2). |
 | D21 | **Fila por fila en el transform, el conjunto en GX** | El transform marca cada fila (`dq_flags`) o la manda a cuarentena. GX valida la tabla entera y es el gate antes de oro. | Una fila rara no debe frenar un año; una tabla rota, sí. |
 | D22 | **El catálogo de `dq_flags` es cerrado** | Solo valen los nombres del catálogo. El escritor de plata rechaza cualquier otro, y GX lo comprueba. | Un flag escrito a mano en el código, con otro nombre o una errata, es un flag que ningún filtro de oro va a ver. |
+| D23 | **Pruebas de propiedades sin `hypothesis`** | Un target de Make que recorre todo el bronce local, más tablas pequeñas de casos en el CI. Ver [Pruebas y riesgos](#pruebas-y-riesgos-uy-011). | El bronce real ya tiene 20 años de casos raros. Generar datos inventados no encuentra nada que esos 21.000 archivos no tengan. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -55,8 +56,8 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** **Aprobada por el owner el 2026-10-25.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 17 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
 | P11 | **El incremental mira los últimos 7 días más toda clave no final del manifiesto.** **Aprobada por el owner el 2026-10-25.** | 7 = el *settle* de 3 días, más la ventana de 3 del detector, más uno. Las claves no finales de cualquier fecha (hoy, 39 `error`) se incluyen para que la regla de las 3 fallas (D11) termine de cerrarlas: si no, los 35 PDF de pozos de 2016–2026 solo se volverían a pedir con un backfill manual. |
 | P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
-| P13 | **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
-| P14 | **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. |
+| P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
+| P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. |
 
 ---
 
@@ -784,6 +785,58 @@ Cada expectativa cita su evidencia. Es la lista de partida; UY-026 la confirma c
 | todas | Toda clave de `draw_numbers` y `prizes` existe en `draws` | PR-049 |
 | `draw_gaps` | `status` está en {`explained`, `open`}, y `explained` si y solo si `calendar_event_date` no es nulo | D13, D15 |
 
+## Pruebas y riesgos (UY-011)
+
+### Tres niveles de prueba (D23)
+
+| Nivel | Dónde corre | Qué prueba |
+|---|---|---|
+| **Fixtures** | CI, en cada PR | Una página real por caso conocido, con el resultado esperado escrito a mano |
+| **Tablas de casos** | CI, en cada PR | Funciones puras con entradas cortas: montos, fechas del "Próximo", firmas de falla, `expected_draws()` |
+| **Propiedades** | Local, `make uy-properties` | Las reglas de D3 y P7 sobre **todo** el bronce: 21.173 archivos, sin peticiones |
+
+El CI no tiene el bronce, que pesa 1,1 GB y no se versiona. Por eso las propiedades corren en local
+y su resultado (cuántos archivos, cuántas violaciones por regla) se pega en el PR que cambia un
+parser, igual que un plan de Terraform.
+
+### Fixtures que faltan
+
+Hoy hay 11 fixtures y 53 tests (backfill, clasificador, cliente HTTP y privacidad). Los parsers
+necesitan uno por cada caso de este documento. **Todos salen del bronce local**, pasados por
+`scripts/uy_redact_fixture.py` (sin enlaces `DET_INVALIDAS` y con cupones falsos, C7), y se
+commitean byte por byte con `SKIP=trailing-whitespace`.
+
+| Caso | Fecha y fuente | Para qué |
+|---|---|---|
+| Pozo vacío (`$` y `0,00`) | 2006-08-20, `ver_resultados` y extracto | Nulo, nunca 0 (D6) |
+| Pozo de Plata igual al de Oro | 2006-12-06 | `pozo_plata_equals_oro` |
+| Tómbola con un repetido | Uno de los 31 de 2006 | `tombola_repeated_number` |
+| Quiniela con un número repetido | Cualquiera de 2025 (el 17,5 % de los sorteos) | Que la clave sea la posición (D3) |
+| "Próximo" con año de 3 cifras | 2023-09-29, Nocturna (`30 / 09 / 203`) | `next_draw_unparsed` |
+| "Próximo" con separador repetido | 2025-02-09, 5 de Oro (`12 / /02 / 2025`) | Que se lea (regla E) |
+| "Próximo" con año de 2 cifras | Uno de los 4 de Q1 (`03 / 06 / 09`) | Que se lea |
+| "Próximo" de 13 días | 2022-12-21, 5 de Oro | Que P10 lo acepte |
+| Celda de ganadores vacía | Una de las 25 de Q1 | `winners_status = unknown`, nunca `no_winners` |
+| "Sin Aciertos" en sus variantes | Una por grafía (`sin acierto`, `SIN ACIERTO`…) | Normalización |
+| Rango 01–44 y 01–48 | El último sorteo antes del 2014-03-16 y el primero desde el 2014-03-19 | La época de `game_rules` |
+| PDF de pozos | Uno de 2016 y uno de 2026 | El número de sorteo |
+
+### Riesgos y supuestos
+
+Lo que este diseño da por bueno sin haberlo podido confirmar del todo:
+
+| Riesgo | Qué pasa si falla | Cómo se detecta |
+|---|---|---|
+| **El bronce está en un solo disco.** Hasta UY-042 vive en `data/uy/`, más una copia en `~/backups/loteria-uy-2026-10-25/` | Volver a bajarlo lleva ~6 horas a 1 req/s. El 2026-10-25 se borró del disco por un `git switch` y se recuperó de la copia que #103 había subido a `master` por error; esa copia quedó congelada en el 2026-10-21 (PR-049.1) | Subirlo a S3 es lo primero de la Fase 5 (UY-042). Hasta entonces, el respaldo se rehace después de cada backfill |
+| **El sitio puede empezar a bloquear.** Hoy responde sin CDN ni WAF, también desde AWS (UY-005) | El incremental falla con 403 | Las firmas de falla (P8) separan un 403 nuevo de los 34 viejos, y la alarma de huecos (UY-045) avisa en 3 días |
+| **El sitio regenera las páginas** con la plantilla de hoy | Una página vieja pedida otra vez no es byte a byte la misma (48.072 contra 48.803 bytes el 2019-09-25) | Nunca se vuelve a pedir una página final (D12), y el hash de los datos va en el linaje (UY-025) |
+| **Un año entra en una Lambda de 15 minutos** (D18) | El `Map` de UY-042 corta por timeout | Se mide en UY-030 con 2016 |
+| **GX arranca rápido desde wheels en S3** (P14) | El job vuelve a gastar ~20 minutos de arranque | Se mide en UY-026 |
+| **Los datos tipeados de 2006** comparten el error en las dos fuentes | La comparación entre fuentes no los corrige | Los flags los marcan y oro filtra por métrica (FINDINGS) |
+| **Huecos sin explicación:** 2006-08-27/30 y las reglas anteriores a 2012 | Quedan abiertos o sin fuente | Están documentados como huecos aceptados (G1) |
+| **Uruguay vuelve a tener horario de verano** | Las horas UTC de la Quiniela se corren una hora | Las horas se guardan locales y el UTC sale de `zoneinfo` (C5) |
+| **Los cupones reales siguen en el historial de git** (antes de UY-011.1) | Están en un repo público | Aceptado por el owner. El escáner de fixtures impide que entren nuevos |
+
 ## Impacto en la Fase 3
 
 Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
@@ -804,4 +857,6 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 - ~~Backfill e incremental~~: escrito en [Backfill e incremental](#backfill-e-incremental-uy-011).
 - ~~El catálogo de `dq_flags` y las suites de GX~~: escritos en
   [Calidad de datos](#calidad-de-datos-dq_flags-y-gx-uy-011).
-- El plan de pruebas y los riesgos.
+- ~~El plan de pruebas y los riesgos~~: escritos en [Pruebas y riesgos](#pruebas-y-riesgos-uy-011).
+
+**UY-011 está completo.** El documento entero es lo que el owner aprueba en **G2**.
