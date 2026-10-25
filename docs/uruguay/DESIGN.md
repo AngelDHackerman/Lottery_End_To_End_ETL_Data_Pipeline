@@ -6,8 +6,8 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D15](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
-[propuestas P1–P10](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
+**Cómo leerlo.** Las [decisiones D1–D19](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+[propuestas P1–P12](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
 y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
 
 ---
@@ -31,6 +31,10 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D13 | **Un solo detector de huecos** | Una función pura, `expected_draws()`, que usan tanto el reporte del backfill como la alarma del incremental. Su salida es la tabla de plata `draw_gaps`. Ver [Detector de huecos](#detector-de-huecos-uy-011). | Si el reporte y la alarma tuvieran cada uno su lógica, tarde o temprano dirían cosas distintas sobre el mismo día. |
 | D14 | **La regla combinada** (Q7, 2026-10-21) | Se espera la fecha que anunció el sorteo anterior si cae en (anterior, anterior + 14 días] (el tope pasó de 7 a 14 con P10, aprobada el 2026-10-25); si no, el siguiente día del calendario del juego. Hay hueco si no hay sorteo entre esa fecha y 3 días después. Un anuncio descartado lleva `next_draw_implausible`. Las fechas se leen aceptando cualquier separador, sin corregir nunca un dígito. | Ninguna de las dos fuentes alcanza sola. El anuncio acierta el 98 % y el calendario no ve feriados ni traslados; combinadas pasan del 99,7 %. |
 | D15 | **Los huecos conocidos son filas de `calendar_events`** | Semana de Turismo, fin de año, paros y duelos se explican con una fila, nunca con una excepción en el código. | Un hueco explicado queda en `draw_gaps` con su causa, y uno sin explicar es el que alarma. |
+| D16 | **Un incremental al día, a las 23:30 de Montevideo** | Una sola corrida diaria, después del último sorteo. Ver [Backfill e incremental](#backfill-e-incremental-uy-011). | La Nocturna termina ~21:20 y su HTML sale 3 a 13 minutos después (UY-003). Lo que llegue tarde queda `not_yet_published` y se pide al día siguiente (D9). |
+| D17 | **Plata se reescribe por año** | Cada corrida reescribe entera la partición de cada año que tocó, sin merges. | Un año son unos 650 sorteos. Reescribir es idempotente y evita la lógica de upsert que Parquet no tiene. |
+| D18 | **El backfill de plata es local primero** | Se parsea en local en la Fase 4 y en la nube con un `Map` de Step Functions por año (UY-042). | El bronce ya está en disco: la nube lo recibe subido (UY-042) y nunca vuelve a scrapear la historia. |
+| D19 | **Los PDF de extracto históricos no se bajan** | El PDF es respaldo y se guarda solo desde la ingesta diaria en adelante. | Plata sale siempre del HTML (UY-003), y el PDF es una impresión del mismo PHP. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -46,6 +50,8 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P8 | **"Falla igual" quiere decir la misma firma**: el mismo `http_status` y el mismo `content_sha256`, o el mismo `detail` si no hubo respuesta. Se cuenta sobre las 3 últimas filas de `fetch_log` de esa clave, y la regla vale para **todas** las fuentes. | Un 403 que siempre devuelve los mismos 146 bytes es un archivo que no está. Un 403 distinto, o un timeout, puede ser un mal momento del sitio, y no debe cerrar la puerta. Ver [Manifiesto](#manifiesto-uy-011). |
 | P9 | **`manual_overrides` es un CSV versionado en git**, junto a `calendar_events`, y el estado efectivo es el de la corrección cuando existe. | Es el mismo tratamiento que `calendar_events`: un cambio es una decisión revisada en un PR, no una edición de una base local. |
 | P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** **Aprobada por el owner el 2026-10-25.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 19 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
+| P11 | **El incremental mira los últimos 7 días más toda clave no final del manifiesto.** | 7 = el *settle* de 3 días, más la ventana de 3 del detector, más uno. Las claves no finales de cualquier fecha (hoy, 39 `error`) se incluyen para que la regla de las 3 fallas (D11) termine de cerrarlas: si no, los 35 PDF de pozos de 2016–2026 solo se volverían a pedir con un backfill manual. |
+| P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
 
 ---
 
@@ -622,6 +628,75 @@ nada más.
 solo mira ventanas que cerraron desde la corrida anterior, y el reporte lo muestra como un hueco
 documentado.
 
+## Backfill e incremental (UY-011)
+
+Los dos son la misma máquina, `Backfill` (UY-001): recorren un rango de fechas y, para cada día,
+piden `ver_resultados` y después solo las fuentes de los juegos que esa página lista. Cambian el
+rango, las fuentes y lo que pasa después de bajar.
+
+### Lo que ya se midió (verificado)
+
+Leído del manifiesto y de los logs locales, sin peticiones nuevas.
+
+| Corrida | Peticiones | Duración | Qué hizo |
+|---|---|---|---|
+| Backfill completo, 2026-10-04 | 20.345 | 5 h 40 min | 2006-08-11 → 2026-10-03: `resultados` y extractos PHP, más 21 PDF de extracto y 4 de pozos |
+| Muestra de PDF, 2026-10-14 | 226 | 3 min | PDF de extracto 2018–2026, para compararlos con el PHP (UY-003) |
+| Puesta al día, 2026-10-21 | 1.106 | 17 min | Hasta 2026-10-20, más los 1.060 PDF de pozos |
+
+- **El ritmo es el de cortesía:** 1 petición por segundo, con un solo worker (C2).
+- **Un día normal son 3,2 claves** (mínimo 1, máximo 8), medido del 2026-09-01 al 2026-10-20 sin
+  los PDF de extracto. Con ellos (P12) serían unas 5 (**hipótesis**: hasta la puesta al día no se
+  pedían).
+- **Reanudar ya funciona.** El manifiesto se escribe después de cada petición y las claves finales
+  se saltan, así que un corte a mitad de corrida se retoma volviendo a correr el mismo comando. Una
+  segunda corrida sobre un rango ya cerrado no hace ninguna petición.
+
+### El incremental (D16, P11, P12)
+
+**Cuándo.** Una vez al día, a las 23:30 de Montevideo. La Nocturna termina hacia las 21:20 y su
+HTML aparece entre 3 y 13 minutos después; el PDF, a los 14 (UY-003). Si algo sale tarde, la clave
+queda `not_yet_published` y se vuelve a pedir al día siguiente: no hace falta una segunda corrida.
+En la nube va con un horario en `America/Montevideo` (UY-040), nunca con una hora UTC fija.
+
+**Qué fechas (P11).** Los últimos 7 días, más toda clave que no sea final en el manifiesto, sea de
+la fecha que sea. Los 7 días cubren el *settle* (3) y la ventana del detector (3). Las claves no
+finales viejas son hoy 39 (los 4 días del paro y 35 PDF de pozos). Con D11 cada una se pide como
+mucho 3 veces más antes de cerrarse, así que el costo es acotado.
+
+**Qué fuentes (P12).** Las cuatro: `resultados`, los extractos PHP, el PDF de extracto (solo como
+respaldo, sin parsear) y el PDF de pozos (el único origen del número de sorteo).
+
+**Después de bajar**, en este orden:
+
+1. Parsear lo nuevo y reescribir plata para cada año tocado (D17).
+2. Correr `expected_draws()` sobre esos años y reescribir `draw_gaps` (D13).
+3. Avisar de los huecos **abiertos** cuya ventana cerró desde la corrida anterior (UY-045).
+
+Si el paso 1 falla, los pasos 2 y 3 no corren: un detector sobre una plata vieja avisaría de
+huecos que no existen.
+
+### Plata por año (D17)
+
+Plata está particionada por año, y una corrida reescribe **entera** la partición de cada año que
+tocó. Un año "tocado" es uno con al menos una clave del manifiesto que cambió de estado en la
+corrida. Un día normal toca un año, y la primera semana de enero, dos.
+
+Un año son unos 650 sorteos (640 en 2016 y 651 en 2025, contando 5 de Oro, Vespertina y Nocturna) y
+unos 63 MB de bronce, así que reescribirlo cuesta segundos. A cambio, no hay lógica de *upsert*:
+volver a correr da exactamente el mismo resultado.
+
+### El backfill (D18, D19)
+
+- **En local (Fase 4).** UY-030 parsea 2016 como piloto, porque cruza el cambio de layout, y UY-031
+  parsea toda la historia. Todo sale del bronce que ya está en disco: el backfill de plata no hace
+  peticiones.
+- **En la nube (UY-042).** Se sube el bronce local y un `Map` de Step Functions parsea un año por
+  ítem (21 años, 2006–2026). Que un año entre en los 15 minutos de una Lambda es una **hipótesis**
+  hasta medir el tiempo de parseo en UY-030.
+- **Lo que no se baja.** Los PDF de extracto históricos (D19): el respaldo empieza con la ingesta
+  diaria. Las páginas finales tampoco se vuelven a pedir (D12).
+
 ## Impacto en la Fase 3
 
 Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
@@ -639,6 +714,6 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 
 - ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011).
 - ~~El detector de huecos~~: escrito en [Detector de huecos](#detector-de-huecos-uy-011).
-- Backfill e incremental: horarios, reanudación e idempotencia.
+- ~~Backfill e incremental~~: escrito en [Backfill e incremental](#backfill-e-incremental-uy-011).
 - El catálogo completo de `dq_flags` y las suites de GX.
 - El plan de pruebas y los riesgos.
