@@ -19,7 +19,34 @@
    (12 + 2), columnas y particiones de las dos silver, conteos de raw/silver/gold,
    generación viva de Gold, veredicto del gate del 1 oct, estado de las 9 alarmas,
    el Retry del extractor y la descripción de la alarma de ejecución (los dos
-   siguen sin arreglar) y el conteo del bucket simple (347). */
+   siguen sin arreglar) y el conteo del bucket simple (347).
+
+   Re-leído el 2026-10-08, tras la corrida programada que trajo el 3138: conteos
+   de raw/silver/quarantine/gold, el linaje del 3138 en el Parquet y en las dos
+   vistas, los contadores del parser y las dos alarmas de cuarentena.
+
+   Re-leído el 2026-10-09, tras aplicar PR-047: el Retry desplegado de
+   RunExtractorLambda (dos retriers, el segundo ProxyRetryableError 300 s × 3),
+   las clases dentro del zip del Lambda y las tres descripciones de alarma.
+
+   Re-leído el 2026-10-09, tras aplicar PR-048: el zip del transformer en
+   lambda-code-zip-prod (01:29:40Z) escribe Silver en el bucket que recibe.
+
+   Re-leído el 2026-10-11, al limpiar lo que el diagrama seguía dando por roto:
+   la generación viva de Gold (la del 8 oct) y su rollback (la del 1 oct), 39
+   objetos en gold/, raw/ y quarantine/, el estado y las acciones de las 9
+   alarmas, la corrida del 8 oct y el conteo del bucket simple (347).
+
+   Re-leído el 2026-10-15, tras la corrida programada que trajo el 3139 y el deploy
+   de PR-049: conteos de raw/silver/quarantine/gold, la generación viva de Gold (la
+   del 15 oct) y su rollback (la del 8), los contadores del parser, silver_lineage_runs
+   (tres corridas), el veredicto y la duración del gate, el zip del gate desplegado
+   (referential_checks), el estado de las 9 alarmas y el conteo del bucket simple
+   (347).
+
+   Re-leído el 2026-10-22, tras PR-041.3: lottery-data-simple-prod ya no existe
+   (head-bucket → 404); antes del borrado tenía 347 objetos, 540 versiones y 2 delete
+   markers. Lo demás no se volvió a leer ese día. */
 (function (global) {
   "use strict";
 
@@ -49,7 +76,7 @@
 
     {id:"owner", x:44, y:356, w:312, h:56, st:"pend", t:"El owner, a mano", s:["make deploy → build · apply · upload"],
      title:"El puente humano", desc:"La única vía real entre GitHub y la cuenta de AWS. Terraform no gestiona los objetos de código en S3, así que construir y subir los zips es un paso manual — pero desde PR-039 es un solo comando, y eso cerró la deriva silenciosa de los artefactos de Glue.",
-     kv:{"Comando":"make deploy = build → apply → upload-glue","Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Al día":"4 oct 2026 · PR-045.2 (imports + make deploy + make lineage-views)"},
+     kv:{"Comando":"make deploy = build → apply → upload-glue","Artefactos":"lambda_layer.zip · lambda_package.zip · lottery_transformer.zip","Del gate":"loteria_silver_dq.py · loteria_dq_lib.zip","Destino":"s3://lambda-code-zip-prod","Al día":"15 oct 2026 · PR-049 (make deploy: el gate comprueba que cada premio tenga su sorteo)"},
      warn:{k:"p",t:"Ningún target del Makefile imprime ya TODO. Antes siete lo hacían —deploy, lint y fmt entre ellos—, así que un README que prometiera «5 comandos para desplegar» o mentía o rodeaba al Makefile, lo cual plantea por qué existe el Makefile."}},
 
     {id:"eb", x:424, y:158, w:180, h:56, st:"ok", t:"EventBridge", s:["cron(0 18 ? * THU *)"],
@@ -59,7 +86,7 @@
 
     {id:"sfn", x:628, y:158, w:236, h:56, st:"ok", t:"Step Functions", s:["lottery-etl-pipeline-prod · 9 estados"],
      title:"El orquestador", desc:"La máquina de estados que conduce todo el pipeline: decide el orden, reintenta, corta el paso a Gold si la calidad falla, y desde el 25 de septiembre publica cada tabla gold con un swap en vez de borrarla y rehacerla.",
-     kv:{"Nombre":"lottery-etl-pipeline-prod","Estados":"9 · el gate entre los crawlers y Gold","Logging":"ALL, con datos de ejecución","Rol":"sfn-lottery-execution-role-prod","Última corrida":"1 oct 2026 18:00 UTC · SUCCEEDED (programada)","Duración":"10m31s de punta a punta"},
+     kv:{"Nombre":"lottery-etl-pipeline-prod","Estados":"9 · el gate entre los crawlers y Gold","Logging":"ALL, con datos de ejecución","Rol":"sfn-lottery-execution-role-prod","Última corrida":"15 oct 2026 18:00 UTC · SUCCEEDED (programada)","Duración":"10m49s de punta a punta"},
      warn:{k:"p",t:"La corrida programada del 24 de septiembre murió en el extractor por el 502 de Cloudflare. Lo que siguió fueron cuatro corridas a mano esa noche: cada una llegó un estado más lejos que la anterior porque cada una destapó un permiso distinto. La quinta —verify-partitions— pasó entera. Ese es el único motivo por el que el swap está verificado hoy."}},
 
     {id:"tfstate", x:1140, y:158, w:216, h:56, st:"ok", t:"Estado de Terraform", s:["S3 + lock DynamoDB"],
@@ -70,41 +97,40 @@
     {id:"extract", x:424, y:252, w:172, h:84, st:"ok", t:"Extractor", s:["Lambda · python","guard sobre silver/","escribe raw/"],
      title:"La toma de agua", desc:"Lambda que scrapea el sorteo de la semana a través del proxy y sube el .txt crudo. Antes de scrapear comprueba si el sorteo ya existe — y desde PR-035.1 lo comprueba donde el transformer escribe de verdad.",
      kv:{"Función":"lottery-extractor-prod","Rol":"lottery-lambda-exec-roleprod","Guard":"silver/sorteos/ (era processed/, muerto desde 2025)","Fecha del sorteo":"regex anclado \\d{2}/\\d{2}/(\\d{4})\\b","VPC":"ninguna — corre fuera"},
-     warn:{k:"b",t:"El Retry de RunExtractorLambda no cubre el fallo que de verdad ocurre. Su ErrorEquals lista solo faltas de transporte —ReadTimeout, ConnectionError y cuatro Lambda.*— y un 502 del proxy llega como el ValueError de fetch_via_proxy. La corrida del 24 de septiembre tuvo un solo intento. Anotado en PR-031.2, sin arreglar: no habría salvado una caída de ocho fallos, pero el Retry dice que protege algo que no protege."}},
+     warn:{k:"p",t:"Desde PR-047 (aplicado el 8 de octubre) el Retry cubre el fallo que de verdad ocurre. La corrida del 15, la primera programada después, trajo el 3139 al primer intento y sin disparar ningún retrier: no rompió nada, y el reintento en sí sigue probado solo por los tests hasta el día de un 502 real. Antes listaba solo faltas de transporte, y un 502 del proxy llegaba como un ValueError genérico: la corrida del 24 de septiembre tuvo un solo intento. Ahora fetch_via_proxy lanza ProxyRetryableError para 429/5xx y ProxyHTTPError para el resto, y un segundo retrier reintenta solo el primero a los 5, 15 y 35 minutos. Son dos nombres porque Step Functions compara el nombre de la clase, nunca la clase padre: un 401 o un fallo de parsing siguen fallando a la primera, porque reintentarlos no arregla nada. Un request fallido no se cobra, así que el peor caso son 50 créditos. No habría salvado la caída de ocho fallos del 24 —eso era el perfil del proxy—; cubre el 502 suelto."}},
 
     {id:"transform", x:612, y:252, w:172, h:84, st:"ok", t:"Transformer", s:["Glue pythonshell 3.9","1 DPU · .sync","raw → silver + quarantine"],
-     title:"La planta de tratamiento", desc:"Job de Glue que parsea el .txt, separa cabecera y cuerpo, limpia con pandas y escribe Parquet particionado por año y sorteo. Desde PR-041.2 escribe en un solo sitio: la copia plana al bucket simple ya no existe ni como argumento.",
+     title:"La planta de tratamiento", desc:"Job de Glue que parsea el .txt, separa cabecera y cuerpo, limpia con pandas y escribe Parquet particionado por año y sorteo. Desde PR-041.2 escribe en un solo sitio: la copia plana al bucket simple ya no existe ni como argumento. Y desde PR-048 ese sitio es el bucket del que lee, no una variable global que coincidía con él por casualidad: el 3139 lo comprobó el 15 de octubre.",
      kv:{"Job":"lottery-transform-prod","Runtime":"Python Shell 3.9 (el techo)","Capacidad":"1 DPU","Salida":"silver/{sorteos,premios}/","Argumentos":"RAW_PREFIX · PARTITIONED_BUCKET · el secreto","Linaje":"run_id · ingested_at · source_key · parser_version (PR-045.1)","Rechazos":"contados y clasificados; los raros van a quarantine/ (PR-044)"},
-     warn:{k:"p",t:"Los dos defectos de la auditoría que vivían aquí —044, filas descartadas sin registro, y 045, Parquet sin ingested_at ni run_id— tienen el código desplegado desde el 27 de septiembre y SIN VERIFICAR: ningún sorteo ha pasado todavía por él. El 3137 se ingirió horas antes del deploy, y la corrida del 1 de octubre no tenía nada nuevo que parsear —los sorteos son los sábados—, así que el transformer encontró 118/118 y no escribió nada. Los verifica el 3138, el jueves 8 de octubre: la Parquet nueva debe traer las cuatro columnas con un run_id real, y el log los contadores lines_total / lines_parsed / lines_rejected con rejected_unrecognised en 0. Y Python Shell solo ofrece 3.6 y 3.9: ese techo es la razón de que el gate de calidad tenga que ser un job Spark aparte."}},
+     warn:{k:"p",t:"Los dos defectos de la auditoría que vivían aquí —044, filas descartadas sin registro, y 045, Parquet sin ingested_at ni run_id— quedaron VERIFICADOS el jueves 8 de octubre con el 3138, el primer sorteo que pasó por su código: la Parquet nueva trae las cuatro columnas con el nombre de la ejecución como run_id, y el log trae lines_total 1047 / lines_parsed 967 / lines_rejected 80 —las 80 encabezados de millar— con rejected_unrecognised en 0 y quarantined en 0. El 3139, el 15 de octubre, dio las mismas cifras. Tardó once días desde el deploy porque el 3137 se ingirió horas antes y la corrida del 1 de octubre no tenía nada nuevo que parsear —los sorteos son los sábados—. Y Python Shell solo ofrece 3.6 y 3.9: ese techo es la razón de que el gate de calidad tenga que ser un job Spark aparte."}},
 
     {id:"crawlers", x:800, y:252, w:172, h:84, st:"ok", t:"Crawlers ×2", s:["Parallel + polling real","LastCrawl.MessagePrefix","registran silver"],
      title:"El registro en el catálogo", desc:"Dos crawlers en paralelo que registran las particiones nuevas de silver en el catálogo de Glue, para que Athena pueda verlas. Son los únicos crawlers que quedan: gold nunca pasa por aquí. Desde PR-045.2 ya no deciden el esquema —las dos tablas silver están declaradas en Terraform— y su único trabajo es registrar la partición de la semana, que hereda el esquema declarado.",
      kv:{"Crawlers":"lottery-premios-silver-crawler · lottery-sorteos-silver-crawler","Espera":"polling hasta completar"},
      warn:{k:"p",t:"startCrawler no tiene variante .sync: la tarea terminaba en cuanto la API aceptaba la llamada, no cuando el crawl acababa. Los CTAS de gold leían un catálogo viejo y la tabla salía sin el sorteo nuevo, en silencio. PR-026.1 lo arregló con un bucle de polling — y comprobando LastCrawl.MessagePrefix, no State==READY, que es READY también cuando el crawl anterior terminó hace una semana."}},
 
-    {id:"dq", x:988, y:252, w:172, h:84, st:"ok", t:"Gate de calidad", s:["Glue 5.0 · Spark","28 expectativas","corta el paso a Gold"],
-     title:"El laboratorio", desc:"Valida el Silver entero contra dos suites de Great Expectations ANTES de tocar Gold. Si una expectativa falla, Gold no se construye: el Catch de la máquina lleva a NotifyDQFailure y la alerta nombra la suite, la expectativa y la columna.",
-     kv:{"Cadena":"RunSilverCrawlers → RunSilverDQ → PrepGold","Si falla":"Catch → NotifyDQFailure → SilverDQFailed","Último veredicto":"PASS · 1 oct 2026 18:07 UTC","Alcance":"sorteos 15 expectativas / 118 filas · premios 13 / 124 447","Duración":"97 s","Runtime":"Glue 5.0 / Python 3.11","Rol":"glue_dq_role — solo lectura","Timeout":"60 min (PR-033.1)"},
-     warn:{k:"p",t:"Verificado en los DOS sentidos, que es lo que importa: una corrida validó el Silver real y otra, apuntada a un prefijo inexistente, falló diciendo «esto es un problema de cableado, no de calidad». Un gate que solo ha pasado es indistinguible de no tener gate. Ojo a lo que NO cubre: valida lo que llegó a Silver, no lo que el parser tiró por el camino — eso es el defecto 044, y por definición no hay fila que validar."}},
+    {id:"dq", x:988, y:252, w:172, h:84, st:"ok", t:"Gate de calidad", s:["Glue 5.0 · Spark","29 expectativas","corta el paso a Gold"],
+     title:"El laboratorio", desc:"Valida el Silver entero contra dos suites de Great Expectations ANTES de tocar Gold. Si una expectativa falla, Gold no se construye: el Catch de la máquina lleva a NotifyDQFailure y la alerta nombra la suite, la expectativa y la columna. Desde PR-049 también cruza las dos suites: cada premio tiene que apuntar a un sorteo que existe en el mismo Silver.",
+     kv:{"Cadena":"RunSilverCrawlers → RunSilverDQ → PrepGold","Si falla":"Catch → NotifyDQFailure → SilverDQFailed","Último veredicto":"PASS · 15 oct 2026 18:07 UTC","Alcance":"sorteos 15 expectativas / 120 filas · premios 14 / 126 229","Integridad":"premios.numero_sorteo ⊂ sorteos (PR-049 · desplegado el 15 oct, primera corrida el 22)","Duración":"106 s","Runtime":"Glue 5.0 / Python 3.11","Rol":"glue_dq_role — solo lectura","Timeout":"60 min (PR-033.1)"},
+     warn:{k:"p",t:"Verificado en los DOS sentidos, que es lo que importa: una corrida validó el Silver real y otra, apuntada a un prefijo inexistente, falló diciendo «esto es un problema de cableado, no de calidad». Un gate que solo ha pasado es indistinguible de no tener gate. Ojo a lo que NO cubre: valida lo que llegó a Silver, no lo que el parser tiró por el camino — eso es el defecto 044, y por definición no hay fila que validar. Y la integridad referencial va en un solo sentido: un premio sin sorteo falla, un sorteo sin premios pasa."}},
 
     {id:"gold", x:1176, y:252, w:172, h:84, st:"ok", t:"Gold", s:["Map · concurrencia 3","construye · swap · retira","7 tablas · 4 estados c/u"],
      title:"El embotellado — el swap, ya probado", desc:"Siete consultas CTAS de Athena construyen las tablas de negocio. Cada una se construye AL LADO de la publicada, en gold/<tabla>/run=<ejecución>/, y solo cuando Athena termina bien el Lambda mueve el puntero del catálogo con un único UpdateTable. Un CTAS que falla ya no cambia nada.",
-     kv:{"Tablas":"draw_summary · winning_number_frequency · terminations · letters_distribution · geo_winnings · vendor_leaderboard · time_series","Lambda":"lottery-gold-purge-prod","Cadena":"PrepareGold → RunCTAS → PromoteGold → RetireGold","Concurrencia":"3 de 7 a la vez","Atómica desde":"21 sep 2026 · PR-042.1","Verificada":"25 sep — el swap · 27 sep — la retención","Retención":"conserva la viva + 1 (PR-042.2)","Generación viva":"run=ca65cf86… (programada del 1 oct)","Rollback":"run=verify_045_1_044_1_1790540548"},
-     warn:{k:"p",t:"Cerrado el 27 de septiembre, y lo que costó cerrarlo es la parte que vale. Las generaciones muertas de las corridas fallidas del 24 NO eran borrables a mano: el Deny de PR-002 exime exactamente a la raíz de la cuenta y al rol del Lambda de gold —un Deny explícito de política de bucket no lo gana ningún Allow de IAM, ni AdministratorAccess— y el Lambda solo exponía prepare y promote. O sea que la basura de 042.1 no se podía limpiar hasta que existiera el mecanismo que la limpia. La corrida de verificación retiró 12 prefijos de un golpe y dejó gold/ en 39 objetos: 13 vivos, 13 del rollback y 13 de la disposición anterior al swap, que se conserva a propósito porque es el único rollback que no viene de una corrida fallida. Desde entonces lleva cinco corridas seguidas retirando limpio, y gold/ sigue en 39."}},
+     kv:{"Tablas":"draw_summary · winning_number_frequency · terminations · letters_distribution · geo_winnings · vendor_leaderboard · time_series","Lambda":"lottery-gold-purge-prod","Cadena":"PrepareGold → RunCTAS → PromoteGold → RetireGold","Concurrencia":"3 de 7 a la vez","Atómica desde":"21 sep 2026 · PR-042.1","Verificada":"25 sep — el swap · 27 sep — la retención","Retención":"conserva la viva + 1 (PR-042.2)","Generación viva":"run=c8f31649… (programada del 15 oct)","Rollback":"run=2417c307… (programada del 8 oct)"},
+     warn:{k:"p",t:"Cerrado el 27 de septiembre, y lo que costó cerrarlo es la parte que vale. Las generaciones muertas de las corridas fallidas del 24 NO eran borrables a mano: el Deny de PR-002 exime exactamente a la raíz de la cuenta y al rol del Lambda de gold —un Deny explícito de política de bucket no lo gana ningún Allow de IAM, ni AdministratorAccess— y el Lambda solo exponía prepare y promote. O sea que la basura de 042.1 no se podía limpiar hasta que existiera el mecanismo que la limpia. La corrida de verificación retiró 12 prefijos de un golpe y dejó gold/ en 39 objetos: 13 vivos, 13 del rollback y 13 de la disposición anterior al swap, que se conserva a propósito porque es el único rollback que no viene de una corrida fallida. Desde entonces cada corrida ha retirado limpio —la última, la del 15 de octubre—, y gold/ sigue en 39."}},
 
     {id:"s3p", x:424, y:400, w:620, h:96, st:"ok", t:"S3 · lottery-partitioned-storage-prod", s:[],
      title:"El lago", desc:"El bucket que sostiene las tres capas. Tiene versionado, una política que deniega el borrado a todo el mundo salvo la raíz de la cuenta, y prevent_destroy en Terraform. Desde PR-041.2 es el único bucket de datos que recibe escrituras.",
-     kv:{"Prefijos":"raw/ · silver/ · quarantine/ · gold/ · sql/gold/","Raw":"118 archivos .txt","Silver":"118 sorteos y 124 447 premios en 236 Parquet","Quarantine":"vacío — su estado normal","Gold":"39 objetos · 13 vivos · 1,0 MB","Al día hasta":"Ordinario 3137 (sorteado el 26 sep) · ingerido el 27 sep","Protección":"versionado + Deny + prevent_destroy"}},
+     kv:{"Prefijos":"raw/ · silver/ · quarantine/ · gold/ · sql/gold/","Raw":"120 archivos .txt","Silver":"120 sorteos y 126 229 premios en 240 Parquet","Quarantine":"vacío — su estado normal","Gold":"39 objetos · 13 vivos · 1,0 MB","Al día hasta":"Ordinario 3139 (sorteado el 10 oct) · ingerido el 15 oct, corrida programada","Protección":"versionado + Deny + prevent_destroy"}},
 
-    {id:"s3s", x:1064, y:400, w:268, h:96, st:"off", t:"S3 · lottery-data-simple-prod", s:["sin escritor · sin lector · sin grant","347 objetos congelados","solo faltan los bytes"],
-     title:"El tanque huérfano, ya desconectado", desc:"El transformer y el extractor escribían aquí una copia plana de cada Parquet y cada .txt. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas. El 20 de septiembre se apagaron las tres escrituras por bandera; el 25 se le quitó toda la configuración y el grant. Ya no queda nada que lo nombre salvo los bytes.",
-     kv:{"Defecto":"A → PR-041 (último paso pendiente)","Escrituras":"detenidas el 20 sep 2026 (PR-041.1)","Configuración":"retirada el 25 sep 2026 (PR-041.2)","Contenido":"347 objetos · 540 versiones · 9 MB","Lectores":"ninguno — el grant de SageMaker ya apunta a silver/ y gold/","Borrado":"no antes del 20 oct 2026 (PR-041.3)"},
-     warn:{k:"b",t:"Nada de aquí es único: los 115 .txt y los 116 Parquet tienen su contraparte en raw/ y silver/, así que borrarlo no pierde datos. Pero borrarlo no es una línea: la política Deny de PR-002 bloquea el borrado a todo principal salvo la raíz, y con versionado encendido un borrado normal solo deja delete markers. La espera de 30 días no es formalidad: CloudTrail de datos está apagado para este bucket, así que compra con tiempo lo que la evidencia no puede probar. Condición de aborto, comprobada el 20 oct: si el conteo ya no es 347, algo sigue escribiendo. El 3 de octubre seguían siendo 347, con dos de los cuatro jueves de la espera ya pasados."}},
+    {id:"s3s", x:1064, y:400, w:268, h:96, st:"off", t:"S3 · lottery-data-simple-prod", s:["borrado el 22 oct 2026","347 objetos · 540 versiones","PR-041.3 · nada era único"],
+     title:"El tanque huérfano, ya retirado", desc:"El transformer y el extractor escribían aquí una copia plana de cada Parquet y cada .txt. Tenía sentido cuando era la única forma de mirar los datos sin pelear con particiones Hive; hoy Athena lee las tres capas. El 20 de septiembre se apagaron las tres escrituras por bandera; el 25 se le quitó toda la configuración y el grant; el 22 de octubre, pasada la espera de 30 días sin que nadie escribiera, se vació y se borró. La caja queda aquí como historia: ya no existe en la cuenta.",
+     kv:{"Defecto":"A → PR-041, cerrado","Escrituras":"detenidas el 20 sep 2026 (PR-041.1)","Configuración":"retirada el 25 sep 2026 (PR-041.2)","Borrado":"22 oct 2026 (PR-041.3) · head-bucket → 404","Contenido al borrar":"347 objetos · 540 versiones + 2 delete markers · 9 MB","Inventario final":"docs/inventory/lottery-data-simple-prod_2026-10-22-final.txt","En Terraform":"bloques removed (destroy = false): solo se olvida"}},
 
     {id:"cat", x:424, y:536, w:290, h:72, st:"ok", t:"Glue Data Catalog", s:["lottery_santalucia_db","12 tablas + 2 vistas · 3 en Terraform"],
      title:"El catálogo", desc:"Las dos tablas silver están declaradas en Terraform desde PR-045.2 —importadas, no creadas, para no perder sus 118 particiones— y los crawlers solo les registran la partición nueva. Las siete gold las publica el swap: el CTAS crea una tabla de staging y el Lambda repunta la publicada con un UpdateTable. Dos vistas de Athena responden qué corrida escribió cada fila.",
-     kv:{"Base":"lottery_santalucia_db","Total":"12 tablas + 2 vistas","Definidas en Terraform":"silver_sorteos_sorteos (14 col.) · silver_premios_premios (11 col.) · quarantine_rejects","Silver":"2, esquema en Terraform, particiones por crawler","Gold":"7, publicadas por el swap","Vistas":"silver_lineage · silver_lineage_runs (make lineage-views)","Linaje hoy":"1 corrida, run_id NULL: todo Silver es anterior al linaje","Restos legacy":"premios_premios y sorteos_sorteos, de los crawlers de processed/"},
-     warn:{k:"p",t:"Los crawlers nunca pudieron evolucionar el esquema: UpdateBehavior LOG, CRAWL_NEW_FOLDERS_ONLY y particiones InheritFromTable —cualquiera de las tres basta para esconder una columna nueva. En vez de aflojarlas, PR-045.2 movió el esquema a Terraform y convirtió esas tres opciones en la garantía: un crawler que no altera tablas no puede pelear con un esquema declarado. Lo que había que probar era que las 118 particiones viejas, con 10 columnas, se siguieran leyendo bajo la tabla de 14: el gate del 4 de octubre lo hizo sin error, y silver_lineage_runs devolvió exactamente lo mismo que antes del apply. Hoy dice una sola corrida con run_id NULL —la respuesta verdadera, no un hueco— y el 8 de octubre debería decir dos."}},
+     kv:{"Base":"lottery_santalucia_db","Total":"12 tablas + 2 vistas","Definidas en Terraform":"silver_sorteos_sorteos (14 col.) · silver_premios_premios (11 col.) · quarantine_rejects","Silver":"2, esquema en Terraform, particiones por crawler","Gold":"7, publicadas por el swap","Vistas":"silver_lineage · silver_lineage_runs (make lineage-views)","Linaje hoy":"3 corridas: la NULL (118 sorteos, anteriores al linaje), la del 8 oct (3138: 1 sorteo, 890 premios) y la del 15 oct (3139: 1 sorteo, 892 premios)","Restos legacy":"premios_premios y sorteos_sorteos, de los crawlers de processed/"},
+     warn:{k:"p",t:"Los crawlers nunca pudieron evolucionar el esquema: UpdateBehavior LOG, CRAWL_NEW_FOLDERS_ONLY y particiones InheritFromTable —cualquiera de las tres basta para esconder una columna nueva. En vez de aflojarlas, PR-045.2 movió el esquema a Terraform y convirtió esas tres opciones en la garantía: un crawler que no altera tablas no puede pelear con un esquema declarado. Lo que había que probar era que las 118 particiones viejas, con 10 columnas, se siguieran leyendo bajo la tabla de 14: el gate del 4 de octubre lo hizo sin error, y silver_lineage_runs devolvió exactamente lo mismo que antes del apply. Ese día decía una sola corrida con run_id NULL —la respuesta verdadera, no un hueco—, desde el 8 de octubre dice dos —la NULL y la programada que trajo el 3138— y desde el 15, tres."}},
 
     {id:"athena", x:730, y:536, w:290, h:72, st:"ok", t:"Athena · lottery-wg", s:["startQueryExecution.sync","construye el staging, no lo publicado"],
      title:"El motor de consulta", desc:"Workgroup propio. La máquina de estados lanza cada CTAS aquí con la integración .sync, así que espera de verdad a que la consulta termine. Desde el swap, lo que el CTAS escribe es una tabla de staging: publicar es otra llamada, y de otro servicio.",
@@ -119,13 +145,13 @@
     {id:"cw", x:424, y:640, w:0, h:0, st:"ok", t:"", s:[]},
 
     {id:"obs", x:424, y:756, w:440, h:72, st:"ok", t:"CloudWatch", s:["9 alarmas · dashboard · retención","conteo de objetos por capa"],
-     title:"Observabilidad", desc:"Nueve alarmas: ejecución fallida, sin éxito reciente, errores del extractor, Glue fallido, crawler que no arrancó, scrape.do fallido, retención de Gold fallida (PR-042.2) y las dos de cuarentena (PR-044.2): líneas no reconocidas, y el escritor de cuarentena fallando. Más un dashboard y una Lambda horaria que publica el número de objetos por capa. Las nueve están en OK. Las dos de cuarentena todavía no han visto pasar un solo sorteo por el código que vigilan.",
-     kv:{"Alarmas":"9 (la cuenta tiene 13: 4 son de otro proyecto)","Estado":"las 9 en OK · 3 oct 2026","Emisor":"lottery-object-count-prod (horaria)","Retención":"sobre los log groups compartidos de Glue","Del gate":"/aws-glue/jobs/loteria-silver-dq-prod"},
-     warn:{k:"b",t:"La séptima alarma no se parece a las otras seis: RetireGold se traga sus propios fallos por diseño, así que la ejecución reporta SUCCEEDED, ExecutionsFailed queda en cero y ninguna métrica de servicio registra nada. Cuelga de un filtro que busca un token literal en el log del Lambda — lo que convierte esa línea de log en una interfaz: si alguien la reescribe, no falla nada y la alarma deja de saltar para siempre. Un test compara la constante de Python contra el patrón del .tf por eso mismo. Aparte, sin arreglar: la descripción de loteria-sfn-execution-failed-prod sigue diciendo «Because the machine has no Retry/Catch» — y la máquina lleva las dos cosas desde PR-031.1 y PR-033. Es lo primero que se lee en el correo de alerta, así que el texto que debería orientar la respuesta describe una máquina que ya no existe. Anotado en PR-031.2, sin arreglar. Aparte: tener un log group no es llenarlo, y este costó dos intentos — al comprobarlo, describe-log-streams reporta storedBytes 0 con minutos de retraso, hay que leer los eventos y no los metadatos."}},
+     title:"Observabilidad", desc:"Nueve alarmas: ejecución fallida, sin éxito reciente, errores del extractor, Glue fallido, crawler que no arrancó, scrape.do fallido, retención de Gold fallida (PR-042.2) y las dos de cuarentena (PR-044.2): líneas no reconocidas, y el escritor de cuarentena fallando. Más un dashboard y una Lambda horaria que publica el número de objetos por capa. Las nueve están en OK. Las dos de cuarentena vieron pasar su primer sorteo el 8 de octubre —el 3138, con cero líneas no reconocidas— y siguieron en OK.",
+     kv:{"Alarmas":"9 (la cuenta tiene 13: 4 son de otro proyecto)","Estado":"las 9 en OK · 15 oct 2026","Emisor":"lottery-object-count-prod (horaria)","Retención":"sobre los log groups compartidos de Glue","Del gate":"/aws-glue/jobs/loteria-silver-dq-prod"},
+     warn:{k:"b",t:"La séptima alarma no se parece a las otras seis: RetireGold se traga sus propios fallos por diseño, así que la ejecución reporta SUCCEEDED, ExecutionsFailed queda en cero y ninguna métrica de servicio registra nada. Cuelga de un filtro que busca un token literal en el log del Lambda — lo que convierte esa línea de log en una interfaz: si alguien la reescribe, no falla nada y la alarma deja de saltar para siempre. Un test compara la constante de Python contra el patrón del .tf por eso mismo. La descripción de loteria-sfn-execution-failed-prod decía «Because the machine has no Retry/Catch», falso desde PR-031.1 y PR-033, y es lo primero que se lee en el correo de alerta. PR-047 la reescribió: ahora dice que la ejecución falló DESPUÉS de sus reintentos. Con los reintentos, extractor-errors y scrapedo-failed saltan en cada intento fallido, así que un correo de cualquiera de las dos sin un sfn-execution-failed detrás quiere decir que un reintento lo resolvió. Aparte: tener un log group no es llenarlo, y este costó dos intentos — al comprobarlo, describe-log-streams reporta storedBytes 0 con minutos de retraso, hay que leer los eventos y no los metadatos."}},
 
     {id:"sns", x:890, y:756, w:220, h:72, st:"ok", t:"SNS → correo", s:["loteria-alerts-prod"],
      title:"Las alertas", desc:"Topic con suscripción por correo, confirmada. Avisa de que algo falló y, desde que el gate está en la cadena, también de QUÉ dato estaba mal: el mensaje de NotifyDQFailure lleva la suite, la expectativa y la columna.",
-     kv:{"Topic":"loteria-alerts-prod","Suscripción":"correo del owner, confirmada","Quien publica":"7 alarmas + NotifyDQFailure"}},
+     kv:{"Topic":"loteria-alerts-prod","Suscripción":"correo del owner, confirmada","Quien publica":"las 9 alarmas + NotifyDQFailure"}},
 
     {id:"consumer", x:1136, y:756, w:212, h:72, st:"off", t:"Consumidor", s:["no existe","aplazado a propósito"],
      title:"El grifo que falta", desc:"Siete tablas gold se construyen cada jueves y nadie las bebe. No hay ni una línea de QuickSight, dashboard o API en el repo.",
@@ -156,7 +182,7 @@
   /* Texto suelto sobre el lienzo. */
   const NOTES = [
     {x:426, y:514, t:"Los crawlers registran silver aquí."},
-    {x:44,  y:448, t:"Ningún workflow tiene credenciales de AWS.", color:"var(--flow)", weight:700},
+    {x:44,  y:448, t:"✕ Ningún workflow tiene credenciales de AWS.", color:"var(--flow)", weight:700},
     {x:44,  y:466, t:"terraform init -backend=false: no puede leer"},
     {x:44,  y:482, t:"ni siquiera el estado remoto."}
   ];
@@ -168,13 +194,17 @@
     note:  {y: 688, t: "El extractor no tiene vpc_config y Glue no tiene connection. Su único consumidor sería SageMaker, que está apagado."}
   };
 
-  /* La NO-conexión entre el plano de control y la cuenta: línea tachada. */
-  const GAP = {x1:380, x2:398, y:300, label:{x:389, y:258, t:"sin conexión"}};
+  /* La NO-conexión entre el plano de control y la cuenta: línea tachada. Es a propósito:
+     ningún workflow tiene credenciales de AWS, así que un PR no puede tocar producción;
+     el único puente es el owner con make deploy. Sin rótulo propio: en el canal de 24 px
+     lo cruzan dos aristas y no se lee; su leyenda es la primera nota, que repite la ✕. */
+  const GAP = {x1:380, x2:398, y:300,
+               tip:"A propósito: ningún workflow de GitHub Actions tiene credenciales de AWS, así que el CI no puede desplegar ni leer producción. El único puente es el owner, a mano, con make deploy."};
 
   /* Chips de prefijo dentro de la caja del bucket particionado. */
   const PREFIXES = [
-    {k:"raw/",        v:"118 .txt",         x:436},
-    {k:"silver/",     v:"124 447 filas",    x:556},
+    {k:"raw/",        v:"120 .txt",         x:436},
+    {k:"silver/",     v:"126 229 filas",    x:556},
     {k:"gold/",       v:"13 vivos · 13+13", x:676},
     {k:"quarantine/", v:"vacío, y así debe", x:796},
     {k:"sql/gold/",   v:"los 7 .sql",       x:916}
@@ -184,27 +214,30 @@
   const RUN = [
     {id:"eb",    t:"El jueves a las 18:00 UTC, una regla de EventBridge arranca la máquina de estados."},
     {id:"sfn",   t:"Step Functions toma el control y conduce los nueve estados de aquí en adelante."},
-    {id:"extract",t:"El Lambda extractor pide el sorteo al sitio a través de scrape.do —desde el 24 de septiembre sin render, a 10 créditos en vez de 25— y sube el .txt crudo a raw/. Si el sorteo ya está en silver/, no hace nada. Si el proxy devuelve un 502, el Retry NO engancha: llega como ValueError y la corrida tiene un solo intento."},
-    {id:"s3p",   t:"Bronze: el .txt queda intacto en raw/year=/sorteo=. Nunca se modifica. Hoy son 118 archivos, el último el Ordinario 3137."},
-    {id:"transform",t:"El job de Glue parsea el texto, limpia con pandas y escribe Parquet en silver/, cada fila con su run_id —el nombre de esta ejecución—, ingested_at, source_key y parser_version. Las líneas que no entiende ya no desaparecen: se cuentan, y las raras van a quarantine/. Todo eso está desplegado y el 3138 será el primer sorteo que lo atraviese."},
+    {id:"extract",t:"El Lambda extractor pide el sorteo al sitio a través de scrape.do —desde el 24 de septiembre sin render, a 10 créditos en vez de 25— y sube el .txt crudo a raw/. Si el sorteo ya está en silver/, no hace nada. Si el proxy devuelve un 429 o un 5xx, llega como ProxyRetryableError y la máquina lo reintenta a los 5, 15 y 35 minutos; cualquier otro fallo corta a la primera, porque reintentarlo no arregla nada."},
+    {id:"s3p",   t:"Bronze: el .txt queda intacto en raw/year=/sorteo=. Nunca se modifica. Hoy son 120 archivos, el último el Ordinario 3139."},
+    {id:"transform",t:"El job de Glue parsea el texto, limpia con pandas y escribe Parquet en silver/, cada fila con su run_id —el nombre de esta ejecución—, ingested_at, source_key y parser_version. Las líneas que no entiende ya no desaparecen: se cuentan, y las raras van a quarantine/. El 3138 fue el primer sorteo que lo atravesó, el 8 de octubre: 1047 líneas, 967 parseadas y 80 rechazadas, todas encabezados de millar, y ninguna a cuarentena. El 3139, el 15, repitió las cifras."},
     {id:"crawlers",t:"Dos crawlers registran la partición nueva en el catálogo —con el esquema que declara Terraform, no uno inferido—, y la máquina espera de verdad a que terminen antes de seguir — comprobando el mensaje del último crawl, no un estado READY que también es READY una semana después."},
-    {id:"dq",    t:"El gate valida el Silver entero —28 expectativas sobre 118 sorteos y 124 447 premios— antes de tocar Gold. Si una falla, el Catch va a NotifyDQFailure y Gold no se construye. La corrida del 1 de octubre pasó por aquí en 97 s con veredicto PASS."},
+    {id:"dq",    t:"El gate valida el Silver entero —29 expectativas sobre 120 sorteos y 126 229 premios, entre ellas que cada premio apunte a un sorteo que existe— antes de tocar Gold. Si una falla, el Catch va a NotifyDQFailure y Gold no se construye. La corrida del 15 de octubre pasó por aquí en 106 s con veredicto PASS; la del 22 será la primera que cruce premios contra sorteos."},
     {id:"athena",t:"Athena ejecuta los siete CTAS, de tres en tres. Cada uno escribe en gold/<tabla>/run=<ejecución>/ y crea una tabla __stg_: al lado de la publicada, sin tocarla. Si un CTAS falla aquí, no ha cambiado nada."},
     {id:"gold",  t:"Solo cuando Athena terminó bien, el Lambda publica: un único UpdateTable mueve el puntero de la tabla, y en las tres tablas particionadas mueve también sus particiones —actualizándolas, nunca borrándolas y recreándolas, porque ese camino pasa por un instante en el que la tabla no tiene ninguna."},
     {id:"cat",   t:"El catálogo queda apuntando a la generación nueva — y desde el 27 de septiembre un cuarto estado, RetireGold, borra las que quedaron atrás salvo una. Corre DESPUÉS del swap y tiene permitido fallar sin tumbar la corrida: cuando llega, las tablas ya están publicadas y correctas."},
-    {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Si lo que falló fue el gate, el correo nombra la suite, la expectativa y la columna. Si lo que falló fue la ejecución entera, el correo todavía dice que la máquina no tiene Retry ni Catch — y lleva las dos desde hace semanas."},
+    {id:"obs",   t:"Si algo falló, una alarma de CloudWatch publica en SNS y llega un correo. Si lo que falló fue el gate, el correo nombra la suite, la expectativa y la columna. Si lo que falló fue la ejecución entera, el correo dice que falló DESPUÉS de agotar sus reintentos; un correo del extractor sin ese otro detrás quiere decir que un reintento lo resolvió."},
     {id:"consumer",t:"Y aquí se acaba: las siete tablas existen y nadie las consume. El grifo está aplazado a propósito — que no haya nadie bebiendo es justo lo que hizo barato arreglar el defecto B."}
   ];
 
   /* Nodos que resalta el botón «Resaltar defectos»: los que hoy cargan un defecto
-     abierto y anotado, no los que están apagados sin más. */
-  const BAD = ["extract", "obs", "s3s"];
+     abierto y anotado, no los que están apagados sin más. El extractor (Retry ciego al
+     502) y CloudWatch (la alarma que negaba el Retry) salieron el 11 oct: PR-047 cerró
+     los dos el 8. El bucket simple salió el 22 oct, cuando PR-041.3 lo borró. Vacía:
+     diagram.js desactiva el botón en vez de atenuar el lienzo entero. */
+  const BAD = [];
 
-  /* Nodos que resalta el botón «Resaltar lo nuevo»: el linaje (PR-045), aplicado el
-     4 de octubre. El transformer lo escribe, los crawlers registran la partición con
-     el esquema que ahora declara Terraform, el catálogo lo guarda y Athena lo
-     responde con dos vistas. */
-  const SPOT = ["transform", "crawlers", "cat", "athena"];
+  /* Nodos que resalta el botón «Resaltar lo nuevo»: la fase 9, desplegada entre el 8 y
+     el 15 de octubre. El extractor reintenta el 502 del proxy y CloudWatch dejó de
+     negar ese Retry (PR-047), el transformer escribe donde lee (PR-048) y el gate
+     cruza premios contra sorteos (PR-049). */
+  const SPOT = ["extract", "transform", "dq", "obs"];
 
   /* Textos fijos del panel lateral cuando no hay nada seleccionado. */
   const IDLE = {

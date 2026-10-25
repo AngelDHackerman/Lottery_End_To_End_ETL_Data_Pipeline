@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
 SCRAPE_DO_TOKEN = buckets["scrape_do_token"]
-BASE_PROXY_URL = "http://api.scrape.do/"
+# PR-051: HTTPS, because the token is a query parameter. This was http:// from the first
+# commit, which sent the token in cleartext on every request. The canary re-declares this
+# URL, and test_the_token_travels_encrypted guards both copies.
+BASE_PROXY_URL = "https://api.scrape.do/"
 
 # PR-031.2 — the proxy profile that still gets through Cloudflare.
 #
@@ -78,6 +81,45 @@ MIN_PRIZE_LINES = 10
 # -----------------------
 
 
+# PR-047 — named errors for a non-200 proxy answer. This used to be a bare ValueError,
+# which is also what every parsing failure below raises, so the state machine could not
+# tell "scrape.do had a bad minute" from "the site changed its markup" and retried
+# neither: the 2026-09-24 run died on its first 502.
+#
+# Step Functions matches a Lambda failure on the exception's CLASS NAME (the Lambda
+# errorType), never on its base classes, so the split has to be two distinct names:
+# only ProxyRetryableError is listed in RunExtractorLambda's ErrorEquals. Rename it and
+# nothing fails — the retry just stops engaging, which test_retryable_error_is_in_the_asl
+# exists to catch.
+class ProxyHTTPError(Exception):
+    """scrape.do answered non-200 with a status a second attempt will not change.
+
+    401 (bad token / quota spent), 400, 404 and friends: retrying them only delays the
+    alert. Deliberately NOT a ValueError subclass, so no ``except ValueError`` aimed at a
+    parsing failure can swallow it.
+    """
+
+    def __init__(self, status_code: int, target_url: str):
+        super().__init__(f"❌ Proxy error {status_code} para {target_url}")
+        self.status_code = status_code
+        self.target_url = target_url
+
+
+class ProxyRetryableError(ProxyHTTPError):
+    """scrape.do answered 429 or 5xx — transient by its own documentation.
+
+    The case this exists for is the ``502 ROTATION_FAILED`` it returns when a rotation
+    cannot reach the target ("occasional failures on protected domains", in scrape.do's
+    own error text). Failed requests are not charged, so a retry costs credits only when
+    it finally succeeds.
+    """
+
+
+def is_retryable_status(status_code: int) -> bool:
+    """429 (concurrency/rate limit) and every 5xx; nothing else is worth a second attempt."""
+    return status_code == 429 or 500 <= status_code <= 599
+
+
 def build_proxy_url(target_url: str, token: str = SCRAPE_DO_TOKEN) -> str:
     """Assemble the scrape.do request URL for ``target_url``.
 
@@ -94,6 +136,34 @@ def build_proxy_url(target_url: str, token: str = SCRAPE_DO_TOKEN) -> str:
     return f"{BASE_PROXY_URL}?{urllib.parse.urlencode(params)}"
 
 
+def _scrubbed(exc: requests.exceptions.RequestException) -> Exception:
+    """A copy of ``exc`` with the scrape.do token replaced by ``***`` (PR-051).
+
+    scrape.do takes the token as a query parameter, and a ``ConnectionError`` embeds the URL
+    it failed to reach ("Max retries exceeded with url: /?url=...&token=..."). Re-raised
+    as-is, that message lands in the Lambda's CloudWatch log and in the Step Functions
+    execution history, where anyone with read access to either can lift the token. The
+    canary scrubs the same way (tests/integration/test_scraper_contract.py), but turns the
+    error into a RuntimeError; this one cannot.
+
+    The CLASS has to survive: RunExtractorLambda's Retry matches the Lambda errorType —
+    ``ReadTimeout``, ``ConnectTimeout``, ``ConnectionError`` — so a wrapper class would turn
+    off the network-fault retries without failing anything. The caller re-raises with
+    ``from None`` for the canary's reason: chaining would print the original message under
+    "During handling of the above exception", token and all.
+    """
+    message = str(exc)
+    for form in {SCRAPE_DO_TOKEN, urllib.parse.quote_plus(SCRAPE_DO_TOKEN)} - {""}:
+        message = message.replace(form, "***")
+    try:
+        return type(exc)(message)
+    except TypeError:
+        # A subclass whose __init__ wants more than a message (requests' JSONDecodeError,
+        # which get() never raises). Failing here, inside the except, would chain the
+        # unscrubbed original onto the TypeError — the leak this function exists to stop.
+        return requests.exceptions.RequestException(message)
+
+
 def fetch_via_proxy(target_url: str) -> requests.Response:
     """Make a request via scrape.do and leave traces in CloudWatch"""
     proxy_url = build_proxy_url(target_url)
@@ -105,7 +175,7 @@ def fetch_via_proxy(target_url: str) -> requests.Response:
         # datapoint at all, which is precisely how the 2026-08-20 outage kept
         # ScrapeDo_Failed green while the pipeline had been dead for two weeks.
         record_scraper_no_response(type(exc).__name__)
-        raise
+        raise _scrubbed(exc) from None
 
     logger.info(
         "[PROXY] %s -> HTTP %s | Preview: %.300s",
@@ -122,7 +192,9 @@ def fetch_via_proxy(target_url: str) -> requests.Response:
 
     # dispara alerta temprana si el proxy falla
     if resp.status_code != 200:
-        raise ValueError(f"❌ Proxy error {resp.status_code} para {target_url}")
+        if is_retryable_status(resp.status_code):
+            raise ProxyRetryableError(resp.status_code, target_url)
+        raise ProxyHTTPError(resp.status_code, target_url)
     return resp
 
 

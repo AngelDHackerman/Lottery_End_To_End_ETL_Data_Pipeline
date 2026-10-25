@@ -121,6 +121,19 @@ class TestBuildProxyUrl:
     def test_token_is_included(self, scraping_module):
         assert "token=test-token-123" in scraping_module.build_proxy_url("https://example.com")
 
+    def test_the_token_travels_encrypted(self, scraping_module):
+        """PR-051: the token is a query parameter, so http:// sends it in cleartext.
+
+        The canary re-declares the URL (it cannot import this module without AWS), so its
+        copy is read from the source text.
+        """
+        assert scraping_module.build_proxy_url("https://example.com").startswith("https://")
+
+        canary = (
+            Path(__file__).parents[1] / "integration" / "test_scraper_contract.py"
+        ).read_text()
+        assert 'BASE_PROXY_URL = "https://api.scrape.do/"' in canary
+
     def test_timeout_stays_above_the_proxy_give_up(self, scraping_module):
         """scrape.do itself takes ~57 s to return ROTATION_FAILED.
 
@@ -165,7 +178,7 @@ class TestFetchViaProxyTelemetry:
             patch.object(scraping_module.requests, "get", return_value=response),
             patch.object(scraping_module, "record_scraper_status") as status,
         ):
-            with pytest.raises(ValueError):
+            with pytest.raises(scraping_module.ProxyRetryableError):
                 scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
 
         status.assert_called_once_with(429)
@@ -180,6 +193,172 @@ class TestFetchViaProxyTelemetry:
             patch.object(scraping_module, "record_scraper_status"),
         ):
             assert scraping_module.fetch_via_proxy("https://loteria.org.gt") is response
+
+
+# ==========================================================================================
+# PR-051 — the token never leaves in an exception
+# ==========================================================================================
+def _raised_by(scraping_module, exc: Exception) -> BaseException:
+    """What fetch_via_proxy raises when requests.get raises ``exc``."""
+    with (
+        patch.object(scraping_module.requests, "get", side_effect=exc),
+        patch.object(scraping_module, "record_scraper_no_response"),
+        pytest.raises(BaseException) as excinfo,
+    ):
+        scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
+    return excinfo.value
+
+
+class TestTheTokenNeverLeavesInAnError:
+    TOKEN = FAKE_SECRETS["scrape_do_token"]
+
+    def test_a_real_connection_error_is_scrubbed(self, scraping_module):
+        """Through the real requests stack, so the test breaks if its message format moves.
+
+        Port 9 (discard) on loopback refuses at once; nothing leaves the machine.
+        """
+        with (
+            patch.object(scraping_module, "BASE_PROXY_URL", "http://127.0.0.1:9/"),
+            patch.object(scraping_module, "record_scraper_no_response"),
+            pytest.raises(requests.exceptions.ConnectionError) as excinfo,
+        ):
+            scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
+
+        assert "token=***" in str(excinfo.value)
+        assert self.TOKEN not in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "exc_type",
+        [
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ReadTimeout,
+        ],
+    )
+    def test_the_class_survives_so_the_retry_still_engages(self, scraping_module, exc_type):
+        """Step Functions matches the exact errorType; a wrapper would silently stop it."""
+        raised = _raised_by(scraping_module, exc_type(f"with url: /?token={self.TOKEN}"))
+
+        assert type(raised) is exc_type
+        assert f'"{exc_type.__name__}"' in _extractor_retry_block()
+
+    def test_nothing_unscrubbed_is_chained(self, scraping_module):
+        """What the Lambda runtime prints is the whole chain, not just the last message."""
+        import traceback
+
+        raised = _raised_by(
+            scraping_module, requests.exceptions.ConnectionError(f"/?token={self.TOKEN}&x=1")
+        )
+        printed = "".join(traceback.format_exception(raised))
+
+        assert raised.__cause__ is None
+        assert raised.__suppress_context__
+        assert self.TOKEN not in printed
+
+    def test_the_url_encoded_form_is_scrubbed_too(self, scraping_module):
+        with patch.object(scraping_module, "SCRAPE_DO_TOKEN", "tok/en+1"):
+            raised = _raised_by(
+                scraping_module, requests.exceptions.ConnectionError("/?token=tok%2Fen%2B1")
+            )
+
+        assert str(raised) == "/?token=***"
+
+    def test_a_class_that_cannot_take_a_message_still_scrubs(self, scraping_module):
+        """requests' JSONDecodeError needs (msg, doc, pos); get() never raises it, but a
+        TypeError inside the except would chain the original — token included."""
+        original = requests.exceptions.JSONDecodeError(f"token={self.TOKEN}", "", 0)
+
+        raised = _raised_by(scraping_module, original)
+
+        assert type(raised) is requests.exceptions.RequestException
+        assert self.TOKEN not in str(raised)
+        assert raised.__context__ is None or raised.__suppress_context__
+
+
+# ==========================================================================================
+# PR-047 — which proxy failures the state machine retries
+# ==========================================================================================
+REPO = Path(__file__).parents[2]
+ORCHESTRATION_TF = REPO / "terraform" / "modules" / "orchestration" / "main.tf"
+
+
+def _proxy_answer(scraping_module, status_code: int):
+    """Call fetch_via_proxy against a canned scrape.do answer; return what it raised."""
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = b"502 ROTATION_FAILED cannot connect target url"
+
+    with (
+        patch.object(scraping_module.requests, "get", return_value=response),
+        patch.object(scraping_module, "record_scraper_status"),
+        pytest.raises(scraping_module.ProxyHTTPError) as excinfo,
+    ):
+        scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
+    return excinfo.value
+
+
+def _extractor_retry_block() -> str:
+    """The text of RunExtractorLambda's Retry list, up to its Next."""
+    tf = ORCHESTRATION_TF.read_text()
+    state = tf[tf.index("RunExtractorLambda = {") :]
+    return state[state.index("Retry = [") : state.index('Next = "RunTransformerGlueJob"')]
+
+
+class TestProxyErrorClassification:
+    @pytest.mark.parametrize("status_code", [502, 500, 503, 504, 429])
+    def test_transient_answers_raise_the_retryable_error(self, scraping_module, status_code):
+        err = _proxy_answer(scraping_module, status_code)
+
+        # Step Functions matches the class NAME, never a base class, so the exact type is
+        # the contract — isinstance would pass for the wrong class.
+        assert type(err) is scraping_module.ProxyRetryableError
+        assert err.status_code == status_code
+
+    @pytest.mark.parametrize("status_code", [400, 401, 402, 403, 404])
+    def test_permanent_answers_are_not_retryable(self, scraping_module, status_code):
+        """A bad token or a spent quota is the same on the fourth attempt — retrying only
+        delays the alert by ~41 minutes."""
+        err = _proxy_answer(scraping_module, status_code)
+
+        assert type(err) is scraping_module.ProxyHTTPError
+        assert err.status_code == status_code
+
+    def test_a_proxy_error_is_not_a_value_error(self, scraping_module):
+        """So nothing written to catch a parsing failure can swallow an outage."""
+        assert not issubclass(scraping_module.ProxyHTTPError, ValueError)
+
+    def test_a_parse_failure_is_not_retryable(self, scraping_module):
+        """The other half of the acceptance: a missing selector must keep failing once."""
+        with pytest.raises(ValueError) as excinfo:
+            scraping_module.extract_prize_body(BeautifulSoup("<html></html>", "html.parser"))
+
+        assert not isinstance(excinfo.value, scraping_module.ProxyHTTPError)
+
+    def test_the_message_keeps_the_status_and_url(self, scraping_module):
+        """The alert email and the CloudWatch line read this; it was the old ValueError text."""
+        err = _proxy_answer(scraping_module, 502)
+
+        assert str(err) == "❌ Proxy error 502 para https://loteria.org.gt/site/award"
+
+
+class TestTheStateMachineRetriesIt:
+    def test_retryable_error_is_in_the_asl(self, scraping_module):
+        """Rename the class and nothing fails — the retry just never engages again."""
+        retry = _extractor_retry_block()
+
+        assert f'["{scraping_module.ProxyRetryableError.__name__}"]' in retry
+
+    @pytest.mark.parametrize("name", ["ProxyHTTPError", "ValueError", "States.ALL"])
+    def test_deterministic_failures_are_not_retried(self, name):
+        assert f'"{name}"' not in _extractor_retry_block()
+
+    def test_the_failed_execution_alarm_no_longer_claims_there_is_no_retry(self):
+        """It is the first sentence of the alert email (PR-031.2's follow-up)."""
+        alarms = (REPO / "terraform" / "modules" / "observability" / "alarms.tf").read_text()
+        readme = (REPO / "terraform" / "modules" / "observability" / "README.md").read_text()
+
+        for text in (alarms, readme):
+            assert "no Retry/Catch" not in text
 
 
 # ==========================================================================================

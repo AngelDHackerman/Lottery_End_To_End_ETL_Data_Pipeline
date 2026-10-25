@@ -130,6 +130,30 @@ class TestSuiteDefinitions:
         assert expected <= actual
 
 
+class TestReferentialExpectations:
+    """PR-049. The rule's value set is the sorteos loaded at run time, so it must never leak
+    into the static suite — the committed JSON would then pin a list of draw numbers that is
+    wrong a week later."""
+
+    def test_the_static_premios_suite_does_not_carry_it(self):
+        expectations = build_premios_suite().to_json_dict()["expectations"]
+
+        assert ("expect_column_values_to_be_in_set", "numero_sorteo") not in {
+            (e["type"], e["kwargs"].get("column")) for e in expectations
+        }
+
+    def test_the_value_set_is_the_distinct_sorteos_as_plain_ints(self):
+        from loteria.dq.suites import referential_expectations
+
+        [expectation] = referential_expectations(pd.Series([3047, 413, 3047], dtype="int64"))
+
+        assert expectation.column == "numero_sorteo"
+        # Plain ints, sorted: numpy int64s would serialise oddly into the GX result, and a
+        # stable order keeps the verdict line reproducible.
+        assert expectation.value_set == [413, 3047]
+        assert all(type(v) is int for v in expectation.value_set)
+
+
 class TestDepartamentos:
     def test_there_are_exactly_twenty_two(self):
         assert len(DEPARTAMENTOS) == 22

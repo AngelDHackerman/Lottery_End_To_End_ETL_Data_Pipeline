@@ -58,6 +58,9 @@ logger = logging.getLogger(__name__)
 # Config
 # -----------------------
 buckets = get_secrets()
+# The FALLBACK bucket for main() only. transform() never reads this: it reads and writes the
+# `bucket_name` it is given (PR-048 — it used to write here, so any caller passing a
+# different bucket read from one and wrote Silver into the other, with no error).
 partitioned_bucket = buckets["partitioned"]
 
 SILVER_PREFIX_DEFAULT = "silver/"  # The new Source of Truth for clean Parquet
@@ -98,6 +101,9 @@ def transform(
     """
     Transforms raw lottery .txt files stored in S3 and uploads clean Silver Parquet
     files back to S3.
+
+    One bucket in both directions: raw is read from ``bucket_name`` and Silver and
+    quarantine are written to ``bucket_name``. Nothing here reads the module global.
     """
 
     # ✅ Idempotency check must be against SILVER (not legacy/processed)
@@ -380,8 +386,9 @@ def transform(
             f"{silver_prefix}premios/year={year}/sorteo={numero_sorteo}/premios.parquet"
         )
 
-        upload_file_to_s3(sorteos_local_path, partitioned_bucket, partitioned_sorteos_key)
-        upload_file_to_s3(premios_local_path, partitioned_bucket, partitioned_premios_key)
+        # PR-048: the bucket the raw file came from, not the module global.
+        upload_file_to_s3(sorteos_local_path, bucket_name, partitioned_sorteos_key)
+        upload_file_to_s3(premios_local_path, bucket_name, partitioned_premios_key)
 
         # PR-044.2: persist what PR-044.1 only counted. `build_rows` drops `section_header`
         # — 6.5% of every body is millar headings, and storing them would write ~9,500 rows
@@ -455,25 +462,25 @@ def main() -> None:
         ],
     )
 
-    # Allow runtime overrides
-    global partitioned_bucket
-
-    if args.get("PARTITIONED_BUCKET"):
-        partitioned_bucket = args["PARTITIONED_BUCKET"]
+    # The job argument wins; an empty one falls back to the secret rather than pointing the
+    # job at a bucket named "". Resolved into a local (PR-048): main() used to overwrite the
+    # module global, which was the only thing keeping transform()'s write in the same
+    # bucket as its read.
+    bucket = args.get("PARTITIONED_BUCKET") or partitioned_bucket
 
     raw_prefix = args["RAW_PREFIX"]
 
     logger.info(
         "Starting Glue Job",
         extra={
-            "partitioned_bucket": partitioned_bucket,
+            "partitioned_bucket": bucket,
             "raw_prefix": raw_prefix,
             "silver_prefix": SILVER_PREFIX_DEFAULT,
         },
     )
 
     transform(
-        bucket_name=partitioned_bucket,
+        bucket_name=bucket,
         raw_prefix=raw_prefix,
         silver_prefix=SILVER_PREFIX_DEFAULT,
     )

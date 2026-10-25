@@ -1930,14 +1930,16 @@ never written.** Either write it or delete the target; do not leave it pointing 
 2. **PR-035.1 A and B** — the dead idempotency guard and the unanchored draw-date regex.
    Correctness, which is this project's stated thesis; both are small.
 3. **Phase 8: 041.2 → 042.2 → 045 (8C) → 044 (8D) → 043.1.** Sub-phase order, as ever.
-3b. **Phase 9 (added 2026-10-03): 050 now; 047 → 048 → 049 after the 2026-10-08 run.** The
+3b. **Phase 9 (added 2026-10-03): 050 now; 047 → 048 → 049 after the 2026-10-08 run.** 050 merged
+   2026-10-04; the 10-08 run SUCCEEDED and verified 044/045, so **047 is next**. The
    defects phases 5–8 wrote down and left. Anything that redeploys the transformer or the
    state machine waits for 10-08, so that run verifies 044/045 alone.
 4. **PR-036.1 → PR-036.** First publish `layouts/diagram.html` on GitHub Pages (added
    2026-10-04), then the README, last, so it describes a finished thing rather than a moving
    one and links the live diagram.
 5. **PR-041.3** — on or after **2026-10-20**, owner-run, irreversible. The only item with a
-   hard date; it does not block anything above it.
+   hard date; it does not block anything above it. **✅ Done 2026-10-22 — Phase 8 is closed
+   and Phase 9 with it (049 verified the same day). What is left on the path is PR-036.**
 
 ---
 
@@ -2035,6 +2037,38 @@ with a clear error.
 **Acceptance:** the workflow is green on `master`; the Pages URL serves the diagram as
 `index.html` and its CSS/JS load (the click panel works and *Reproducir* animates); it
 works at phone width; and PR-036's README links to the URL in items 1 and 4.
+
+> **PR-036.1 outcome (2026-10-09).** `.github/workflows/pages.yml` as prompted. Actions are
+> pinned to the **current** majors (`configure-pages@v6`, `upload-pages-artifact@v5`,
+> `deploy-pages@v5`, read from their latest releases that day); `checkout@v4` matches
+> `ci.yml`. It also triggers on its own path, so editing the workflow redeploys. One addition
+> enforces check 2: the assemble step **fails the deploy if any `<script>`/`<link>` points
+> at a remote URL**, so "self-contained" is a gate, not a promise.
+>
+> **The five checks:**
+> 1. **Content:** grep over `layouts/` finds no token, key, secret or email, only prose
+>    mentions of `get_secrets()` and "el secreto". A comment in `<head>` now says the page is
+>    public.
+> 2. **No external requests:** none, and now enforced (above).
+> 3. **Phone width: it was broken.** Measured through headless Chrome's DevTools protocol at
+>    360/390/768/1440 px: with the page as committed it was fine *closed*, but **opening
+>    either defects `<details>` grew the page to ~460 px** on a phone. Three-column tables,
+>    plus tokens like `glue:BatchUpdatePartition` that have nowhere to break. Fixed in CSS:
+>    under 640 px each row stacks (PR + defect on one line, the explanation full width
+>    below), and `td code` may break anywhere. Now `scrollWidth == innerWidth` at every width,
+>    open or closed. The SVG keeps its 1080 px minimum and scrolls inside its own box
+>    (scaled to 360 px its labels are unreadable), with a phone-only hint "Deslizá el mapa
+>    hacia los lados →".
+> 4. **Sharing metadata:** `description`, `og:type/title/description`, `twitter:card`.
+> 5. **The date stays honest: it was stale.** The header still said *"al día hasta el
+>    Ordinario 3137 · 4 oct"* after the 10-08 docs PR had moved every count to 3138. Now
+>    *"3138 · 9 oct 2026 · 01:30 UTC"*, the time of the last account read (PR-048's zip
+>    check). The rule for later PRs stands: data and header date in the same commit.
+>
+> **Assembled `_site/` tested locally:** `index.html` applies the CSS, renders 20 nodes,
+> a click fills the panel, *Reproducir* advances to step 1/12; no JS errors, no failed
+> loads. **Owner action still owed:** Settings → Pages → Source: **GitHub Actions**. Then
+> the URL is `https://angeldhackerman.github.io/Lottery_End_To_End_ETL_Data_Pipeline/`.
 
 ## PR-037 — Diagrams in draw.io (XML committed) — **DROPPED 2026-09-23**
 
@@ -2181,6 +2215,14 @@ and the decision that followed.
 > rebuild was kept deliberately, and at what point that stops being the right call — a
 > defect that is understood and priced is a different thing from one nobody looked at, and
 > the diagram is where a reader learns which one this is.
+
+> **Status 2026-10-08.** Four of the five rows are closed or decided: 042 (verified 09-25),
+> 043 (measured, full rebuild kept), 044 and 045 (both verified by the 10-08 run). **The only
+> row left is 041**, waiting for `.3` on or after 2026-10-20.
+
+> **✅ Phase 8 done, 2026-10-22.** 041.3 deleted the bucket; the diagram's five-defect table
+> now names the PR that closed each row (041, 042, 044, 045) and, for 043, the measurement
+> and the decision to keep the full rebuild.
 
 ---
 
@@ -2376,6 +2418,9 @@ README-vs-code contradiction the audit flagged, and it becomes true again here.
 >
 > **Checkpoint 2026-10-03: 347.** Two of the four runs (09-24, 10-01) have passed without
 > a write.
+>
+> **Final check 2026-10-22: 347** — all four runs of the window and the 10-22 run after it
+> passed without a write. Deleted the same day; see below.
 
 **PR-041.3 — Tear it down (irreversible, owner-run).** Execute the runbook above, after a
 stated grace period of **at least 30 days** from 041.1's apply, with the date written down.
@@ -2383,6 +2428,18 @@ Abort condition: if the final object count differs from 041.1's snapshot, someth
 writes to it — find it before deleting anything. The version purge should lift
 `purge_and_load._empty_prefix`'s pattern rather than reinvent it; it already handles
 versions *and* delete markers correctly.
+
+> **PR-041.3 outcome (2026-10-22). Deleted.** The owner chose deletion over keeping the
+> bucket empty. 347 current objects (232 `processed/`, 115 `raw/`), 540 versions and 2
+> delete markers were listed into one 542-entry `delete-objects` call — small enough that
+> the CLI did what `_empty_prefix` does without needing it — after backing up and removing
+> PR-002's Deny; then `delete-bucket`, and `head-bucket` returns 404. The final key/version
+> list is committed in `docs/inventory/`. In Terraform the four resources became
+> `removed { lifecycle { destroy = false } }` blocks (root `required_version` → `>= 1.7`)
+> and the two unused outputs were dropped; targeted plan `0/0/0`, four objects forgotten.
+> `destroy = false` is what made the order irrelevant. Out of scope: the partitioned
+> bucket's `processed/` prefix, preserved by PR-012's decision. The secret's
+> `s3_bucket_simple_data_storage_prod_arn` key was removed the same night (owner). Runbook §7.
 
 
 ## PR-042 — Make the Gold publication atomic
@@ -3048,6 +3105,15 @@ derived from it — not guessed.
 > since the previous Saturday has already consumed the draw. A manual run on a Sunday
 > pre-empts the next scheduled one, and schedules written against "the next Thursday" have
 > to count Saturdays first.
+>
+> **✅ Verified 2026-10-08 — both PR-044.1 and PR-045.1, by the scheduled run** (execution
+> `2417c307-…_3477d275-…a1283f3f2a4d`, 18:00:37 → 18:10:41 UTC, SUCCEEDED). The checks above,
+> in order: **(1)** 3138's Silver Parquets (1 sorteo, 890 premios) carry the four columns —
+> `run_id` is that execution's name, `source_key` the raw object written at 18:00:54,
+> `parser_version 1`; **(2)** the log carries `lines_total 1047 / lines_parsed 967 /
+> lines_rejected 80`, and all 80 are `section_header` (7.6% against the archive's 6.50%, the
+> expected kind); **(3)** `rejected_unrecognised` is **0**. The gate passed with the lineage
+> expectations selecting real rows for the first time. Outputs in both runbooks.
 
 
 **PR-044.2 — Persist the rejects.** The quarantine writer, the reason-code vocabulary, the
@@ -3134,6 +3200,13 @@ reading the quarantine count is a follow-up, deliberately not wired here.
 >
 > **Moved to Thursday 2026-10-08** (sorteo 3138) — the 10-01 run had nothing new to parse;
 > see the correction under PR-044.1.
+>
+> **✅ Verified 2026-10-08.** The counters reached the log including the zero case —
+> `rejected_total 80, rejected_unrecognised 0, quarantined 0` — which is the line that tells
+> "nothing to quarantine" apart from "the writer never ran". `quarantine/` holds 0 objects,
+> both quarantine alarms are `OK`, and the alerts topic's email subscription is confirmed, so
+> no email meant no fault. The write path itself stays proven by the unit suite only: a clean
+> draw cannot exercise it, and planting a broken one in `raw/` is ruled out (see the runbook).
 
 
 ## PR-045 — Lineage columns in Silver
@@ -3327,10 +3400,13 @@ from which raw file, and what else did that run write?"* as a single Athena quer
 >
 > Catalog after: 14 and 11 columns, 118 partitions on each Silver table, 12 tables + 2 views.
 >
-> **Owed:** the same query after Thursday **2026-10-08** (sorteo 3138 — the 10-01 run was a
-> no-op, see PR-044.1's correction). Expect **two runs per dataset**: the NULL one above
-> and the Step Functions execution name with 1 sorteo. That run settles 045.1, 045.2, 044.1
-> and 044.2 together.
+> **✅ Verified 2026-10-08** (sorteo 3138 — the 10-01 run was a no-op, see PR-044.1's
+> correction). `silver_lineage_runs` returned exactly the prediction, **two runs per
+> dataset**: the NULL one above, unchanged (premios 124,447 / 118, sorteos 118 / 118), and the
+> scheduled execution `2417c307-…_3477d275-…a1283f3f2a4d` with 1 sorteo and 890 premios.
+> `silver_lineage WHERE sorteo = '3138'` names that run and its raw file. 119 partitions on
+> each Silver table — the crawler added 3138's under the Terraform-declared schema — and Gold
+> rebuilt through 3138. Output pasted in the runbook, §7.
 
 
 ## PR-046 — Pin the transitive dependencies so `make build` is reproducible
@@ -3497,6 +3573,52 @@ the run of Thursday 2026-10-08.** That run is the first to push a draw (3138) th
 failure would have two suspects and a success would prove two things at once — neither of
 them cleanly. PR-050 changes lint config and a test only, deploys nothing, and goes first.
 
+> **Rule satisfied 2026-10-08.** The scheduled run carried 3138 through 044.1, 044.2, 045.1
+> and 045.2 with nothing else new in the artifact, and all four verified (notes under each).
+> 047 → 048 → 049 may now redeploy the state machine and the transformer.
+
+## PR-046.2 — The shell's umask leaked into every zip
+
+**Found 2026-10-22, at the deploy after PR-041.3.** PR-046 made `make build` reproducible
+across *days*; it was not reproducible across *shells*. `scripts/_zipdir.py` already fixed
+timestamps and entry order, but stored each file's mode exactly as it sat on disk — and
+that mode is whatever the umask of the shell running `make build` allowed.
+
+**What happened.** The instructions for the §6 secret edit (PR-041 runbook) began with
+`umask 077`, so the temporary file holding the scrape.do token would be private. That umask
+stayed in the owner's terminal. The next command in the same block was `make deploy`, whose
+build copied every source file as `-rw-------`. Same files, same bytes, new hashes: a plan
+read-only half an hour earlier was `0/0/0`; this one was **`1/4/1`** — the Lambda layer
+replaced, `lambda_layer`/`lambda_package` objects and the extractor updated, plus the
+`gold_purge` phantom that appears whenever anything else changes. The owner answered `no`.
+`unzip -Z` on the deployed zip against the local one showed identical file lists and
+contents and a single difference, the mode column (`-rw-r--r--` vs `-rw-------`). Re-run
+with `umask 022`: `0/0/0`, applied.
+
+**Why it was more than churn.** Lambda reads the function code and the layer as a user
+that does not own the files. A 0600 file in either can fail at import with *Permission
+denied*, and nothing between `apply` and Thursday's run would have tried to import it.
+`upload-glue` would have shipped the same modes to both Glue jobs.
+
+**The fix.** `_zipdir.normalised_mode()`: every entry is stored as a regular file with
+`0644`, or `0755` when the owner can execute it (the layer's five `bin/` console scripts).
+That reproduces the deployed zips byte for byte. Measured on this branch:
+
+| build | layer · package · transformer · DQ lib |
+|---|---|
+| deployed (S3 / Lambda) | `0d42de5e` · `7bf2d18b` · `ad0a1669` · `7bf2d18b` |
+| `umask 022`, with the fix | identical |
+| `umask 077`, with the fix | identical |
+| `umask 077`, **without** the fix | `aaf0add2` · `b1972ab1` · `d6ca5935` · `b1972ab1` — the owner's 10-22 hashes |
+
+`tests/unit/test_zipdir.py` builds one tree under both umasks and asserts the two zips are
+byte-identical, plus the mode table. No AWS change: the next `make deploy` plans `0/0/0`
+from any shell.
+
+**And the process half.** A `umask` change must never share an instruction block with a
+deploy. The runbook's secret edit now scopes it to a subshell, `( umask 077; … )`, so it
+dies with the subshell instead of with the terminal.
+
 ## PR-047 — The extractor's Retry does not catch the failure that actually happens
 **Filed in PR-031.2 (2026-09-24). Includes the stale alarm description, filed the same day.**
 
@@ -3530,6 +3652,39 @@ not; the rendered ASL lists it in `ErrorEquals`; `alarms.tf` no longer claims th
 Retry. **Apply after 2026-10-08.** Verifying the retry path live needs a real 502, which
 cannot be scheduled — the test plus the rendered ASL is the bar.
 
+> **PR-047 outcome (2026-10-08).** Built as scoped, with one design point the prompt left
+> open. **Two classes, not one:** `ProxyHTTPError` for any non-200 and its subclass
+> `ProxyRetryableError` for 429/5xx, and only the subclass is listed. Step Functions matches
+> a Lambda failure on `type(exc).__name__` and never on a base class, so "retry some proxy
+> errors" has to be expressed as a separate name. 401 (bad token / spent quota) and 404
+> stay unretried. Neither class is a `ValueError`, so a parsing `except` cannot swallow an
+> outage.
+>
+> **Retrier:** `300 s / 3 attempts / 2.0` → attempts at t+0, +5, +15, +35 min, ~41 min worst
+> case including three 120 s Lambda timeouts. It is a *second* retrier: Step Functions keeps
+> one counter per retrier, so at most 1 + 2 + 3 attempts. **Cost:** a failed scrape.do
+> request is free, so a 502 on the listing costs 0. A listing that succeeds before a detail
+> page that 502s costs 10 per attempt; the worst case is 50 credits for the run, against
+> ~175/month on a 1000 plan.
+>
+> **Alarm text:** `sfn-execution-failed` now says "failed … AFTER its retries", and names
+> the DQ gate's deliberate failure. `extractor-errors` and `scrapedo-failed` each gained a
+> sentence, because a retry changes what they mean: both now fire on an attempt the next one
+> recovers, and an email from either without an `sfn-execution-failed` after it means the run
+> went on.
+>
+> **Acceptance met:** tests prove 429/5xx raise exactly `ProxyRetryableError`, 400–404
+> exactly `ProxyHTTPError`, a parse failure neither, and that `main.tf`'s extractor
+> `Retry` lists the class's name and does not list `ProxyHTTPError`, `ValueError` or
+> `States.ALL`. Both mutations were tried (renaming the ASL entry, disabling the
+> classification) and the suite went red each time. The **rendered** ASL was read from a
+> read-only targeted plan against the account: `0 to add, 4 to change, 0 to destroy`, i.e.
+> the state machine and three alarm descriptions, plus the extractor Lambda in the full
+> deploy. 506 tests. Runbook: `docs/runbooks/PR-047-extractor-proxy-retry.md`.
+>
+> **Applied 2026-10-09** (owner: #86 merged, `make deploy`). The diagram's red marker was
+> rewritten as history in the docs PR that followed. Post-deploy checks in the runbook, §7.
+
 ## PR-048 — `transform()` reads one bucket and writes another
 **Filed in PR-030 (2026-08), as a "latent smell, out of scope for a test PR".**
 
@@ -3542,6 +3697,31 @@ and writes Silver into another, with no error.
 **The fix.** Write to `bucket_name`, drop the global from the write path, and add a test
 with two moto buckets asserting the output lands in the one passed in. **Apply after
 2026-10-08** — it redeploys the transformer.
+
+> **PR-048 outcome (2026-10-09).** Built as scoped, plus the half the prompt implied.
+> `transform()` uploads to `bucket_name`, and **`main()` no longer mutates the global**: it
+> resolves `bucket = args.get("PARTITIONED_BUCKET") or partitioned_bucket` into a local
+> and passes it. The `global` overwrite had been the only thing keeping read and write in
+> the same bucket. With the write fixed it would have been harmless, but it was also the
+> reason two tests asserted that the global *changes*. The global stays as `main()`'s
+> fallback only. Removing it means removing the transformer's import-time
+> `get_secrets()` and its Secrets Manager grant, which is an IAM change for its own PR.
+>
+> **Production is unchanged.** The live job's `--PARTITIONED_BUCKET` is
+> `lottery-partitioned-storage-prod`, the bucket 3138's Silver was written to on 10-08.
+>
+> **Tests:** `TestOneBucketBothWays` points the global at the second moto bucket on purpose.
+> Three tests: Silver lands in `bucket_name`; a raw file in bucket B yields Silver in B with
+> the production-named bucket untouched; a second run over B leaves the Parquet's ETag and
+> LastModified alone (the idempotency check reads where the write goes). Mutation-checked:
+> putting the uploads back on the global fails all three. 510 tests.
+>
+> **Plan, read-only after `make build`: `0 to add, 3 to change, 0 to destroy`**, all of it
+> known churn (`lambda_package` + the extractor, since the zip ships all of `loteria/`; the
+> `gold_purge` phantom). The real change is the Glue zip, which only `make upload-glue`
+> ships. **Verified by the 2026-10-15 run (sorteo 3139):** both Parquets landed in
+> `lottery-partitioned-storage-prod` at 15:01:28, inside the transformer's window. Runbook:
+> `docs/runbooks/PR-048-transform-one-bucket.md`.
 
 ## PR-049 — The DQ gate does not check referential integrity
 **Filed in PR-032's outcome as "the one high-value check missing".**
@@ -3556,6 +3736,33 @@ it cannot live in a committed static suite. Compute it in the runner and apply
 Exercise it **both ways**, as PR-033 did: once green on real Silver, once red against a
 fixture with an orphan premio. **Apply after 2026-10-08** — it changes the gate that run
 uses.
+
+> **PR-049 outcome (2026-10-09). Built, deploy held to Thursday 2026-10-15 after that day's
+> run** (owner's call), so 10-15 verifies 047/048 alone and 10-22 is the first run on this
+> gate. `be_in_set` was chosen over an anti-join count because GX then names the orphan
+> sorteo numbers in `partial_unexpected_list`, which reaches the verdict line and the SNS
+> summary.
+>
+> The rule lives in `dq/suites.py` as `referential_expectations(sorteo_numbers)` but **outside
+> `SUITE_BUILDERS`**, so the committed JSON stays static (`--sync-suites` leaves `qa/`
+> unchanged). The runner appends it to the premios suite per run, via a new
+> `extra_expectations` parameter. `REFERENCES = {"premios": ("sorteos", "numero_sorteo")}`
+> makes `run_dq` load a parent even when only the child was selected. A premios-only run
+> cannot skip the check, and with no sorteos it raises `SilverDatasetEmpty` instead of
+> passing.
+>
+> **Run the gate before shipping it, again:** against prod Silver from a checkout
+> (read-only) it is `[PASS] silver_premios: 14 expectations, 125337 rows from 119 files`.
+> 13 → 14, still green, so it is not red on arrival. **Red direction:** an orphan premios
+> file fails the gate with `unexpected_count 2`, `[3048, 3048]`, and it is the *only*
+> failure on that file. Three older tests had been seeding a premio without its sorteo
+> and now seed the sorteo too, so each still fails for exactly one reason. Mutation-checked
+> (the check disabled → 6 red). 520 tests.
+>
+> **Not done:** the reverse direction (a sorteo with no premios), which is out of scope
+> and needs its own threshold. Plan read-only: `0/3/0`, pure churn; the change ships in
+> `loteria_dq_lib.zip` via `make upload-glue`. The diagram's "28 expectativas" becomes 29
+> after the deploy. Runbook: `docs/runbooks/PR-049-dq-referential-integrity.md`.
 
 ## PR-050 — Nothing stopped ruff from "modernising" code that runs on Python 3.9
 **Filed in PR-045.1's outcome (2026-09-27): "Not fixed systemically".**
@@ -3585,6 +3792,72 @@ and fixed it with a single `# noqa`, which protects one line.
 > - **Verified by breaking it:** deleting the `common/**` glob fails 6 tests (the six
 >   `common` modules in the closure); a probe file shows ruff still flags UP017 in
 >   `extractor/` (Lambda, 3.12) and no longer in `common/`. 488 tests, ruff clean.
+
+## PR-051 — The scrape.do token rode out in every `ConnectionError`, and over plain HTTP
+**Found in the 2026-10-24 security audit (prompted by that week's news, none of which hit this stack).**
+
+**The defect.** scrape.do authenticates by query parameter, so the token sits in the proxy
+URL — and a `requests.ConnectionError` puts that URL in its message (`Max retries exceeded
+with url: /?url=...&token=...`). `fetch_via_proxy` re-raised it unchanged, so a transport
+fault wrote the token into the Lambda's CloudWatch log and into the Step Functions execution
+history, both readable by anything with plain read access. Non-200 answers were already
+safe (PR-047's errors carry only `target_url`); the canary already scrubbed (PR-031.1), but
+production never got the same treatment.
+
+**And the wire itself.** `BASE_PROXY_URL` was `http://api.scrape.do/` from the first commit,
+so every request — not just the failing ones — sent the token in cleartext. Found while
+writing the fix above.
+
+> **PR-051 outcome (2026-10-25).** Built, no AWS change until the next `make deploy`.
+>
+> - `_scrubbed()` replaces the token (raw and URL-encoded) with `***` and rebuilds the
+>   **same class**: `RunExtractorLambda`'s Retry matches `ReadTimeout` / `ConnectTimeout` /
+>   `ConnectionError` by errorType, so the canary's RuntimeError wrapper would have turned
+>   the network retries off without failing anything. Re-raised `from None`, so the
+>   original is not printed under "During handling of the above exception".
+> - A subclass whose constructor rejects a lone message falls back to `RequestException`
+>   — otherwise the TypeError, raised inside the `except`, would chain the unscrubbed
+>   original.
+> - Tests go through the real `requests` stack (loopback port 9) so a change in its message
+>   format breaks them. **Verified by breaking it:** with the bare `raise` back, 4 of the 7
+>   new tests fail.
+> - `BASE_PROXY_URL` → `https://` in the extractor and the canary, guarded by
+>   `test_the_token_travels_encrypted` (it reads the canary's copy from source, since that
+>   file cannot import the extractor). The PR-031.2 runbook had already probed the profile
+>   over HTTPS by hand; a token-less request answers 400 with a valid certificate (failed
+>   requests are free). **Owed:** the first real run over HTTPS — the canary
+>   (`workflow_dispatch`, ~20 credits) or the next Thursday run after `make deploy`.
+> - **Exposure check (owner, 2026-10-25):** `filter-log-events` on
+>   `/aws/lambda/lottery-extractor-prod` for `"token="` → no events, so the token was not
+>   rotated. That covers the log group's retention window only.
+
+## PR-049.1 — #103 committed the whole Uruguay bronze to master
+**Found 2026-10-25, while starting UY-011: `data/uy/manifest.sqlite` was gone from disk.**
+
+**The defect.** PR-049's docs commit (`34e7b1a1`, merged as #103) staged `data/uy/` along with
+the docs: 21,173 bronze pages and PDFs plus the 15.9 MB manifest. Master's `.gitignore` never
+listed the path — only the beta branch's does — so `git add -A` on a master-based branch picks
+it up, the exact trap the Uruguay notes warn about. Two consequences: the bronze (with ~9,000
+real coupon numbers C7 keeps out of the repo, and no cédulas — `DET_INVALIDAS` is never
+fetched) is public, and a switch from master to the beta branch **deletes** the files from
+disk, because one side tracks them and the other ignores them. The reverse switch silently
+overwrites the ignored local copy with master's, so anything a backfill wrote after the commit
+would be lost.
+
+> **PR-049.1 outcome (2026-10-25).** Built, no AWS change.
+>
+> - `git rm -r --cached data/uy` and `/data/uy/` in master's `.gitignore`. The block is the
+>   beta branch's, copied verbatim (its two extra lines are harmless here), so the master →
+>   beta sync that PR-051 is waiting for adds the same hunk on both sides and merges clean —
+>   `git merge-tree` agrees.
+> - The local data was restored first from `git archive master data/uy` (integrity ok, last
+>   fetch 2026-10-21T01:15Z = the last backfill, every `bronze_key` on disk) and backed up to
+>   `~/backups/loteria-uy-2026-10-25/`.
+> - **Not done:** purging the files from history. That needs a force-push the
+>   "Protect-master" ruleset forbids and rewrites every SHA; the owner chose not to.
+> - **Owner, after merging:** the `git pull` that brings this commit deletes `data/uy/` from
+>   disk (a tracked file removed upstream is removed locally). Restore with
+>   `cp -a ~/backups/loteria-uy-2026-10-25/. data/uy/`.
 
 # Open later (deferred decisions)
 
@@ -3660,21 +3933,27 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 035 | **Coverage ratchet** — 70 → 98 (roadmap asked 85; the convention is the number the suite achieves). Rescued from the stranded branch + the extractor rebuilt for the post-redesign markup | merged | [PR #52](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/52) |
 | 035.1 | **Three defects the coverage work found** — `A` dead idempotency guard · `B` unanchored draw-date regex · `C` malformed header kills the batch. **A and B stay on the path**; C is PR-044's | `A`+`B` **merged + deployed** (2026-09-23) · `C` → PR-044 | [PR #62](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/62) |
 | 036 | README rewrite — absorbs 037's residue (kill the NAT images) and 038's six decisions as an index. **Do last** | todo | — |
-| 036.1 | **Publish `layouts/diagram.html` on GitHub Pages**: a `pages.yml` workflow deploys `layouts/` on push to master. Portfolio-facing. Do right before 036, so the README links the live URL. Owner: switch Pages source to GitHub Actions (web UI) | todo | — |
+| 036.1 | **Publish `layouts/diagram.html` on GitHub Pages**: a `pages.yml` workflow deploys `layouts/` on push to master. Portfolio-facing. Do right before 036, so the README links the live URL. Owner: switch Pages source to GitHub Actions (web UI) | **merged + LIVE** (2026-10-11) — the first `pages` run failed (merged before the Pages source was set: `configure-pages` → 404); owner set Source = GitHub Actions and re-ran it → green; all 5 files serve 200 at [the live URL](https://angeldhackerman.github.io/Lottery_End_To_End_ETL_Data_Pipeline/) | [PR #90](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/90) |
+| 036.2 | **The live diagram still flagged fixed defects** — «Resaltar defectos» lit the extractor + CloudWatch (both closed by PR-047), and the bucket's five prefix chips never dimmed (drawn loose on the canvas, outside the node group). Chips now live inside the bucket's group; `BAD` = the simple bucket only; stale texts re-read against the account 2026-10-11 | **merged + LIVE** (2026-10-12) | [PR #91](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/91) |
+| 036.3 | **Diagram legend + the defect tables** — the «sin conexión» cross was red (= «defecto anotado» in the legend) for a deliberate decision, and it plus the canvas notes never dimmed under the spotlights: now grey, with a tooltip, its legend the ✕ note, dimmed with the rest. Audit table: 042.2 folded into 042 (the «cinco» table had six rows), intro cut to the closing rule. Phase 9 gets its own table (047/048 amber = deployed, verified by the 10-15 run; 049 red = still open in prod; 050 green) instead of a loose paragraph | **merged + LIVE** (2026-10-12) — no AWS change | [PR #92](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/92) |
+| 036.4 | **The diagram after the 3139 run and PR-049's deploy** — Phase 9's table had 047/048 amber ("awaiting the 10-15 run") and 049 red ("deploys 10-15"); every count, the live Gold generation, the last run, the lineage runs and the gate's scope were dated 10-08/10-11. Now 047/048 green, 049 amber until the 10-22 run; the gate shows 29 expectations and the referential rule; the lake is current through 3139; «Resaltar lo nuevo» moves from the lineage (045) to Phase 9 (extractor, transformer, gate, CloudWatch). Every figure re-read from the account on 2026-10-15 | **built** (2026-10-15) — no AWS change; ships on merge via `pages.yml` | [PR #99](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/99) |
 | 037 | ~~Diagrams in draw.io~~ — superseded by `layouts/diagram.html` | **dropped** (2026-09-23) | — |
 | 038 | ~~ADRs~~ — the content already exists; the index folds into 036 | **dropped** (2026-09-23) | — |
 | 039 | **Fill in the Makefile** + `.envrc.example` (from 040) — no target prints TODO; `make secrets` got its script (create-only, refuses if the secret exists); `deploy` = build → apply → upload the 3 Glue artifacts, closing the silent Glue drift; `lint` runs CI's three commands. `make tf-plan` = `No changes` | merged | [PR #61](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/61) |
 | 040 | `.envrc.example` → folded into 039 · "fresh-account deploy verified" badge → **dropped**, say it is untested instead | **split** (2026-09-23) | — |
 | *Phase 8 — work in the order below (**8A → 8E**), not by number.* | | | |
-| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` blocked until 2026-10-20 (count still 347 on 2026-10-03) | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) |
+| 041 | **8A** · Retire the `simple` bucket (fault A) — `.1` stop writes · `.2` strip config (+ the SageMaker grant repointed, + the runbook PR-041 never got) · `.3` tear down *(irreversible)* | `.1` **applied** (2026-09-20) · `.2` **applied** — verified 2026-09-27: the Glue job's args are down to `RAW_PREFIX`/`PARTITIONED_BUCKET`/`LOTERIA_SECRET_NAME`, the three simple-bucket args gone · `.3` **done 2026-10-22** — abort condition held (347); the owner emptied (540 versions + 2 delete markers) and deleted the bucket, `head-bucket` → 404; Terraform forgets it via `removed` blocks, plan `0/0/0` | [#53](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/53) · [#64](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/64) · [#104](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/104) |
 | 042 | **8B** · Atomic Gold publication (fault B) — `.1` build beside + swap · `.2` retire generations | `.1` **applied + VERIFIED in prod** — the fourth attempt of 2026-09-24 (`verify-partitions-1790301220`) SUCCEEDED; all 7 tables on one generation, `geo_winnings`' 3 partitions aligned with its table, every table non-empty (re-read 2026-09-27) · `.2` **applied + VERIFIED in prod** ([#71](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/71)) — run `verify-042-2-1790534766` (2026-09-27, SUCCEEDED in 8m31s) retired 12 dead generations, kept `verify_partitions` as the rollback on all 7 tables, and left the flat layout untouched · `.3` **applied + merged** (2026-09-24) · `.4` **merged (#69) + applied** — the singular partition actions are live in `lottery-gold-purge-policy-prod` | [PR #55](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/55) · [#68](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/68) · [#69](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/69) |
-| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed, NOT verified** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — the code is live in the Glue zip and `run_id` resolves, but no Silver row carries the columns yet; see the note under PR-044 · `.2` **applied 2026-10-04, NOT verified** ([#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79)) — both Silver tables imported into Terraform (plan `0/3/0`, 118 partitions kept), `make deploy`, gate query clean, both views live and answering *one NULL run, 118 sorteos, 124,447 premios*. Both halves verify on **Thursday 2026-10-08** (sorteo 3138) — the 10-01 run was a no-op | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) · [#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79) |
-| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed, NOT verified** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained), but the counters have not run against a real body yet · `.2` **applied 2026-09-27, NOT verified** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; infrastructure checked cold, code path awaits **Thursday 2026-10-08** (the 10-01 run had no new draw to parse) | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
+| 045 | **8C** · Lineage columns in Silver (fault F) — `.1` write them · `.2` make them queryable | `.1` **merged + deployed + VERIFIED in prod 2026-10-08** ([#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73)) — sorteo 3138's two Parquets carry `run_id` = the scheduled execution's name, `source_key`, `ingested_at`, `parser_version 1`; gate PASS with the lineage expectations on real rows · `.2` **applied 2026-10-04 + VERIFIED 2026-10-08** ([#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79)) — 119 partitions, `silver_lineage_runs` answers *two runs*: the NULL one (118 sorteos, 124,447 premios) and 2026-10-08's (1 sorteo, 890 premios); Gold rebuilt to 3138 on the declared schema | [#73](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/73) · [#79](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/79) |
+| 044 | **8D** · `quarantine/` for rejected rows (fault E) — `.1` make the loss visible · `.2` persist the rejects | `.1` **merged + deployed + VERIFIED in prod 2026-10-08** ([#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74)) — baseline measured (6.50% rejects, of which **1 line in 145,680** is unexplained); on 3138 the counters logged `lines_total 1047 / parsed 967 / rejected 80`, all 80 `section_header`, `unrecognised 0` · `.2` **applied 2026-09-27 + VERIFIED 2026-10-08** ([#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76)) — quarantine store + **PR-035.1's defect C**, table defined in Terraform not crawled; the writer ran and logged `quarantined: 0`, `quarantine/` empty, both alarms `OK` | [#74](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/74) · [#76](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/76) |
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
-| *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run.*** | | | |
-| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | todo — **after 2026-10-08** | — |
-| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | todo — **after 2026-10-08** | — |
-| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | todo — **after 2026-10-08** | — |
+| 046.2 | **The shell's umask leaked into every zip** — a leftover `umask 077` made identical code plan `1/4/1` (layer replace + extractor) at the 2026-10-22 deploy, and 0600 files can fail Lambda's import. `_zipdir.py` normalises modes to 0644/0755 | **merged** (2026-10-22) — builds under umask 022 and 077 are byte-identical to the deployed zips; no AWS change | [PR #105](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/105) |
+| *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
+| 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; **10-15 run (sorteo 3139): no regression** — extractor succeeded on its first attempt (6 s), no retrier fired | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
+| 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. **verified end to end 2026-10-15** — sorteo 3139's Silver landed in the prod bucket during the run; DQ PASS on 120 files | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
+| 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | **applied 2026-10-15 + deploy verified** — green on prod Silver (premios 13 → 14 expectations), red on an orphan. Apply `0/2/0` (the plan's 3rd change was the `gold_purge` phantom); the deployed `loteria_dq_lib.zip` carries `referential_checks`, and the gate from a checkout gives 14 expectations, PASS on 120 files. **verified 2026-10-22** — the first gated run (Extraordinario 416) passed with premios at 14 expectations, 127,837 rows from 121 files; lineage sums match | [PR #89](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/89) |
+| 049.1 | **#103 committed the whole Uruguay bronze to master** — 21,174 files under `data/uy/` (1.1 GB, incl. `manifest.sqlite`), now on the public `origin/master`. Since the beta branch ignores the path, every switch master → `loteria-uruguaya-test` deleted the local bronze | **built** (2026-10-25) — untracked + `/data/uy/` ignored on master with the beta branch's exact `.gitignore` block (so the later sync merges clean); files stay in history. ⚠️ the `pull` that brings the merge deletes the local copy — restore from the backup | [PR #107](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/107) |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
+| 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |

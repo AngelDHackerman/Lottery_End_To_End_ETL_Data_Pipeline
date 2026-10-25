@@ -10,7 +10,7 @@ executed before the date in §4.**
 |---|---|---|
 | **041.1** (#53) | Gated all **three** writes behind `enable_simple_bucket_writes`, flipped it to `false`. Deleted nothing. | **Applied 2026-09-20 22:31 UTC.** Bucket frozen at **347 objects**. |
 | **041.2** (this PR) | Removed the write code, the job/env wiring, the IAM write grants, the `"simple"` key in `get_secrets()`, and **repointed the SageMaker read grant**. Deleted nothing. | Code merged; see §5 for the owner's manual follow-up. |
-| **041.3** | Empties and disposes of the bucket. **Irreversible.** | **Not before 2026-10-20.** See §4. |
+| **041.3** | Emptied and deleted the bucket (owner, by hand), then dropped it from Terraform with `removed` blocks. | **Done 2026-10-22.** See §7. |
 
 ---
 
@@ -108,7 +108,7 @@ global, and a freed name is a name someone else can claim.
 
 ## 6. Manual follow-ups PR-041.2 could not make
 
-### The Secrets Manager payload — **owner edit, still open**
+### The Secrets Manager payload — **owner edit, done 2026-10-22**
 
 `lottery_secret_prod_2` still contains `s3_bucket_simple_data_storage_prod_arn`.
 **Terraform does not own the secret's contents** (only the secret is referenced, by name),
@@ -117,14 +117,24 @@ so no `apply` will remove it. `get_secrets()` stopped reading the key in PR-041.
 at any time — and safe to forget, which is why it is written down here.
 
 ```bash
-aws secretsmanager get-secret-value --secret-id lottery_secret_prod_2 \
-  --query SecretString --output text | jq 'del(.s3_bucket_simple_data_storage_prod_arn)' \
-  > /tmp/secret.json
-# review /tmp/secret.json, then:
-aws secretsmanager put-secret-value --secret-id lottery_secret_prod_2 \
-  --secret-string file:///tmp/secret.json
-shred -u /tmp/secret.json        # it holds the scrape.do token
+# The subshell matters: a bare `umask 077` outlives this block, and the next `make build`
+# in the same terminal then zips every file as 0600 (PR-046.2 — it happened on 2026-10-22).
+(
+  umask 077
+  TMP=$(mktemp)                  # it will hold the scrape.do token
+  aws secretsmanager get-secret-value --secret-id lottery_secret_prod_2 \
+    --query SecretString --output text \
+    | jq 'del(.s3_bucket_simple_data_storage_prod_arn)' > "$TMP"
+  jq 'keys' "$TMP"               # review: the same keys, minus that one
+  aws secretsmanager put-secret-value --secret-id lottery_secret_prod_2 \
+    --secret-string "file://$TMP"
+  shred -u "$TMP"
+)
 ```
+
+> **Done 2026-10-22 (owner):** new `AWSCURRENT` version at 22:36 local, the old one kept
+> as `AWSPREVIOUS`. The block above is the corrected form — the one used that night set
+> `umask 077` at top level, and it leaked into the deploy that followed.
 
 Do this **after** 041.2 is deployed, not before: code that still read the key would fail at
 import, which in the extractor's case means the weekly run dies before it starts.
@@ -149,3 +159,37 @@ Nothing is running today (two domains `InService`, zero apps, zero notebook inst
 this cannot break a workload — but a role whose sole data permission points at a deleted
 bucket is a trap for whoever next opens a notebook. Reading Silver/Gold through **Athena**
 additionally needs a Lake Formation grant; this policy covers the direct S3 read.
+
+## 7. ✅ Result — PR-041.3, 2026-10-22
+
+The owner chose **deletion** over §5's "keep it empty", and ran it from the terminal as
+`angel-adming`.
+
+1. **Abort condition (§4):** 347 on 2026-10-22, two days past the end of the grace period
+   and after five Thursdays without a write (09-24 → 10-22). It held.
+2. **What was there** (read-only, same day, before the purge): 347 current objects —
+   232 `processed/`, 115 `raw/` — 540 versions, 2 delete markers, 9,275,153 bytes. The full
+   key + version list is committed as
+   `docs/inventory/lottery-data-simple-prod_2026-10-22-final.txt`. Nothing pointed at the
+   bucket: no Glue table location, no crawler target, no Lake Formation registration, no
+   event notification.
+3. **The purge:** bucket policy backed up and deleted (§2); one `list-object-versions`
+   projected into a `delete-objects` payload of 542 entries (versions and delete markers
+   together — under the 1,000-key limit, so one call); a second `list-object-versions`
+   returned `None None`; then `delete-bucket`. Afterwards `head-bucket` → **404 Not Found**
+   and `aws s3 ls` no longer lists it.
+4. **Terraform:** the four resources (bucket, versioning, SSE, public-access block) became
+   `removed { lifecycle { destroy = false } }` blocks in `modules/storage`, and the two
+   unused outputs went with them. Read-only targeted plan: `0 to add, 0 to change, 0 to
+   destroy`, with the four listed as "will no longer be managed by Terraform, but will not
+   be destroyed". `destroy = false` is what makes the order safe: had the code merged
+   before the manual delete, no apply could have tried to delete the bucket. The root
+   `required_version` moved to `>= 1.7`, the first release with `removed` blocks.
+5. **Also removed:** the bucket from `scripts/00_inventory_and_protect.sh`'s list, its
+   policy file `scripts/policies/lottery-data-simple-prod_protect.json` (§2 quotes it; git
+   history keeps it), and its Checkov baseline entry.
+
+**Not in scope, deliberately:** the `processed/` prefix in the *partitioned* bucket (267
+objects). PR-012 decided to preserve it, and PR-041 only removed the job argument that
+named it. §6's secret key `s3_bucket_simple_data_storage_prod_arn` was removed by the
+owner the same night.

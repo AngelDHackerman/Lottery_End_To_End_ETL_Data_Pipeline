@@ -30,7 +30,12 @@ import boto3
 import pandas as pd
 
 from loteria.common.lineage import LINEAGE_COLUMNS
-from loteria.dq.suites import PREMIOS_SUITE_NAME, SORTEOS_SUITE_NAME, SUITE_BUILDERS
+from loteria.dq.suites import (
+    PREMIOS_SUITE_NAME,
+    SORTEOS_SUITE_NAME,
+    SUITE_BUILDERS,
+    referential_expectations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +46,13 @@ SILVER_PREFIX_DEFAULT = "silver/"
 DATASET_SUITES = {
     "sorteos": SORTEOS_SUITE_NAME,
     "premios": PREMIOS_SUITE_NAME,
+}
+
+#: PR-049 — child dataset -> (parent dataset, key). Validating the child needs the parent
+#: loaded, even when only the child was asked for: a premios-only run that skipped the check
+#: would report a clean gate it never applied.
+REFERENCES = {
+    "premios": ("sorteos", "numero_sorteo"),
 }
 
 
@@ -247,8 +259,17 @@ def _disable_progress_bars(context) -> None:
 # --------------------------------------------------------------------------------------
 # Validation
 # --------------------------------------------------------------------------------------
-def validate_dataframe(dataset: str, df: pd.DataFrame, files: int = 0) -> SuiteOutcome:
+def validate_dataframe(
+    dataset: str,
+    df: pd.DataFrame,
+    files: int = 0,
+    extra_expectations: list | None = None,
+) -> SuiteOutcome:
     """Run one dataset's suite against an already-loaded DataFrame.
+
+    ``extra_expectations`` are appended to the static suite for this validation only. It is
+    how run-time rules (PR-049's referential check, whose value set is the sorteos loaded in
+    this run) reach GX without being written into the committed suite.
 
     Uses an **ephemeral** GX context. The committed context under ``qa/great_expectations/``
     is a review artifact synced by ``scripts/run_dq.py --sync-suites``; validation itself
@@ -272,6 +293,12 @@ def validate_dataframe(dataset: str, df: pd.DataFrame, files: int = 0) -> SuiteO
 
     suite_name = DATASET_SUITES[dataset]
     suite = SUITE_BUILDERS[suite_name]()
+    if extra_expectations:
+        # Rebuilt through the constructor, not `suite.add_expectation()`, for the reason
+        # suites.py gives: add_expectation needs an ambient data context.
+        suite = gx.ExpectationSuite(
+            name=suite_name, expectations=[*suite.expectations, *extra_expectations]
+        )
 
     context = gx.get_context(mode="ephemeral")
     _disable_progress_bars(context)
@@ -338,12 +365,43 @@ def run_dq(
     if unknown:
         raise ValueError(f"Unknown dataset(s): {sorted(unknown)}. Known: {sorted(DATASET_SUITES)}")
 
+    # Load first, validate second: a child's referential check needs its parent's frame,
+    # and the parent may not be one of the selected datasets. Each frame is read once.
+    needed = list(selected)
+    for dataset in selected:
+        parent = REFERENCES.get(dataset, (None,))[0]
+        if parent and parent not in needed:
+            needed.append(parent)
+
+    loaded = {
+        dataset: load_silver_dataset(bucket, dataset, silver_prefix=silver_prefix, s3_client=s3)
+        for dataset in needed
+    }
+
     outcomes = []
     for dataset in selected:
-        df, keys = load_silver_dataset(bucket, dataset, silver_prefix=silver_prefix, s3_client=s3)
-        outcomes.append(validate_dataframe(dataset, df, files=len(keys)))
+        df, keys = loaded[dataset]
+        outcomes.append(
+            validate_dataframe(
+                dataset,
+                df,
+                files=len(keys),
+                extra_expectations=referential_checks(dataset, loaded),
+            )
+        )
 
     return DQReport(suites=outcomes)
+
+
+def referential_checks(dataset: str, loaded: dict) -> list:
+    """The run-time expectations ``dataset`` owes its parent, or ``[]`` if it has none."""
+    if dataset not in REFERENCES:
+        return []
+    parent, key = REFERENCES[dataset]
+    parent_df, _ = loaded[parent]
+    # Nulls are the parent suite's business (`numero_sorteo` is not-null there); dropping
+    # them here keeps one null from crashing the check instead of failing the right one.
+    return referential_expectations(parent_df[key].dropna())
 
 
 # --------------------------------------------------------------------------------------

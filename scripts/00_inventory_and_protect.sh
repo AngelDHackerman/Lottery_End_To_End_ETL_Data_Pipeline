@@ -23,9 +23,10 @@ set -euo pipefail
 # --------------------------------------------------------------------------- #
 # Config
 # --------------------------------------------------------------------------- #
+# lottery-data-simple-prod was here until PR-041.3 deleted it (2026-10-22); its final
+# snapshot is docs/inventory/lottery-data-simple-prod_2026-10-22-final.txt.
 BUCKETS=(
   "lottery-partitioned-storage-prod"
-  "lottery-data-simple-prod"
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

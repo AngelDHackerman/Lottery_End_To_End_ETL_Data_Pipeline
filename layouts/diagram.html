@@ -4,13 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arquitectura Lotería Santa Lucía</title>
+<!-- PR-036.1: this page is public on GitHub Pages. Everything here is already public in the
+     repo (account id, bucket, role and function names). Never paste a token or a secret into
+     diagram.data.js: what was a public file is now also a public web page. -->
+<meta name="description" content="Pipeline ETL serverless en AWS para la Lotería Santa Lucía de Guatemala: scraping semanal, Bronze/Silver/Gold en S3, gate de calidad con Great Expectations y Gold atómico con Athena. Mapa interactivo de lo desplegado, comprobado contra la cuenta.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Arquitectura Lotería Santa Lucía — pipeline ETL en AWS">
+<meta property="og:description" content="Mapa interactivo de un pipeline ETL serverless en AWS: Lambda, Glue, Step Functions, S3, Athena y un gate de calidad. Cada pieza con sus nombres reales y su estado, y la corrida semanal animada.">
+<meta name="twitter:card" content="summary">
 <link rel="stylesheet" href="css/diagram.css">
 </head>
 <body>
 <div class="wrap">
   <header>
     <p class="meta"><span>cuenta 913524903233</span><span>·</span><span>us-east-1</span><span>·</span>
-      <span>lago al día hasta el Ordinario 3137</span><span>·</span><span>4 oct 2026 · 02:00 UTC</span></p>
+      <span>lago al día hasta el Ordinario 3139</span><span>·</span><span>15 oct 2026</span></p>
     <h1>Arquitectura Lotería Santa Lucía</h1>
     <p>Lo que está desplegado hoy, comprobado contra la cuenta y no contra la documentación.
       Hacé clic en cualquier pieza para ver sus nombres reales y su estado, o reproducí la
@@ -20,7 +28,7 @@
   <div class="bar">
     <button id="play" class="primary">▶ Reproducir la corrida semanal</button>
     <div class="sep"></div>
-    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: el linaje</button>
+    <button id="tgl-spot" aria-pressed="false">Resaltar lo nuevo: la fase 9</button>
     <button id="tgl-bad" aria-pressed="false">Resaltar defectos</button>
     <div class="keys">
       <span class="key"><span class="sw ok"></span>Desplegado</span>
@@ -53,57 +61,45 @@
   </div>
 
   <details>
-    <summary>Los cinco defectos estructurales de la auditoría: uno cerrado, uno medido y aceptado, tres a medio cerrar</summary>
+    <summary>Los cinco defectos de la auditoría: cuatro cerrados, uno medido y aceptado</summary>
     <div class="dbody">
-      <p class="hint">De la auditoría del 2026-09-14 (roadmap fase 8). <b>El 042 es el único
-        cerrado</b>, y no el 21 de septiembre como decía este diagrama: ese día se aplicó, y
-        lo que lo cerró fue una corrida de producción cuatro días después. El 043 se midió y
-        se decidió conservarlo. El 041 espera su tercer paso; el <b>044 y el 045 están
-        desplegados enteros pero sin verificar</b> — su código no ha ejecutado todavía. El
-        3137 se ingirió horas antes del deploy, y la corrida del 1 de octubre, que este
-        diagrama daba por la verificación, <b>no tenía nada nuevo</b>: los sorteos son los
-        sábados, y el 3138 se sorteó el 3. Los verifica el jueves 8 de octubre.</p>
+      <p class="hint">La auditoría del 14 de septiembre (fase 8 del roadmap) encontró cinco
+        defectos de diseño. Aquí un defecto cuenta como <b>cerrado</b> cuando una corrida
+        de producción lo demuestra, no cuando se aplica el cambio: el 042 pasó cuatro días
+        marcado como verificado sin que nada lo hubiera verificado, y esa es la razón de la
+        regla.</p>
       <table>
         <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
-        <tr><td class="pr">041</td><td>Tubería doble al bucket simple — <b>escrituras
-          detenidas, configuración retirada, bytes en pie</b></td>
+        <tr><td class="pr done">041</td><td>Tubería doble al bucket simple — <b>cerrado: el
+          bucket se borró el 22 oct</b></td>
           <td>Cada Parquet se escribía dos veces — tres escrituras en realidad, contando el
             <code>.txt</code> crudo del extractor. La segunda copia no la leía nadie: pagaba
             almacenamiento e invitaba a deriva, porque nada verificaba que coincidieran.
             Desde el 20 sep las tres están apagadas por bandera; desde el 25, 041.2 borró
             toda la configuración que las nombraba y repuntó el grant de lectura de SageMaker
-            —su único permiso de datos— a <code>silver/</code> y <code>gold/</code>. Queda
-            abierto porque los bytes siguen ahí: 347 objetos congelados, y 041.3 no puede
-            borrar nada antes del 20 oct. Esa espera no es burocracia — CloudTrail de datos
-            está apagado para este bucket, así que compra con tiempo la prueba que la
-            evidencia no puede dar.</td></tr>
-        <tr><td class="pr done">042</td><td>Gold no es atómica — <b>cerrado el 25 sep</b></td>
+            —su único permiso de datos— a <code>silver/</code> y <code>gold/</code>. Después
+            vino una espera de 30 días, porque CloudTrail de datos estaba apagado para este
+            bucket y solo el tiempo podía probar que nadie más escribía. El 22 oct seguía en
+            347 objetos, el mismo número del 20 sep: 041.3 lo vació —540 versiones y 2 delete
+            markers— y lo borró. Nada de ahí era único, y el inventario final quedó en el
+            repo.</td></tr>
+        <tr><td class="pr done">042</td><td>Gold no es atómica — <b>cerrado: el swap el
+          25 sep, la limpieza el 27</b></td>
           <td>Borraba la tabla y vaciaba su prefijo <b>antes</b> del CTAS. Si el CTAS fallaba,
             se perdía también la copia buena — durante 7 días, hasta la siguiente corrida.
             Desde el 21 sep cada tabla se construye en <code>run=&lt;ejecución&gt;</code> al
             lado de la publicada, y el catálogo se mueve con un solo
-            <code>UpdateTable</code> cuando Athena ya terminó bien. <b>Pero estuvo cuatro
-            días marcado «applied + verified» sin que nada lo hubiera verificado</b>: su
-            primera corrida real fue el 24 sep y falló tres veces seguidas, cada una por un
-            permiso distinto. Lo cerró la corrida del 25 sep a las 02:03 UTC, la primera que
-            llegó entera al swap.</td></tr>
-        <tr><td class="pr done">042.2</td><td>El swap no limpiaba lo que dejaba atrás —
-          <b>cerrado el 27 sep</b></td>
-          <td>Publicar una generación nueva no retiraba la vieja. Ahora un cuarto estado,
-            <code>RetireGold</code>, borra las anteriores salvo una — corre <b>después</b>
-            del swap y tiene permitido fallar sin tumbar la corrida, porque cuando llega las
-            tablas ya están publicadas y correctas. Lo que costó cerrarlo es la parte que
-            vale: las generaciones muertas <b>no eran borrables a mano</b>. El
-            <code>Deny</code> de PR-002 exime exactamente a la raíz de la cuenta y al rol
-            <code>lottery-gold-purge-role-prod</code>, así que un usuario con
-            <code>AdministratorAccess</code> tiene el borrado denegado —un
-            <code>Deny</code> explícito de política de bucket no lo gana ningún
-            <code>Allow</code> de IAM— y el Lambda solo exponía <code>prepare</code> y
-            <code>promote</code>. La basura de 042.1 no se podía limpiar hasta que existiera
-            el mecanismo que la limpia. La corrida de verificación retiró <b>12 prefijos</b>
-            y dejó <code>gold/</code> en 39 objetos: 13 vivos, 13 del rollback y 13 de la
-            disposición anterior al swap, que se conserva a propósito por ser el único
-            rollback que no viene de una corrida fallida.</td></tr>
+            <code>UpdateTable</code> cuando Athena ya terminó bien. Su primera corrida real,
+            el 24 sep, falló tres veces seguidas, cada una por un permiso distinto (abajo,
+            042.3 y 042.4); la del 25 sep a las 02:03 UTC fue la primera que llegó entera al
+            swap. <b>Faltaba retirar lo que el swap dejaba atrás</b>, y no se podía hacer a
+            mano: el <code>Deny</code> de PR-002 exime solo a la raíz de la cuenta y al rol
+            <code>lottery-gold-purge-role-prod</code>, así que ni
+            <code>AdministratorAccess</code> puede borrar —un <code>Deny</code> explícito
+            de bucket no lo gana ningún <code>Allow</code> de IAM—. Desde el 27 sep un cuarto
+            estado, <code>RetireGold</code>, borra las generaciones viejas salvo una, después
+            del swap y sin poder tumbar la corrida. <code>gold/</code> se mantiene en 39
+            objetos: 13 vivos, 13 del rollback y 13 de la disposición anterior al swap.</td></tr>
         <tr><td class="pr done">043</td><td>Reconstrucción total semanal — <b>medida el 27 sep:
           se queda</b></td>
           <td>Rehace las 7 tablas sobre todo el histórico para añadir un sorteo, así que el
@@ -114,8 +110,7 @@
             escaneando y el 91% orquestando: una versión incremental sumaría consultas de
             cobro mínimo para no ahorrar nada. La reescritura quedó aplazada (L8), con tres
             umbrales anotados que la reabren.</td></tr>
-        <tr><td class="pr pend">044</td><td>Sin cuarentena — <b>desplegado el 27 sep, sin
-          verificar hasta el 8 oct</b></td>
+        <tr><td class="pr done">044</td><td>Sin cuarentena — <b>cerrado el 8 oct</b></td>
           <td>Las filas que el parser descartaba se perdían sin registro: pérdida silenciosa,
             con los números de abajo siempre pareciendo plausibles. Ahora se cuentan, se
             clasifican y las que importan se guardan en <code>quarantine/</code>. <b>Lo más
@@ -125,9 +120,10 @@
             medir cambió el diseño: el parser rechaza el <b>6,50%</b> de cada body, pero
             9.464 de 9.465 son encabezados de millar. Una alarma sobre rechazos totales
             habría sonado todos los jueves. La señal real, <code>unrecognised</code>, apareció
-            <b>una vez en 118 sorteos</b>.</td></tr>
-        <tr><td class="pr pend">045</td><td>Silver sin trazabilidad — <b>aplicado entero el
-          4 oct, sin verificar</b></td>
+            <b>una vez en 118 sorteos</b>. El 3138 lo confirmó: 1.047 líneas, 80 rechazadas,
+            las 80 encabezados de millar, cero <code>unrecognised</code>, cuarentena vacía
+            y ninguna alarma.</td></tr>
+        <tr><td class="pr done">045</td><td>Silver sin trazabilidad — <b>cerrado el 8 oct</b></td>
           <td>Ni <code>ingested_at</code> ni <code>run_id</code>: no se podía decir qué
             corrida produjo una fila sin cruzar timestamps de S3 con logs a mano. 045.1
             agrega cuatro columnas al Parquet — y <code>run_id</code> se deja <b>nulo</b>
@@ -142,7 +138,8 @@
             La prueba de que el import no perdió nada es que la vista
             <code>silver_lineage_runs</code> devolvió después del apply exactamente lo mismo
             que antes: una corrida con <code>run_id</code> nulo, 118 sorteos, 124 447 premios.
-            El 8 de octubre debería devolver dos.</td></tr>
+            El 8 de octubre devolvió dos: la nula y la corrida programada, con su nombre de
+            ejecución de Step Functions como <code>run_id</code>, 1 sorteo y 890 premios.</td></tr>
       </table>
     </div>
   </details>
@@ -210,13 +207,61 @@
             corrida real.</td></tr>
       </table>
 
-      <p class="hint">Dos cosas que esa misma noche dejó <b>anotadas y sin arreglar</b>, y que
-        el diagrama marca en rojo sobre sus piezas: el <code>Retry</code> de
-        <code>RunExtractorLambda</code> cubre solo faltas de transporte, así que un 502 del
-        proxy —que llega como <code>ValueError</code>— no reintenta nada; y la descripción de
-        la alarma <code>loteria-sfn-execution-failed-prod</code> todavía dice «la máquina no
-        tiene Retry ni Catch», que es lo primero que se lee en el correo de alerta y lleva
-        semanas siendo falso.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Fase 9: cuatro defectos que los PRs anteriores dejaron anotados — los cuatro cerrados</summary>
+    <div class="dbody">
+      <p class="hint">Ninguno rompía producción el día en que se anotó; por eso se quedaron
+        fuera del PR que los encontró. Se atendieron después del 8 de octubre, para que esa
+        corrida verificara la fase 8 sin cambios mezclados. Color de la columna PR:
+        <b class="c-done">verde</b>, cerrado; <b class="c-pend">ámbar</b>, desplegado pero
+        sin una corrida que lo pruebe todavía;
+        <b class="c-open">rojo</b>, sigue abierto en producción.</p>
+      <table>
+        <tr><th>PR</th><th>Defecto</th><th>Por qué importa</th></tr>
+        <tr><td class="pr done">047</td><td>El <code>Retry</code> del extractor no veía el 502
+          del proxy — <b>cerrado el 15 oct</b></td>
+          <td>Anotado la noche del 24 sep. El <code>Retry</code> de
+            <code>RunExtractorLambda</code> cubría solo faltas de transporte, y un 502 del
+            proxy llegaba como un <code>ValueError</code> genérico: la corrida tenía un solo
+            intento. Ahora un 429 o un 5xx llegan como <code>ProxyRetryableError</code> y se
+            reintentan a los 5, 15 y 35 minutos; un 401 o un fallo de parsing siguen fallando
+            a la primera, porque reintentarlos no arregla nada. De paso, la alarma
+            <code>loteria-sfn-execution-failed-prod</code> dejó de decir «la máquina no tiene
+            Retry ni Catch» —lo primero que se leía en el correo de alerta—. El deploy se
+            comprobó leyendo la máquina desplegada, y la corrida del 15 trajo el 3139 al primer
+            intento sin romper nada. El reintento en sí solo se verá el día que el proxy
+            devuelva un 502.</td></tr>
+        <tr><td class="pr done">048</td><td><code>transform()</code> leía de un bucket y
+          escribía en otro — <b>cerrado el 15 oct</b></td>
+          <td>Anotado en PR-030. Descargaba del bucket que recibía como argumento pero subía
+            Silver a una variable global. Producción coincidía solo porque
+            <code>main()</code> pasaba el mismo bucket a las dos cosas; un test, un backfill o
+            un segundo entorno habrían escrito en otro sitio sin ningún error. Ahora escribe
+            donde lee, y tres tests con dos buckets de moto lo comprueban. La corrida del
+            15 oct, la primera que pasó por este código, escribió el Silver del 3139 en el
+            bucket del que leyó su <code>.txt</code>.</td></tr>
+        <tr><td class="pr done">049</td><td>El gate no comprobaba la integridad referencial —
+          <b>cerrado el 22 oct</b></td>
+          <td>Anotado en PR-032. Ninguna expectativa exigía que cada premio apuntara a un
+            sorteo que existe: un premio huérfano pasaba el gate y llegaba a Gold. La
+            expectativa nueva se probó contra el Silver real (pasa) y contra un huérfano
+            fabricado (falla), y el gate desplegado vuelve a pasar contra el Silver real con 14
+            expectativas en premios. Se desplegó <b>después</b> de la corrida del 15 de octubre
+            para que esa corrida verificara 047 y 048 solos. La corrida del 22, la primera
+            con el gate nuevo, trajo el Extraordinario 416 y pasó: 14 expectativas en premios,
+            127 837 filas de 121 archivos.</td></tr>
+        <tr><td class="pr done">050</td><td>ruff podía «modernizar» código que corre en
+          Python 3.9 — <b>cerrado el 4 oct</b></td>
+          <td>Anotado en PR-045.1. ruff apunta a Python 3.12, el de los Lambdas, pero el
+            transformer corre en 3.9 y el gate en 3.11. Sus reglas de modernización proponen
+            sintaxis que esos runtimes no tienen: el CI pasa, el Lambda importa bien y el job
+            de Glue muere el jueves. Ahora esas reglas están apagadas para el código de Glue,
+            y un test calcula qué módulos importa el job y falla si alguno queda fuera de la
+            protección. No toca AWS.</td></tr>
+      </table>
     </div>
   </details>
 </div>

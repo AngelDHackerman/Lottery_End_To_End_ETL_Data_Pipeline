@@ -225,6 +225,26 @@ def build_premios_suite() -> ExpectationSuite:
     return gx.ExpectationSuite(name=PREMIOS_SUITE_NAME, expectations=expectations)
 
 
+# --- PR-049: referential integrity ---------------------------------------------------------
+# Every premio must belong to a sorteo that Silver actually holds. A premio whose sorteo row
+# was rejected, or never written, used to pass the gate and reach the seven gold tables,
+# where it either vanished from a join or appeared as a draw with no date.
+#
+# The value set is the sorteos present in THIS Silver, so it is known only at run time. It
+# therefore cannot be part of `build_premios_suite`: that suite is static, synced to JSON and
+# drift-tested, and a committed list of 119 draw numbers would be stale a week later. The
+# runner builds this from the loaded sorteos frame and appends it to the premios suite for
+# that one validation. Kept here rather than in the runner so every expectation the gate can
+# run is defined in this file.
+#
+# `be_in_set` rather than an anti-join count: GX then reports the offending values itself
+# (`partial_unexpected_list`), so the alert names the orphan sorteo numbers.
+def referential_expectations(sorteo_numbers) -> list:
+    """``premios.numero_sorteo`` must be one of ``sorteo_numbers`` (the loaded sorteos)."""
+    value_set = sorted({int(n) for n in sorteo_numbers})
+    return [gxe.ExpectColumnValuesToBeInSet(column="numero_sorteo", value_set=value_set)]
+
+
 #: Suite name -> builder. The runner iterates this, so adding a suite here is enough to get
 #: it validated, synced to JSON and covered by the drift test.
 SUITE_BUILDERS = {

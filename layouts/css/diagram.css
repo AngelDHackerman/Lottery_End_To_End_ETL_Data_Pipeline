@@ -46,6 +46,7 @@ button{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink);
        background:var(--surface2);border:1px solid var(--rule);border-radius:3px;
        padding:7px 13px;cursor:pointer}
 button:hover{border-color:var(--flow)}
+button:disabled{cursor:default;color:var(--muted);border-color:var(--rule)}
 button:focus-visible{outline:2px solid var(--flow);outline-offset:2px}
 button.primary{background:var(--flow);border-color:var(--flow);color:var(--surface)}
 button[aria-pressed="true"]{background:var(--flow-soft);border-color:var(--flow);color:var(--ink)}
@@ -85,6 +86,7 @@ svg#map{display:block;width:100%;min-width:1080px;height:auto;color:var(--ink)}
 .edge.pend{stroke:var(--pending);stroke-dasharray:7 5}
 .edge.manual{stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}
 .edge.dim{opacity:.2}
+.deco.dim{opacity:.26}
 .edge.lit{stroke-width:5}
 .elabel{font-family:var(--mono);font-size:9.5px;fill:var(--muted)}
 
@@ -142,8 +144,25 @@ td.pr.done{color:var(--flow)}
    "desplegado pero sin verificar", que es precisamente la distinción que a 042.1 le
    costó tres días de decir lo contrario. */
 td.pr.pend{color:var(--pending)}
+/* La leyenda de esos colores, dentro del texto de la tabla que los usa. */
+.c-done{color:var(--flow)} .c-pend{color:var(--pending)} .c-open{color:var(--breach)}
 .dbody table + .hint{margin:14px 0 0}
 .dbody i{font-style:italic;color:var(--ink)}
 code{font-family:var(--mono);font-size:.87em;background:var(--surface2);
      padding:.08em .32em;border-radius:2px}
+/* PR-036.1 — teléfono. El mapa conserva su ancho mínimo y se desliza dentro de su caja
+   (achicado a 360 px no se lee); la página en sí nunca debe tener scroll horizontal. Las
+   tablas de tres columnas sí lo provocaban: con un <details> abierto la página crecía a
+   ~460 px, por tokens como glue:BatchUpdatePartition que no tienen dónde cortarse. */
+td code{overflow-wrap:anywhere}
+@media (max-width:640px){
+  .canvas::before{content:"Deslizá el mapa hacia los lados →";display:block;
+                  font-family:var(--mono);font-size:11px;color:var(--muted);margin:0 0 6px}
+  table,tbody,tr,td{display:block}
+  tr:first-child{display:none}
+  tr{display:grid;grid-template-columns:auto minmax(0,1fr);border-bottom:1px solid var(--rule)}
+  tr:last-child{border-bottom:none}
+  td{border-bottom:none;padding:8px 6px}
+  td:nth-child(3){grid-column:1 / -1;padding-top:0}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

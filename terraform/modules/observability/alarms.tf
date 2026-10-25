@@ -47,7 +47,7 @@ locals {
 # also why `ok_actions` is deliberately unset (see the note above alarm 2).
 resource "aws_cloudwatch_metric_alarm" "sfn_execution_failed" {
   alarm_name        = "${local.alarm_prefix}-sfn-execution-failed-${var.environment}"
-  alarm_description = "The ETL state machine failed an execution. Because the machine has no Retry/Catch, this fires for a failure in ANY stage — check the per-stage alarms (glue-transform-failed / crawler-*) and the dashboard for attribution."
+  alarm_description = "The ETL state machine failed an execution, AFTER its retries. The extractor retries network faults and proxy 429/5xx (ProxyRetryableError, ~41 min of attempts) on its own, so a failure there means those retries were exhausted or the error cannot be retried (a parse failure, a 401). A Silver DQ failure also lands here, on purpose: Gold is intact and a separate 'Silver DQ FAILED' email names the expectations. For attribution, open the execution's failed state, then the per-stage alarms (extractor-errors / glue-transform-failed / crawler-*) and the dashboard."
 
   namespace   = "AWS/States"
   metric_name = "ExecutionsFailed"
@@ -118,7 +118,7 @@ resource "aws_cloudwatch_metric_alarm" "sfn_no_recent_success" {
 # alarm 1 already covers it — a second alarm would only duplicate the email.
 resource "aws_cloudwatch_metric_alarm" "extractor_errors" {
   alarm_name        = "${local.alarm_prefix}-extractor-errors-${var.environment}"
-  alarm_description = "The extractor Lambda (${var.extractor_lambda_name}) reported an error. Most likely: the scrape failed (see the scrapedo-failed alarm and the Cloudflare waiting-room caveat in PR-026's runbook), the site's layout changed, or Secrets Manager/S3 access broke."
+  alarm_description = "The extractor Lambda (${var.extractor_lambda_name}) reported an error. Most likely: the scrape failed (see the scrapedo-failed alarm and the Cloudflare waiting-room caveat in PR-026's runbook), the site's layout changed, or Secrets Manager/S3 access broke. Counts EVERY failed attempt: if no sfn-execution-failed email follows, a Step Functions retry absorbed it and the run went on."
 
   namespace   = "AWS/Lambda"
   metric_name = "Errors"
@@ -329,7 +329,7 @@ resource "aws_sns_topic_policy" "alerts" {
 # INSUFFICIENT_DATA looking like good news.
 resource "aws_cloudwatch_metric_alarm" "scrapedo_failed" {
   alarm_name        = "${local.alarm_prefix}-scrapedo-failed-${var.environment}"
-  alarm_description = "scrape.do returned a non-200 for the weekly scrape. Check the status-code breakdown on dashboard '${aws_cloudwatch_dashboard.loteria_pipeline.dashboard_name}': 401 = token/auth, 402 = free-tier quota exhausted, 429 = rate limited, 5xx = proxy-side. Does NOT cover the Cloudflare waiting room (that returns 200)."
+  alarm_description = "scrape.do returned a non-200 for the weekly scrape. Check the status-code breakdown on dashboard '${aws_cloudwatch_dashboard.loteria_pipeline.dashboard_name}': 401 = token/auth, 402 = free-tier quota exhausted, 429 = rate limited, 5xx = proxy-side. Does NOT cover the Cloudflare waiting room (that returns 200). 429/5xx are retried by the state machine (PR-047), so without a sfn-execution-failed email this was transient and recovered."
 
   namespace   = var.metrics_namespace
   metric_name = "ScraperHttpErrors"

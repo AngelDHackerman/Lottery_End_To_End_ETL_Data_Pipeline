@@ -131,9 +131,9 @@ Six metric alarms plus one EventBridge rule, all notifying `aws_sns_topic.alerts
 
 | Resource | Fires when |
 |---|---|
-| `loteria-sfn-execution-failed-<env>` | any execution fails (the machine has no Retry/Catch, so this catches every stage) |
+| `loteria-sfn-execution-failed-<env>` | an execution fails **after its retries** — the extractor's network/proxy retries were exhausted, a non-retryable stage failed, or the Silver DQ gate stopped the run on purpose |
 | `loteria-sfn-no-success-7d-<env>` | no successful run in 7 days — the dead man's switch |
-| `loteria-extractor-errors-<env>` | the extractor Lambda errors |
+| `loteria-extractor-errors-<env>` | the extractor Lambda errors — on **every** attempt, so alone (no execution-failed alarm after it) it means a retry absorbed the failure |
 | `loteria-glue-transform-failed-<env>` | the bronze→silver Glue job run fails |
 | `loteria-crawler-start-failed-<env>` | a silver crawler cannot be **started** |
 | `loteria-crawler-failed-<env>` (EventBridge) | a silver crawl started and then **failed** |

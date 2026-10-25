@@ -172,9 +172,9 @@ def transformer(monkeypatch):
 
     mod = importlib.import_module("loteria.transformer.transformer")
 
-    # transform() reads from its `bucket_name` argument but WRITES to these module globals.
-    # Set them explicitly: a test that only passed bucket_name would silently write to
-    # whatever the import-time secret returned.
+    # Only main() reads this global, as its fallback. Pinned so the entry-point tests have a
+    # known value. transform() no longer touches it (PR-048), and TestOneBucketBothWays
+    # proves that by pointing it somewhere else.
     monkeypatch.setattr(mod, "partitioned_bucket", PARTITIONED)
 
     yield mod
@@ -245,6 +245,70 @@ class TestSilverOutput:
             "silver/premios/year=2024/sorteo=3046/premios.parquet",
             "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
         ]
+
+
+class TestOneBucketBothWays:
+    """PR-048 — transform() used to read from `bucket_name` and write to the module global.
+
+    Production only agreed because main() passed the same bucket to both. These point the
+    global at the OTHER bucket on purpose: before the fix, every test here wrote Silver
+    there.
+    """
+
+    def test_silver_lands_in_the_bucket_passed_in_not_the_global(
+        self, s3, transformer, monkeypatch
+    ):
+        monkeypatch.setattr(transformer, "partitioned_bucket", OTHER_BUCKET)
+        put_raw(s3, sorteo=3046, year=2024)
+
+        run(transformer)
+
+        assert keys_under(s3, PARTITIONED, SILVER_PREFIX) == [
+            "silver/premios/year=2024/sorteo=3046/premios.parquet",
+            "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
+        ]
+        assert s3.list_objects_v2(Bucket=OTHER_BUCKET).get("KeyCount") == 0
+
+    def test_a_second_bucket_is_self_contained(self, s3, transformer):
+        """The backfill / second-environment case the roadmap names: raw in bucket B,
+        Silver in bucket B, and the production-named bucket untouched."""
+        key = f"{RAW_PREFIX}year=2024/sorteo=3046/results_raw_no._3046.txt"
+        body = (FIXTURES / "ordinario_3046.txt").read_text(encoding="utf-8")
+        s3.put_object(Bucket=OTHER_BUCKET, Key=key, Body=body.encode("utf-8"))
+
+        transformer.transform(
+            bucket_name=OTHER_BUCKET, raw_prefix=RAW_PREFIX, silver_prefix=SILVER_PREFIX
+        )
+
+        assert keys_under(s3, OTHER_BUCKET, SILVER_PREFIX) == [
+            "silver/premios/year=2024/sorteo=3046/premios.parquet",
+            "silver/sorteos/year=2024/sorteo=3046/sorteos.parquet",
+        ]
+        assert s3.list_objects_v2(Bucket=PARTITIONED).get("KeyCount") == 0
+
+    def test_idempotency_reads_the_same_bucket_it_writes(self, s3, transformer):
+        """The skip check lists Silver in `bucket_name`. If the write went elsewhere, a
+        second run would never see its own output and would rewrite every sorteo."""
+        key = f"{RAW_PREFIX}year=2024/sorteo=3046/results_raw_no._3046.txt"
+        body = (FIXTURES / "ordinario_3046.txt").read_text(encoding="utf-8")
+        s3.put_object(Bucket=OTHER_BUCKET, Key=key, Body=body.encode("utf-8"))
+
+        def go():
+            transformer.transform(
+                bucket_name=OTHER_BUCKET, raw_prefix=RAW_PREFIX, silver_prefix=SILVER_PREFIX
+            )
+
+        go()
+        first = s3.head_object(
+            Bucket=OTHER_BUCKET, Key=keys_under(s3, OTHER_BUCKET, SILVER_PREFIX)[0]
+        )
+        go()
+        second = s3.head_object(
+            Bucket=OTHER_BUCKET, Key=keys_under(s3, OTHER_BUCKET, SILVER_PREFIX)[0]
+        )
+
+        assert first["ETag"] == second["ETag"]
+        assert first["LastModified"] == second["LastModified"]
 
 
 class TestSilverIsTheOnlyWriteTarget:
@@ -733,21 +797,24 @@ class TestGlueEntryPoint:
         the one thing the module docstring forbids."""
         assert glue_main(self.ARGS)["silver_prefix"] == transformer_module_silver_prefix()
 
-    def test_the_bucket_argument_overrides_the_import_time_secret(self, glue_main, transformer):
-        """`transform()` READS its bucket from an argument but WRITES to a module global. If
-        main() failed to override it, the job would read from the argument bucket and write
-        to whatever the Secrets Manager payload said at import — a split-brain that only
-        shows up in production."""
+    def test_the_bucket_argument_wins_over_the_import_time_secret(self, glue_main, transformer):
+        """The secret said PARTITIONED; the job argument says otherwise, and the argument
+        is what reaches transform()."""
+        assert glue_main(self.ARGS)["bucket_name"] == "arg-partitioned-bucket"
+        assert transformer.partitioned_bucket == PARTITIONED
+
+    def test_main_no_longer_mutates_the_global(self, glue_main, transformer):
+        """PR-048: main() used to overwrite the global, and that write was the only thing
+        keeping transform()'s upload in the bucket it read from. Now the bucket travels as
+        an argument and the global stays what the secret said."""
         glue_main(self.ARGS)
 
-        assert transformer.partitioned_bucket == "arg-partitioned-bucket"
-
-    def test_an_empty_bucket_argument_leaves_the_global_alone(self, glue_main, transformer):
-        """The override is guarded by a truthiness check, so an empty value falls back to
-        the secret rather than pointing the job at a bucket named ""."""
-        glue_main({**self.ARGS, "PARTITIONED_BUCKET": ""})
-
         assert transformer.partitioned_bucket == PARTITIONED
+
+    def test_an_empty_bucket_argument_falls_back_to_the_secret(self, glue_main):
+        """An empty value falls back to the secret rather than pointing the job at a bucket
+        named ""."""
+        assert glue_main({**self.ARGS, "PARTITIONED_BUCKET": ""})["bucket_name"] == PARTITIONED
 
     def test_it_asks_glue_for_exactly_the_two_documented_arguments(self, transformer, monkeypatch):
         """These names are the contract with terraform/modules/etl-glue's
