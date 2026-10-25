@@ -113,13 +113,6 @@
             "file": "/modules/iam/main.tf",
             "findings": [
                 {
-                    "resource": "module.iam.aws_iam_policy.sagemaker_studio_admin_policy",
-                    "check_ids": [
-                        "CKV_AWS_290",
-                        "CKV_AWS_355"
-                    ]
-                },
-                {
                     "resource": "module.iam.aws_iam_user_policy_attachment.personal_athena_results",
                     "check_ids": [
                         "CKV_AWS_40"
@@ -130,12 +123,6 @@
         {
             "file": "/modules/network/main.tf",
             "findings": [
-                {
-                    "resource": "module.network.aws_security_group.sagemaker_studio",
-                    "check_ids": [
-                        "CKV2_AWS_5"
-                    ]
-                },
                 {
                     "resource": "module.network.aws_subnet.public",
                     "check_ids": [
@@ -213,17 +200,6 @@
                     "resource": "module.orchestration.aws_sfn_state_machine.pipeline_state_machine",
                     "check_ids": [
                         "CKV_AWS_284"
-                    ]
-                }
-            ]
-        },
-        {
-            "file": "/modules/sagemaker/main.tf",
-            "findings": [
-                {
-                    "resource": "module.sagemaker.aws_sagemaker_domain.lottery_domain",
-                    "check_ids": [
-                        "CKV_AWS_187"
                     ]
                 }
             ]

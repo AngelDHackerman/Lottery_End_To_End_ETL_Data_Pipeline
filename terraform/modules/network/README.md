@@ -1,7 +1,8 @@
 # Module: `network`
 
 VPC, subnets, route tables, NAT/IGW (gated by `var.enable_internet`), S3 gateway VPC
-endpoint, and the SageMaker Studio security group.
+endpoint. (The SageMaker Studio security group was removed in PR-052; nothing deployed
+consumes the network any more.)
 
 **Status:** migrated from `terraform-lottery/Prod/network.tf` in **PR-008** via cross-state
 `terraform state rm` (legacy) + `terraform import` (main) — no resource is recreated.
@@ -22,4 +23,3 @@ default routes (`0.0.0.0/0`). These are currently NOT present in AWS.
 - `vpc_id`
 - `private_subnet_ids` — `[private_a, private_b]`
 - `public_subnet_id`
-- `sagemaker_sg_id`

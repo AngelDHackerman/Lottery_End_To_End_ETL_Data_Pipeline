@@ -135,26 +135,6 @@ resource "aws_iam_role" "glue_crawler_role" {
   })
 }
 
-# Role for SageMaker Studio
-resource "aws_iam_role" "sagemaker_execution_role" {
-  name = "lottery-sagemaker-execution-role-${var.environment}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow",
-      Principal = {
-        Service = "sagemaker.amazonaws.com"
-      },
-      Action = "sts:AssumeRole"
-    }]
-  })
-
-  tags = {
-    Name = "lottery-sagemaker-role-${var.environment}"
-  }
-}
-
 # Role for Step Functions State Machine
 resource "aws_iam_role" "sfn_execution_role" {
   name = "sfn-lottery-execution-role-${var.environment}"
@@ -226,86 +206,6 @@ resource "aws_iam_role" "object_count_lambda" {
 # ===========================================================================
 # CUSTOMER-MANAGED POLICIES
 # ===========================================================================
-
-# SageMaker S3 read-only over the Silver and Gold layers.
-#
-# PR-041.2 REPOINTED this policy. Until here its entire content was GetObject + ListBucket
-# on the simple bucket and nothing else — so the one consumer this architecture ever
-# contemplated (a notebook) was granted read on exactly the bucket PR-041.3 destroys, and
-# on nothing that survives it. Stripping the write grants without fixing this would have
-# left a SageMaker role whose only data permission points at a bucket that stops existing.
-#
-# Silver and Gold, not raw/: a notebook wants the typed Parquet, and raw/ is the
-# transformer's input, not an analysis surface. Reading these through Athena additionally
-# needs a Lake Formation grant — this policy covers the direct S3 read (pandas.read_parquet
-# and friends), which is what the simple bucket's flat files were for.
-resource "aws_iam_policy" "sagemaker_s3_read_policy" {
-  name        = "lottery-sagemaker-s3-read-policy-${var.environment}"
-  description = "Allows SageMaker to read the Silver and Gold layers of the partitioned bucket"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "ReadSilverAndGoldObjects",
-        Effect = "Allow",
-        Action = ["s3:GetObject"],
-        Resource = [
-          "${var.partitioned_bucket_arn}/silver/*",
-          "${var.partitioned_bucket_arn}/gold/*"
-        ]
-      },
-      {
-        # ListBucket is bucket-level, so the resource must be the bucket itself; the
-        # s3:prefix condition is what keeps it from being a licence to enumerate raw/.
-        # A list with no prefix sends no s3:prefix key and is therefore denied — that is
-        # deliberate, not an oversight.
-        Sid      = "ListSilverAndGoldOnly",
-        Effect   = "Allow",
-        Action   = ["s3:ListBucket"],
-        Resource = [var.partitioned_bucket_arn],
-        Condition = {
-          StringLike = {
-            "s3:prefix" = ["silver/*", "gold/*"]
-          }
-        }
-      }
-    ]
-  })
-}
-
-# SageMaker Studio admin (list/describe apps, domains, spaces, ...)
-resource "aws_iam_policy" "sagemaker_studio_admin_policy" {
-  name        = "lottery-sagemaker-studio-admin-policy-${var.environment}"
-  description = "Policy to allow SageMaker Studio to list and describe apps, domains, spaces, etc."
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Effect = "Allow",
-        Action = [
-          "sagemaker:ListApps",
-          "sagemaker:DescribeApp",
-          "sagemaker:CreatePresignedDomainUrl",
-          "sagemaker:ListUserProfiles",
-          "sagemaker:ListDomains",
-          "sagemaker:DescribeDomain",
-          "sagemaker:ListSpaces",
-          "sagemaker:DescribeUserProfile",
-          "sagemaker:DescribeSpace",
-          "sagemaker:AddTags",
-          "sagemaker:CreateSpace",
-          "sagemaker:UpdateSpace",
-          "sagemaker:CreateApp",
-          "sagemaker:DeleteApp",
-          "sagemaker:DeleteSpace"
-        ],
-        Resource = "*"
-      }
-    ]
-  })
-}
 
 # Glue crawler -> S3 (partitioned bucket + athena results)
 resource "aws_iam_policy" "glue_crawler_s3_policy" {
@@ -900,27 +800,6 @@ resource "aws_iam_role_policy_attachment" "glue_attach_policy" {
 resource "aws_iam_role_policy_attachment" "attach_glue_s3" {
   role       = aws_iam_role.glue_crawler_role.name
   policy_arn = aws_iam_policy.glue_crawler_s3_policy.arn
-}
-
-# SageMaker
-resource "aws_iam_role_policy_attachment" "sagemaker_s3_read_attach" {
-  role       = aws_iam_role.sagemaker_execution_role.name
-  policy_arn = aws_iam_policy.sagemaker_s3_read_policy.arn
-}
-
-resource "aws_iam_role_policy_attachment" "sagemaker_admin_policy_attach" {
-  role       = aws_iam_role.sagemaker_execution_role.name
-  policy_arn = aws_iam_policy.sagemaker_studio_admin_policy.arn
-}
-
-resource "aws_iam_role_policy_attachment" "sagemaker_full_access" {
-  role       = aws_iam_role.sagemaker_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
-}
-
-resource "aws_iam_role_policy_attachment" "cloudwatch_logs_full_access" {
-  role       = aws_iam_role.sagemaker_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
 }
 
 # Step Function + EventBridge

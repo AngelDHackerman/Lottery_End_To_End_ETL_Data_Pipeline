@@ -3859,6 +3859,35 @@ would be lost.
 >   disk (a tracked file removed upstream is removed locally). Restore with
 >   `cp -a ~/backups/loteria-uy-2026-10-25/. data/uy/`.
 
+## PR-052 — SageMaker, removed
+**Found in the 2026-10-24 security audit (finding D); the owner confirmed on 2026-10-25 that it is unused.**
+
+**The defect.** `module.iam` created `lottery-sagemaker-execution-role-prod` on every deploy, even
+with `enable_sagemaker = false`, carrying `AmazonSageMakerFullAccess` and
+`CloudWatchLogsFullAccess` — the second one can delete every log group in the account,
+including the pipeline's. Only SageMaker could assume it, but nothing in the pipeline needs it:
+the domain existed to read the simple bucket, which PR-041.3 deleted. Last used 2025-07-12.
+
+> **PR-052 outcome (2026-10-25).** Built; the apply and the AWS clean-up are the owner's.
+>
+> - Removed: the role, `sagemaker_s3_read_policy`, `sagemaker_studio_admin_policy`, their 4
+>   attachments, `module.network`'s `sm-studio-sg-prod` (no ENIs attached), `modules/sagemaker/`,
+>   `var.enable_sagemaker`, the `make sagemaker` target, both module outputs and the three
+>   checkov baseline entries. READMEs, the diagram, `vpc-separation.md` and DoD D10 updated;
+>   `challanges_faced.md` and `scripts/reconstruct_legacy_state.sh` stay as history.
+> - **Read-only plan `0/3/8`:** the 8 destroys above, PR-051's extractor update (not deployed
+>   yet) and the `gold_purge` phantom (the same one PR-049's apply showed: any change in `module.iam` defers its data source).
+> - **Inventory (read-only, 2026-10-25).** Outside Terraform there are TWO domains:
+>   `lottery-sagemaker-prod` (profile `lottery-analyst`, space `Lottery-EDA`, a 12 KB EFS, two
+>   NFS security groups) and a console `QuickSetupDomain-20250610T182623` in the default VPC
+>   (profile, a `service-role/AmazonSageMaker-ExecutionRole-20250610T182623` last used
+>   2025-06-16; its EFS is already gone). No apps, notebook instances, endpoints, models or
+>   pipelines.
+> - **Found on the way, not fixed here:** the layer build is not reproducible across shells.
+>   `bin/idna` and `bin/normalizer` carry the shebang of whichever `pip` runs the build, so a
+>   shell with `.venv` first on `PATH` produces a different zip (and a layer replacement in the
+>   plan). Built with `/usr/bin/pip` it is byte-identical to the deployed `loteria-deps-prod:6`.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -3957,3 +3986,4 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 049.1 | **#103 committed the whole Uruguay bronze to master** — 21,174 files under `data/uy/` (1.1 GB, incl. `manifest.sqlite`), now on the public `origin/master`. Since the beta branch ignores the path, every switch master → `loteria-uruguaya-test` deleted the local bronze | **built** (2026-10-25) — untracked + `/data/uy/` ignored on master with the beta branch's exact `.gitignore` block (so the later sync merges clean); files stay in history. ⚠️ the `pull` that brings the merge deletes the local copy — restore from the backup | [PR #107](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/107) |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
 | 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |
+| 052 | **SageMaker removed** — the always-created `lottery-sagemaker-execution-role-prod` (AmazonSageMakerFullAccess + CloudWatchLogsFullAccess), its 2 policies, 4 attachments, the `sm-studio-sg-prod` SG, `module.sagemaker`, `enable_sagemaker` and `make sagemaker`. Found in the 2026-10-24 security audit; the owner never used it after the simple bucket went | **built** (2026-10-25) — read-only plan `0/3/8`: the 8 SageMaker destroys + PR-051's extractor update + the known `gold_purge` phantom. The two domains outside Terraform are deleted by the owner, by hand | [PR #109](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/109) |
