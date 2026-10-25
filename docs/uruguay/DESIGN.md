@@ -6,8 +6,8 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D7](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
-[propuestas P1–P7](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
+**Cómo leerlo.** Las [decisiones D1–D23](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+[propuestas P1–P14](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
 y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
 
 ---
@@ -23,6 +23,22 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D5 | **Épocas del parser** | El mecanismo existe (`parser_epochs` con `valid_from` y `valid_to` en el YAML), pero se arranca con **una sola época por fuente**. Si una página no tiene la forma esperada, va a cuarentena y el parser nunca adivina. Solo se agrega una época cuando un parseo real falla. Hay un fixture por cada variante conocida, y `parser_version` va en el linaje. | El HTML de Uruguay casi no cambió en 20 años (ver [Evidencia](#evidencia-verificada-el-2026-10-16)). Lo que cambió fueron las fuentes y las reglas: el PDF desde 2018, el de pozos desde 2016, el rango del 5 de Oro en 2014 y los datos tipeados a mano en 2006. |
 | D6 | **Montos** | Un parser por **fuente** con una expresión regular estricta: `^\d{1,3}(,\d{3})*\.\d{2}$` para `ver_resultados` (estilo EE.UU.) y `^\d{1,3}(\.\d{3})*,\d{2}$` para el extracto (estilo uruguayo). Siempre `Decimal`, guardado como `decimal(18,2)` en Parquet y en el catálogo. El vacío (`$` sin monto o `0,00` de plantilla) pasa a **nulo, nunca a 0**. Lleva una columna `currency` (`'UYU'`). Plata guarda pesos nominales, y el ajuste por inflación va en oro. `ver_resultados` es la fuente principal, el extracto es el control, y si difieren queda un `dq_flag`. | Un monto como `365,323` o `1.234` es ambiguo si se lee sin saber de qué fuente vino. Lo que no encaja va a cuarentena. `currency` hace falta desde ya por D1 (Guatemala es `GTQ` y Argentina `ARS`). El PDF de pozos será un tercer formato, que se fija cuando se construya su parser (hoy hay solo 4 muestras verificadas). |
 | D7 | **C7: cuántos cupones ganaron** | Plata guarda, por premio (Oro, Plata y Revancha), la **cantidad** de cupones ganadores, nunca sus números (que siguen solo en bronce). "Sin Aciertos" es `0` y la celda vacía es **nulo**. | Permite medir qué tan común es que un pozo se reparta entre varios o que un solo cupón se lo lleve entero, y calcular el premio por cupón. Es un conteo de **cupones**, no de personas: alguien con dos cupones ganadores cuenta dos veces, y eso se aclara en el diccionario de datos. |
+| D8 | **Cinco estados en el manifiesto** | Se mantienen `draw`, `no_draw`, `not_yet_published`, `missing` y `error`. Son finales `draw`, `no_draw` y `missing`. Ver [Manifiesto](#manifiesto-uy-011). | `missing` separa un hueco de la fuente (el juego figura en `ver_resultados` pero su extracto no está) de un día sin sorteo. |
+| D9 | **El manifiesto registra lo que mostró la página** | El *settle* sigue en 3 días fijos. Lo que se esperaba ese día lo decide el detector de huecos, que es otra pieza. | Mezclar las dos cosas haría que un error del calendario esperado cambie lo que se guardó. |
+| D10 | **Correcciones manuales en una tabla aparte** | `manual_overrides`, donde cada fila cita una fila de `calendar_events`. El manifiesto no se edita a mano. | Así se conserva lo que clasificó el código y queda escrito quién corrigió qué, y por qué. |
+| D11 | **Tres fallas iguales pasan a `missing`** | Un `error` que falla igual en 3 corridas seguidas pasa a `missing` (owner, 2026-10-21). | Sin esto, los 35 PDF de pozos con error se volverían a pedir en cada corrida diaria para siempre. |
+| D12 | **El manifiesto es una interfaz** | Un `Protocol` desde UY-021, con SQLite como implementación local. DynamoDB es la candidata para la nube (UY-040). En la v1 nunca se vuelve a pedir una página final. | La Fase 5 cambia el backend sin tocar a quien lo usa. |
+| D13 | **Un solo detector de huecos** | Una función pura, `expected_draws()`, que usan tanto el reporte del backfill como la alarma del incremental. Su salida es la tabla de plata `draw_gaps`. Ver [Detector de huecos](#detector-de-huecos-uy-011). | Si el reporte y la alarma tuvieran cada uno su lógica, tarde o temprano dirían cosas distintas sobre el mismo día. |
+| D14 | **La regla combinada** (Q7, 2026-10-21) | Se espera la fecha que anunció el sorteo anterior si cae en (anterior, anterior + 14 días] (el tope pasó de 7 a 14 con P10, aprobada el 2026-10-25); si no, el siguiente día del calendario del juego. Hay hueco si no hay sorteo entre esa fecha y 3 días después. Un anuncio descartado lleva `next_draw_implausible`. Las fechas se leen aceptando cualquier separador, sin corregir nunca un dígito. | Ninguna de las dos fuentes alcanza sola. El anuncio acierta el 98 % y el calendario no ve feriados ni traslados; combinadas pasan del 99,7 %. |
+| D15 | **Los huecos conocidos son filas de `calendar_events`** | Semana de Turismo, fin de año, paros y duelos se explican con una fila, nunca con una excepción en el código. | Un hueco explicado queda en `draw_gaps` con su causa, y uno sin explicar es el que alarma. |
+| D16 | **Un incremental al día, a las 23:30 de Montevideo** | Una sola corrida diaria, después del último sorteo. Ver [Backfill e incremental](#backfill-e-incremental-uy-011). | La Nocturna termina ~21:20 y su HTML sale 3 a 13 minutos después (UY-003). Lo que llegue tarde queda `not_yet_published` y se pide al día siguiente (D9). |
+| D17 | **Plata se reescribe por año** | Cada corrida reescribe entera la partición de cada año que tocó, sin merges. | Un año son unos 650 sorteos. Reescribir es idempotente y evita la lógica de upsert que Parquet no tiene. |
+| D18 | **El backfill de plata es local primero** | Se parsea en local en la Fase 4 y en la nube con un `Map` de Step Functions por año (UY-042). | El bronce ya está en disco: la nube lo recibe subido (UY-042) y nunca vuelve a scrapear la historia. |
+| D19 | **Los PDF de extracto históricos no se bajan** | El PDF es respaldo y se guarda solo desde la ingesta diaria en adelante. | Plata sale siempre del HTML (UY-003), y el PDF es una impresión del mismo PHP. |
+| D20 | **GX en un job aparte, con GX ya empaquetado** | Un job de Glue 5.0 propio para las suites de UY, que no instala GX desde PyPI al arrancar. Ver [Calidad de datos](#calidad-de-datos-dq_flags-y-gx-uy-011). | En `master`, `--additional-python-modules` llegó a gastar ~21 minutos de arranque por corrida (PR-033.2). |
+| D21 | **Fila por fila en el transform, el conjunto en GX** | El transform marca cada fila (`dq_flags`) o la manda a cuarentena. GX valida la tabla entera y es el gate antes de oro. | Una fila rara no debe frenar un año; una tabla rota, sí. |
+| D22 | **El catálogo de `dq_flags` es cerrado** | Solo valen los nombres del catálogo. El escritor de plata rechaza cualquier otro, y GX lo comprueba. | Un flag escrito a mano en el código, con otro nombre o una errata, es un flag que ningún filtro de oro va a ver. |
+| D23 | **Pruebas de propiedades sin `hypothesis`** | Un target de Make que recorre todo el bronce local, más tablas pequeñas de casos en el CI. Ver [Pruebas y riesgos](#pruebas-y-riesgos-uy-011). | El bronce real ya tiene 20 años de casos raros. Generar datos inventados no encuentra nada que esos 21.000 archivos no tengan. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -35,6 +51,13 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P5 | **El guard de privacidad `DET_INVALIDAS` queda en el código, nunca en el YAML.** | Un error en un archivo de configuración nunca debe poder apagar el guard. El patrón vive en `sorteos/uy/` y se le pasa al cliente HTTP, con sus tests de UY-001 sin cambios. |
 | P6 | **Se reordena la Fase 3:** UY-022 y UY-023 se juntan en un solo parser de `ver_resultados`. | Las dos épocas que suponía el roadmap no existen (D5 y [Evidencia](#la-estructura-del-html-casi-no-cambió)). Ver [Impacto en la Fase 3](#impacto-en-la-fase-3). |
 | P7 | **`is_replacement` se define con los datos:** un número de la Tómbola es reposición si no está entre las dos últimas cifras de los 20 números de esa Quiniela. | Así se cumple en el 99,7% de los sorteos, y todas las excepciones son de 2006 ([Evidencia](#la-tómbola-sale-de-la-quiniela)). El mecanismo exacto (cómo se sortean las reposiciones) es una **hipótesis** hasta leer el reglamento. Lo que plata guarda no depende de ella. |
+| P8 | **"Falla igual" quiere decir la misma firma**: el mismo `http_status` y el mismo `content_sha256`, o el mismo `detail` si no hubo respuesta. Se cuenta sobre las 3 últimas filas de `fetch_log` de esa clave, y la regla vale para **todas** las fuentes. | Un 403 que siempre devuelve los mismos 146 bytes es un archivo que no está. Un 403 distinto, o un timeout, puede ser un mal momento del sitio, y no debe cerrar la puerta. Ver [Manifiesto](#manifiesto-uy-011). |
+| P9 | **`manual_overrides` es un CSV versionado en git**, junto a `calendar_events`, y el estado efectivo es el de la corrección cuando existe. | Es el mismo tratamiento que `calendar_events`: un cambio es una decisión revisada en un PR, no una edición de una base local. |
+| P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** **Aprobada por el owner el 2026-10-25.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 17 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
+| P11 | **El incremental mira los últimos 7 días más toda clave no final del manifiesto.** **Aprobada por el owner el 2026-10-25.** | 7 = el *settle* de 3 días, más la ventana de 3 del detector, más uno. Las claves no finales de cualquier fecha (hoy, 39 `error`) se incluyen para que la regla de las 3 fallas (D11) termine de cerrarlas: si no, los 35 PDF de pozos de 2016–2026 solo se volverían a pedir con un backfill manual. |
+| P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
+| P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
+| P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. |
 
 ---
 
@@ -306,8 +329,8 @@ del sorteo, no se escribe en el YAML.
 | `dq_flags` | array\<string\> | |
 | linaje | | ver convenciones |
 
-Solo los días con sorteo llegan a plata. Los `no_draw` y la detección de huecos viven en el
-manifiesto y se diseñan en UY-011.
+Solo los días con sorteo llegan a plata. Los `no_draw` viven en el manifiesto, y los huecos en
+[`draw_gaps`](#detector-de-huecos-uy-011).
 
 ### `draw_numbers`: formato largo (D3)
 
@@ -387,6 +410,433 @@ def parse_amount(text: str, style: Literal["us", "uy"]) -> Decimal | None: ...
 
 ---
 
+## Manifiesto (UY-011)
+
+El manifiesto es la memoria de la ingesta: para cada fuente y fecha guarda **qué pidió, qué
+respondió el sitio y qué concluyó el clasificador**. Es lo que evita pedir dos veces lo mismo y lo
+que permite reanudar un backfill cortado. No es el calendario: qué *debería* haber habido ese día lo
+decide el [detector de huecos](#detector-de-huecos-uy-011), que trabaja sobre plata y nunca
+escribe el manifiesto (D9).
+
+### Lo que ya existe (UY-001, verificado)
+
+`src/loteria_uy/bronze.py` tiene dos tablas SQLite. `manifest` guarda una fila por
+(`source`, `draw_date`) con su estado, el HTTP status, el hash de los bytes (`content_sha256`),
+`attempts` y las fechas del primer y del último pedido. `fetch_log` guarda una fila por **cada**
+pedido, también los repetidos. Bronce guarda bytes solo para los `draw`.
+
+| Estado | Qué significa | ¿Final? | Hoy en el manifiesto |
+|---|---|---|---|
+| `draw` | Hay sorteo, y los bytes están en bronce | Sí | 21.173 |
+| `no_draw` | `ver_resultados` vacío y con más de 3 días: ese día no hubo juegos | Sí | 458 |
+| `not_yet_published` | Vacío, pero con menos de 3 días: se vuelve a pedir | No | 0 |
+| `missing` | El juego figura en `ver_resultados` pero su fuente no tiene nada | Sí | 2 |
+| `error` | El pedido o la clasificación fallaron: se vuelve a pedir | No | 39 |
+
+Cifras medidas el 2026-10-25 sobre el manifiesto local, en solo lectura y sin peticiones nuevas
+(21.672 claves, 21.677 pedidos en tres corridas: 2026-10-04, 10-14 y 10-21).
+
+- **El *settle* funciona (observado).** Solo una clave pasó alguna vez por `not_yet_published`, y
+  terminó en `draw` en la corrida siguiente.
+- **Los dos `missing` son PDF de extracto que respondieron 404** (2019-01-07 y 2022-06-01).
+  `classify_pdf` trata el 404 como vacío, así que después del *settle* el hueco queda registrado
+  como final.
+- **Los 39 `error` son dos grupos.** Por un lado los 4 días del paro de AFAL de 2019 en
+  `resultados` (25, 26, 27 y 30 de septiembre, con `attempts = 2`), que el clasificador marca bien
+  porque la página no se entiende ([FINDINGS, Q2](FINDINGS.md#los-4-días-error-de-septiembre-de-2019-paro-verificado)).
+  Por otro, 35 PDF de pozos: **34 respondieron 403 con los mismos 146 bytes** (un solo
+  `content_sha256`), y uno respondió 200 con 0 bytes. No es el 404 de los `missing`: el cuerpo es
+  otro, así que el clasificador no puede tratarlos igual sin una regla nueva.
+
+### El problema: un `error` se pide para siempre
+
+Como `error` no es final, cada corrida vuelve a pedir esas 39 claves. En el backfill da igual,
+pero en el incremental diario (una corrida al día, decidido el 2026-10-20) serían 39 peticiones inútiles por día, y
+cada día que la DNLQ deje un PDF roto suma una más. Además, `attempts` cuenta todos los pedidos de
+la clave, no cuántas veces seguidas falló de la misma forma, así que no alcanza para decidir.
+
+### Tres fallas iguales pasan a `missing` (D11, P8)
+
+Cuando un pedido da `error`, se miran las **3 últimas filas de `fetch_log`** de esa clave. Si las
+tres son `error` con la **misma firma**, la clave pasa a `missing`, queda registrada y se informa
+igual que cualquier otro `missing`.
+
+- **Firma:** (`http_status`, `content_sha256`). Si no hubo respuesta (timeout, conexión), es el
+  `detail` del error.
+- **Por qué la firma y no solo el contador:** un 403 que siempre devuelve los mismos 146 bytes es
+  un archivo que no está. Un 403 con otro cuerpo, o un timeout, puede ser un mal momento del sitio.
+  Contar sin mirar la firma cerraría la puerta por tres cortes de luz.
+- **Vale para todas las fuentes (P8).** También para `resultados`, aunque ahí las correcciones
+  manuales llegan antes. Sin la regla, un `error` de `resultados` que nadie corrige se pediría para
+  siempre.
+- **Se puede deshacer.** `--refresh` sigue existiendo como herramienta manual para volver a pedir
+  una clave final. En la v1 ninguna corrida automática lo usa (D12).
+
+**Con los datos de hoy (observado):** los 35 PDF de pozos tienen `attempts = 1`, así que pasarían a
+`missing` después de dos corridas más con la misma respuesta. El 200 con 0 bytes también tiene una
+firma estable (el hash del contenido vacío), así que entra en la misma regla.
+
+### Correcciones manuales: `manual_overrides` (D10, P9)
+
+Hay días que el clasificador marca bien como `error`, pero que una persona puede explicar: el paro
+de 2019 es el caso conocido. Para esos casos hay una tabla aparte, y **el manifiesto nunca se edita
+a mano.**
+
+| Columna | Ejemplo |
+|---|---|
+| `source` | `resultados` |
+| `draw_date` | `2019-09-25` |
+| `state` | `no_draw` |
+| `calendar_event_date` | `2019-09-25`, la fila de `calendar_events` que lo explica |
+| `reason` | `paro parcial de AFAL (OIS 2036)` |
+| `decided_by` / `decided_on` | `owner` / `2026-10-20` |
+
+- **El estado efectivo** de una clave es el de su corrección, si tiene una, y si no el del
+  manifiesto. El backfill salta las claves cuyo estado efectivo es final, así que un día corregido
+  deja de pedirse.
+- **Por qué aparte:** si la corrección viviera en la fila del manifiesto, un `--refresh` la
+  borraría, y se perdería lo que el código clasificó de verdad. Así quedan las dos cosas: lo que vio
+  el clasificador y lo que decidió una persona, con su fuente.
+- **Dónde vive:** `src/sorteos/uy/reference/manual_overrides.csv`, al lado de `calendar_events`.
+  Es un dato de referencia revisado en un PR, igual que
+  [`game_rules` y `calendar_events`](#game_rules-y-calendar_events).
+- **Un `error` nuevo sigue pidiendo revisión humana.** La tabla no tiene comodines: cada fila es una
+  fuente y una fecha.
+
+### Una interfaz, dos backends (D12)
+
+UY-021 define `Manifest` como un `Protocol` con lo que la ingesta usa hoy: `get`, `record`, el
+estado efectivo y el historial de una clave. SQLite es la implementación local. **DynamoDB es la
+candidata para UY-040**: clave de partición `source`, clave de orden `draw_date`, y el historial en
+una tabla aparte o como ítems con sufijo. Esa elección se cierra en la Fase 5, no aquí.
+
+### Lo que el manifiesto no hace
+
+- **No guarda el hash de los datos.** `content_sha256` es el hash de los bytes. El hash de las
+  filas canónicas que produce el parser va en el linaje de plata (UY-025), porque dos páginas con
+  bytes distintos pueden traer los mismos datos.
+- **No infiere el número de sorteo.** Cuando falta un PDF de pozos, el número se infiere en plata a
+  partir de los vecinos consecutivos, con `dq_flags: draw_number_inferred` (owner,
+  2026-10-21). Eso es del parser y del escritor de plata, no del manifiesto.
+- **No decide si faltó un sorteo.** Eso es del detector de huecos.
+
+### Los 4 días del paro ya tienen qué citar
+
+El 2019-09-30 era el único de los 4 sin fila en `calendar_events`. `noticias.php` lo explica con el
+**OIS N° 2039, "Sorteos suspendidos el lunes 30/09/2019"** (una petición, 2026-10-25). La misma
+página trae dos OIS de esa semana que el borrador de UY-004 tampoco tenía: el **2040** (Vespertina
+suspendida el martes 2019-10-01) y el **2041** (el 5 de Oro del miércoles 2019-10-02 pasa al
+viernes 2019-10-04). Los tres coinciden con el manifiesto, y
+[`calendar_events.csv`](drafts/calendar_events.csv) pasa de 54 a 57 filas. Como con el OIS 2038,
+los documentos no se leyeron: el contenido sale de su título, y la causa del 30 (el paro), de la
+nota de [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas).
+
+## Detector de huecos (UY-011)
+
+El detector responde una sola pregunta: **¿faltó un sorteo que debía haber ocurrido?** No mira el
+manifiesto, que dice lo que mostró la página (D9). Trabaja sobre los sorteos de plata, el
+calendario de cada juego y `calendar_events`.
+
+### Una función, dos usos (D13)
+
+`expected_draws()` vive en `sorteos/core/gaps.py` y es pura: recibe la lista ordenada de sorteos de
+un juego (`draw_date` y `next_draw_date`), el calendario del YAML (`calendar.weekdays`) y las filas
+de `calendar_events`, y devuelve los huecos. No hace peticiones, no lee archivos y no conoce la
+fecha de hoy, que llega como argumento.
+
+- **El reporte del backfill** la corre sobre toda la historia y escribe `draw_gaps` completa.
+- **La alarma del incremental** la corre en la corrida diaria de las 23:30 de Montevideo (decidido
+  el 2026-10-20) y avisa solo de los huecos **abiertos** cuya ventana cerró desde la corrida
+  anterior.
+
+### La regla (D14)
+
+1. **Fecha esperada.** Si el sorteo anterior anunció una fecha y esa fecha cae en
+   (anterior, anterior + 14 días], se espera esa ([P10](#cuánto-creerle-a-un-anuncio-p10)). Si no anunció nada, o anunció algo imposible, se
+   espera el siguiente día de `calendar.weekdays` (miércoles o domingo para el 5 de Oro, por
+   ejemplo).
+2. **Ventana.** El sorteo cuenta si ocurre entre la fecha esperada y 3 días después, porque la
+   DNLQ traslada un sorteo al día siguiente sin cambiar el anuncio (31 de los 34 desaciertos del
+   anuncio del 5 de Oro, [FINDINGS](FINDINGS.md#próximo-sorteo-predice-el-siguiente-verificado)).
+3. **Un sorteo adelantado no es un hueco.** Si el sorteo siguiente ocurrió *antes* de la fecha
+   esperada, no falta nada y no hay alarma. Pasa dos veces en 20 años (5 de Oro 2012-06-20,
+   Nocturna 2022-12-24).
+4. **Si no hay sorteo en la ventana, hay hueco.** Queda **explicado** cuando una fila de
+   `calendar_events` de ese juego cae entre la fecha esperada y el sorteo que finalmente ocurrió
+   (D15). Si no, queda **abierto**.
+5. **Un anuncio descartado** deja `next_draw_implausible` en los `dq_flags` del sorteo que lo
+   publicó. El sorteo es válido; lo que no sirve es su anuncio.
+6. **Leer la fecha.** Se acepta `/`, `-`, `.` o espacios como separador, uno o varios seguidos
+   (`12 / /02 / 2025`), el formato compacto `ddmmaaaa` y el año en 2 o 4 dígitos. **Nunca se
+   corrige un dígito**: `30 / 09 / 203` y `30 / 07 / 25007` no se leen como fecha, así que
+   `next_draw_date` queda nulo con `next_draw_unparsed`, en vez de convertirse en 2023 o 2007
+   (owner, 2026-10-21).
+
+### Medido sobre el bronce (verificado, 2026-10-25)
+
+Con un script desechable sobre el bronce local y el manifiesto en solo lectura, sin peticiones.
+Cada par es un sorteo y el siguiente del mismo juego. Las cifras de la Quiniela repiten las de la
+medición del 2026-10-21.
+
+| Juego | Pares | Aciertos con el tope anterior (7 días) | Aciertos con el tope de 14 días (P10) |
+|---|---|---|---|
+| 5 de Oro | 2.076 (2006-08-16 → 2026-10-18) | 99,71 % (2.070) | 99,81 % (2.072) |
+| Quiniela Vespertina | 4.953 (2006-08-16 → 2026-10-20) | 99,96 % (4.951) | 99,98 % (4.952) |
+| Quiniela Nocturna | 5.947 (2006-08-11 → 2026-10-20) | 99,95 % (5.944) | 99,97 % (5.945) |
+
+Con el tope de 14 días quedan **5 desaciertos**, y ninguno es un error de la regla:
+
+| Juego | Esperado | Ocurrió | Qué fue | En `calendar_events` |
+|---|---|---|---|---|
+| 5 de Oro | 2006-08-27 | 2006-09-03 | Las dos primeras semanas del sitio ([FINDINGS](FINDINGS.md#miércoles-o-domingos-sin-5-de-oro-y-sin-reemplazo-34-fechas-verificado), sin explicar) | No: **hueco abierto** |
+| 5 de Oro | 2015-12-23 | 2015-12-27 | Fin de año | Sí (del brief, sin URL) |
+| 5 de Oro | 2019-09-25 | 2019-10-01 | Paro de AFAL | Sí (OIS 2036 a 2039) |
+| Vespertina | 2019-09-25 | 2019-10-02 | Paro de AFAL | Sí |
+| Nocturna | 2019-09-25 | 2019-10-01 | Paro de AFAL | Sí |
+
+Los adelantos (2012-06-20 y 2022-12-24) no cuentan como desacierto por el punto 3. Los demás
+huecos conocidos (las 13 Semanas de Turismo y casi todos los fines de año) **no aparecen**: el
+sorteo anterior ya anunciaba la fecha correcta, después del feriado, así que no faltó nada.
+
+### Cuánto creerle a un anuncio (P10)
+
+El tope existe para descartar los errores de tipeo. Con el tope original de 7 días se descartan 21
+anuncios, pero **4 eran correctos**: la Semana de Turismo 2020 (el 3, 4 y 5 de abril anunciaron el
+13, con 8 a 10 días de anticipación) y el fin de año 2022 (el 2022-12-21 anunció el 2023-01-03,
+con 13). Al descartarlos, el detector espera un sorteo que la DNLQ ya había dicho que no iba a
+haber, y reporta un hueco. El resultado no cambia mucho, porque `calendar_events` lo explica, pero
+el sorteo queda marcado con `next_draw_implausible` cuando su anuncio era correcto.
+
+Los otros 17 son errores de verdad: año equivocado (`2008` por `2009`, `2013` por `2023`), mes
+equivocado (`16/12` por `16/11`), un año de más (`2208`) y un anuncio con la misma fecha del
+sorteo. **El más cercano está a 31 días** (2010-11-11 anuncia el 2010-12-12), así que un tope de
+14 días acepta los 4 correctos y sigue descartando los 17. Aparte quedan 2 que ni siquiera son una
+fecha (`25007` y `203`, punto 6).
+
+**Corrección a FINDINGS (Q1):** los sorteos del 5 de Oro del 2025-02-09 y del 2025-09-14 no
+están "sin fecha". Traen `12 / /02 / 2025` y `17/ /09 / 2025`, con el separador repetido, y con
+la regla del punto 6 anuncian bien el miércoles siguiente. **El
+owner aprobó usar 14 el 2026-10-25.**
+
+### `draw_gaps`
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `country`, `operator`, `game` | string | D1 |
+| `previous_draw_date` | date | El último sorteo antes del hueco |
+| `expected_date` | date | Lo que esperaba la regla |
+| `expected_from` | string | `announcement` o `calendar`: de dónde salió la fecha esperada |
+| `window_end` | date | `expected_date` + 3 días |
+| `next_draw_date` | date | El sorteo que finalmente ocurrió. Nulo si todavía no hubo |
+| `status` | string | `explained` u `open` |
+| `calendar_event_date` | date | La fila de `calendar_events` que lo explica. Nula si está abierto |
+| linaje | | ver convenciones |
+
+Un hueco se recalcula entero en cada corrida, como el resto de plata por año. Si mañana se agrega
+la fila de `calendar_events` que lo explica, la próxima corrida lo pasa a `explained` sin tocar
+nada más.
+
+**El 2006-08-27 queda abierto para siempre**, salvo que aparezca una fuente. No alarma: la alarma
+solo mira ventanas que cerraron desde la corrida anterior, y el reporte lo muestra como un hueco
+documentado.
+
+## Backfill e incremental (UY-011)
+
+Los dos son la misma máquina, `Backfill` (UY-001): recorren un rango de fechas y, para cada día,
+piden `ver_resultados` y después solo las fuentes de los juegos que esa página lista. Cambian el
+rango, las fuentes y lo que pasa después de bajar.
+
+### Lo que ya se midió (verificado)
+
+Leído del manifiesto y de los logs locales, sin peticiones nuevas.
+
+| Corrida | Peticiones | Duración | Qué hizo |
+|---|---|---|---|
+| Backfill completo, 2026-10-04 | 20.345 | 5 h 40 min | 2006-08-11 → 2026-10-03: `resultados` y extractos PHP, más 21 PDF de extracto y 4 de pozos |
+| Muestra de PDF, 2026-10-14 | 226 | 3 min | PDF de extracto 2018–2026, para compararlos con el PHP (UY-003) |
+| Puesta al día, 2026-10-21 | 1.106 | 17 min | Hasta 2026-10-20, más los 1.060 PDF de pozos |
+
+- **El ritmo es el de cortesía:** 1 petición por segundo, con un solo worker (C2).
+- **Un día normal son 3,2 claves** (mínimo 1, máximo 8), medido del 2026-09-01 al 2026-10-20 sin
+  los PDF de extracto. Con ellos (P12) serían unas 5 (**hipótesis**: hasta la puesta al día no se
+  pedían).
+- **Reanudar ya funciona.** El manifiesto se escribe después de cada petición y las claves finales
+  se saltan, así que un corte a mitad de corrida se retoma volviendo a correr el mismo comando. Una
+  segunda corrida sobre un rango ya cerrado no hace ninguna petición.
+
+### El incremental (D16, P11, P12)
+
+**Cuándo.** Una vez al día, a las 23:30 de Montevideo. La Nocturna termina hacia las 21:20 y su
+HTML aparece entre 3 y 13 minutos después; el PDF, a los 14 (UY-003). Si algo sale tarde, la clave
+queda `not_yet_published` y se vuelve a pedir al día siguiente: no hace falta una segunda corrida.
+En la nube va con un horario en `America/Montevideo` (UY-040), nunca con una hora UTC fija.
+
+**Qué fechas (P11).** Los últimos 7 días, más toda clave que no sea final en el manifiesto, sea de
+la fecha que sea. Los 7 días cubren el *settle* (3) y la ventana del detector (3). Las claves no
+finales viejas son hoy 39 (los 4 días del paro y 35 PDF de pozos). Con D11 cada una se pide como
+mucho 3 veces más antes de cerrarse, así que el costo es acotado.
+
+**Qué fuentes (P12).** Las cuatro: `resultados`, los extractos PHP, el PDF de extracto (solo como
+respaldo, sin parsear) y el PDF de pozos (el único origen del número de sorteo).
+
+**Después de bajar**, en este orden:
+
+1. Parsear lo nuevo y reescribir plata para cada año tocado (D17).
+2. Correr `expected_draws()` sobre esos años y reescribir `draw_gaps` (D13).
+3. Avisar de los huecos **abiertos** cuya ventana cerró desde la corrida anterior (UY-045).
+
+Si el paso 1 falla, los pasos 2 y 3 no corren: un detector sobre una plata vieja avisaría de
+huecos que no existen.
+
+### Plata por año (D17)
+
+Plata está particionada por año, y una corrida reescribe **entera** la partición de cada año que
+tocó. Un año "tocado" es uno con al menos una clave del manifiesto que cambió de estado en la
+corrida. Un día normal toca un año, y la primera semana de enero, dos.
+
+Un año son unos 650 sorteos (640 en 2016 y 651 en 2025, contando 5 de Oro, Vespertina y Nocturna) y
+unos 63 MB de bronce, así que reescribirlo cuesta segundos. A cambio, no hay lógica de *upsert*:
+volver a correr da exactamente el mismo resultado.
+
+### El backfill (D18, D19)
+
+- **En local (Fase 4).** UY-030 parsea 2016 como piloto, porque cruza el cambio de layout, y UY-031
+  parsea toda la historia. Todo sale del bronce que ya está en disco: el backfill de plata no hace
+  peticiones.
+- **En la nube (UY-042).** Se sube el bronce local y un `Map` de Step Functions parsea un año por
+  ítem (21 años, 2006–2026). Que un año entre en los 15 minutos de una Lambda es una **hipótesis**
+  hasta medir el tiempo de parseo en UY-030.
+- **Lo que no se baja.** Los PDF de extracto históricos (D19): el respaldo empieza con la ingesta
+  diaria. Las páginas finales tampoco se vuelven a pedir (D12).
+
+## Calidad de datos: `dq_flags` y GX (UY-011)
+
+Dos capas, cada una con su tarea (D21):
+
+- **El transform**, fila por fila. Lo que se puede interpretar entra a plata **con el valor
+  publicado** y, si algo no cuadra, con un `dq_flag`. Lo que no se puede interpretar (un número
+  fuera de rango, 19 bolillas, una fecha que no coincide) va a cuarentena, como en PR-044.
+- **GX**, sobre la tabla entera, después de escribir plata. Es el gate: si una suite falla, oro no
+  se reconstruye y el aviso nombra la suite, la expectativa y la columna, como `NotifyDQFailure`
+  en `master`.
+
+### El catálogo (D22, P13)
+
+Cada flag sale de un caso que se vio en los datos. Las cifras son de hoy, sobre el bronce local.
+
+| Flag | Tabla | Cuándo se pone | Filas hoy | En oro |
+|---|---|---|---|---|
+| `pozo_plata_equals_oro` | `prizes` | El Pozo de Plata es igual al de Oro en el mismo sorteo | 1 (2006-12-06, [FINDINGS](FINDINGS.md#calidad-de-los-datos-de-2006-verificado)) | La dinámica de pozos lo excluye |
+| `amount_sources_differ` | `prizes` | `ver_resultados` y el extracto dan montos distintos (D6). Plata guarda el de `ver_resultados` | 0 en los 2.072 sorteos comparados del 5 de Oro | Igual que el anterior |
+| `next_draw_unparsed` | `draws` | Hay texto de "Próximo", pero no es una fecha (`30 / 09 / 203`). `next_draw_date` queda nulo | 2 | El detector usa el calendario |
+| `next_draw_implausible` | `draws` | La fecha anunciada cae fuera de (sorteo, sorteo + 14 días] | 17 | El detector usa el calendario |
+| `draw_number_inferred` | `draws` | El número de sorteo sale de los vecinos porque falta el PDF de pozos (owner, 2026-10-21) | Hasta 35 (los PDF de pozos con `error`) | Los análisis del número pueden excluirlo |
+| `tombola_repeated_number` | `draws` | La Tómbola trae un número repetido | 31, todos de 2006 | Las frecuencias de la Tómbola lo excluyen |
+| `tombola_not_from_quiniela` | `draws` | No se cumple P7: la Tómbola no es las terminaciones de la Quiniela más sus reposiciones | 30 a 31, todos de 2006 | `is_replacement` queda nulo en ese sorteo |
+
+- **El monto vacío no lleva flag.** Por D6 ya es nulo, y nulo quiere decir eso. Un flag más
+  diría lo mismo dos veces.
+- **Tampoco llevan flag** los sorteos sin "Próximo" (117, casi todos de 2006): un nulo en
+  `next_draw_text` ya lo dice.
+- **Sumar un flag** es cambiar este documento, el catálogo del código y su test, en el mismo PR.
+  El escritor de plata falla ante un nombre que no conoce.
+
+### Dónde corre GX (D20, P14)
+
+En un job de Glue 5.0 propio, separado del de Santa Lucía. La diferencia con `master` está en el
+arranque: allí el job instala GX desde PyPI en cada corrida, y eso llegó a gastar ~21 minutos antes
+de la primera línea del script (PR-033.2). Aquí GX llega ya empaquetado.
+
+La propuesta (P14) es construirlo como el layer de Lambda: un lock con hashes, wheels para
+`manylinux` y Python 3.11, subidos a S3, e instalados con `--additional-python-modules` apuntando a
+esos archivos y sin PyPI. Un zip por `--extra-py-files` alcanza solo para código Python puro, y GX
+1.20 requiere `numpy` y `scipy` (y `pydantic-core` si usa pydantic 2), que son extensiones
+compiladas: Python no las carga desde un zip, salvo que Glue 5.0 ya las traiga. **Hipótesis:** que instalar desde S3 sin
+resolver dependencias baje el arranque a segundos. UY-026 lo mide antes de cerrarlo.
+
+Las lecciones de `master` que se repiten tal cual:
+
+- **Las expectativas se derivan de los datos** (PR-032). Cada una se corre contra la plata local
+  completa de UY-031 antes de entrar a la suite. Si falla con datos reales, se revisa la
+  expectativa, nunca el dato.
+- **GX con versión fija y suites versionadas** (PR-034): el JSON de las suites está en git y un
+  test comprueba que coincide con el código que lo genera.
+- **Las expectativas que dependen de una tabla de referencia se arman al correr** (PR-049). El rango
+  del 5 de Oro sale de `game_rules`, no de una constante.
+
+### Las suites (UY-026)
+
+Cada expectativa cita su evidencia. Es la lista de partida; UY-026 la confirma contra los datos.
+
+| Tabla | Expectativa | Evidencia |
+|---|---|---|
+| `draws` | (`country`, `operator`, `game`, `draw_date`) es única | P1 |
+| `draws` | `game` está en {`5_de_oro`, `quiniela_vespertina`, `quiniela_nocturna`} | El alcance de la v1 (el Kini queda para UL2) |
+| `draws` | La Quiniela nunca cae en domingo, y la Vespertina nunca en sábado | Q2 (verificado en toda la historia) |
+| `draws` | `dq_flags` solo tiene nombres del catálogo | D22 |
+| `draws` | `draw_number` solo existe en el 5 de Oro, es único por juego y es nulo antes de 2016-06-01 | C11 y el inicio del PDF de pozos |
+| `draws` | Los horarios son nulos en el 5 de Oro | P2 |
+| `draw_numbers` | Cada Quiniela tiene 20 números de 3 cifras, en las posiciones 1 a 20 | D3, 10.877 extractos |
+| `draw_numbers` | Cada Tómbola tiene 20 números de 2 cifras, ordenados; sin repetidos desde 2007 | La evidencia de la Tómbola: los 31 con repetidos son de 2006 |
+| `draw_numbers` | Cada 5 de Oro tiene 5 de Oro, 1 extra que no está entre ellos y 5 de Revancha | El YAML del 5 de Oro |
+| `draw_numbers` | Los números del 5 de Oro están en el rango de su época: 01–44 hasta el 2014-03-16 y 01–48 desde el 2014-03-19 | `game_rules` (Q8), armada al correr |
+| `prizes` | `currency` es `UYU` y todo monto es nulo o mayor o igual que 0 | D6 |
+| `prizes` | `winning_coupons` es 0 si y solo si `winners_status` es `no_winners`, y nulo si y solo si es `unknown` | D7 |
+| todas | Toda clave de `draw_numbers` y `prizes` existe en `draws` | PR-049 |
+| `draw_gaps` | `status` está en {`explained`, `open`}, y `explained` si y solo si `calendar_event_date` no es nulo | D13, D15 |
+
+## Pruebas y riesgos (UY-011)
+
+### Tres niveles de prueba (D23)
+
+| Nivel | Dónde corre | Qué prueba |
+|---|---|---|
+| **Fixtures** | CI, en cada PR | Una página real por caso conocido, con el resultado esperado escrito a mano |
+| **Tablas de casos** | CI, en cada PR | Funciones puras con entradas cortas: montos, fechas del "Próximo", firmas de falla, `expected_draws()` |
+| **Propiedades** | Local, `make uy-properties` | Las reglas de D3 y P7 sobre **todo** el bronce: 21.173 archivos, sin peticiones |
+
+El CI no tiene el bronce, que pesa 1,1 GB y no se versiona. Por eso las propiedades corren en local
+y su resultado (cuántos archivos, cuántas violaciones por regla) se pega en el PR que cambia un
+parser, igual que un plan de Terraform.
+
+### Fixtures que faltan
+
+Hoy hay 11 fixtures y 53 tests (backfill, clasificador, cliente HTTP y privacidad). Los parsers
+necesitan uno por cada caso de este documento. **Todos salen del bronce local**, pasados por
+`scripts/uy_redact_fixture.py` (sin enlaces `DET_INVALIDAS` y con cupones falsos, C7), y se
+commitean byte por byte con `SKIP=trailing-whitespace`.
+
+| Caso | Fecha y fuente | Para qué |
+|---|---|---|
+| Pozo vacío (`$` y `0,00`) | 2006-08-20, `ver_resultados` y extracto | Nulo, nunca 0 (D6) |
+| Pozo de Plata igual al de Oro | 2006-12-06 | `pozo_plata_equals_oro` |
+| Tómbola con un repetido | Uno de los 31 de 2006 | `tombola_repeated_number` |
+| Quiniela con un número repetido | Cualquiera de 2025 (el 17,5 % de los sorteos) | Que la clave sea la posición (D3) |
+| "Próximo" con año de 3 cifras | 2023-09-29, Nocturna (`30 / 09 / 203`) | `next_draw_unparsed` |
+| "Próximo" con separador repetido | 2025-02-09, 5 de Oro (`12 / /02 / 2025`) | Que se lea (regla E) |
+| "Próximo" con año de 2 cifras | Uno de los 4 de Q1 (`03 / 06 / 09`) | Que se lea |
+| "Próximo" de 13 días | 2022-12-21, 5 de Oro | Que P10 lo acepte |
+| Celda de ganadores vacía | Una de las 25 de Q1 | `winners_status = unknown`, nunca `no_winners` |
+| "Sin Aciertos" en sus variantes | Una por grafía (`sin acierto`, `SIN ACIERTO`…) | Normalización |
+| Rango 01–44 y 01–48 | El último sorteo antes del 2014-03-16 y el primero desde el 2014-03-19 | La época de `game_rules` |
+| PDF de pozos | Uno de 2016 y uno de 2026 | El número de sorteo |
+
+### Riesgos y supuestos
+
+Lo que este diseño da por bueno sin haberlo podido confirmar del todo:
+
+| Riesgo | Qué pasa si falla | Cómo se detecta |
+|---|---|---|
+| **El bronce está en un solo disco.** Hasta UY-042 vive en `data/uy/`, más una copia en `~/backups/loteria-uy-2026-10-25/` | Volver a bajarlo lleva ~6 horas a 1 req/s. El 2026-10-25 se borró del disco por un `git switch` y se recuperó de la copia que #103 había subido a `master` por error; esa copia quedó congelada en el 2026-10-21 (PR-049.1) | Subirlo a S3 es lo primero de la Fase 5 (UY-042). Hasta entonces, el respaldo se rehace después de cada backfill |
+| **El sitio puede empezar a bloquear.** Hoy responde sin CDN ni WAF, también desde AWS (UY-005) | El incremental falla con 403 | Las firmas de falla (P8) separan un 403 nuevo de los 34 viejos, y la alarma de huecos (UY-045) avisa en 3 días |
+| **El sitio regenera las páginas** con la plantilla de hoy | Una página vieja pedida otra vez no es byte a byte la misma (48.072 contra 48.803 bytes el 2019-09-25) | Nunca se vuelve a pedir una página final (D12), y el hash de los datos va en el linaje (UY-025) |
+| **Un año entra en una Lambda de 15 minutos** (D18) | El `Map` de UY-042 corta por timeout | Se mide en UY-030 con 2016 |
+| **GX arranca rápido desde wheels en S3** (P14) | El job vuelve a gastar ~20 minutos de arranque | Se mide en UY-026 |
+| **Los datos tipeados de 2006** comparten el error en las dos fuentes | La comparación entre fuentes no los corrige | Los flags los marcan y oro filtra por métrica (FINDINGS) |
+| **Huecos sin explicación:** 2006-08-27/30 y las reglas anteriores a 2012 | Quedan abiertos o sin fuente | Están documentados como huecos aceptados (G1) |
+| **Uruguay vuelve a tener horario de verano** | Las horas UTC de la Quiniela se corren una hora | Las horas se guardan locales y el UTC sale de `zoneinfo` (C5) |
+| **Los cupones reales siguen en el historial de git** (antes de UY-011.1) | Están en un repo público | Aceptado por el owner. El escáner de fixtures impide que entren nuevos |
+
 ## Impacto en la Fase 3
 
 Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
@@ -394,7 +844,7 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 | PR | Antes | Ahora |
 |---|---|---|
 | UY-020 | Esqueleto, YAML y registro | Igual, más la [migración](#migración-desde-srcloteria_uy-en-uy-020) y el test de oro de las URLs |
-| UY-021 | Manifiesto y bronce con rutas `game=…/draw_date=…` | Lo que UY-011 decida del manifiesto (estados y reintentos). **El bronce no se mueve** (P3) |
+| UY-021 | Manifiesto y bronce con rutas `game=…/draw_date=…` | El `Protocol`, la regla de las 3 fallas y `manual_overrides` ([Manifiesto](#manifiesto-uy-011)). **El bronce no se mueve** (P3) |
 | UY-022 | Parser de `ver_resultados` 2007 → 2016-06 | **Un solo parser de `ver_resultados`** para 2006–2026 |
 | UY-023 | Parser de `ver_resultados` desde 2016-07 | **Parsers de los extractos PHP** (5 de Oro y Quiniela con horarios) |
 | UY-024 | Parsers de extractos (HTML y PDF) | **Parser del PDF de pozos** (número de sorteo) y `core/money.py` completo |
@@ -402,9 +852,11 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 
 ## Lo que queda para UY-011
 
-- El manifiesto: estados, la transición `not_yet_published` → `no_draw` y la corrección manual de
-  los 4 días de 2019 (propuesta 2 de FINDINGS).
-- El detector de huecos: "Próximo sorteo" más `calendar_events` (propuesta 3 de FINDINGS).
-- Backfill e incremental: horarios, reanudación e idempotencia.
-- El catálogo completo de `dq_flags` y las suites de GX.
-- El plan de pruebas y los riesgos.
+- ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011).
+- ~~El detector de huecos~~: escrito en [Detector de huecos](#detector-de-huecos-uy-011).
+- ~~Backfill e incremental~~: escrito en [Backfill e incremental](#backfill-e-incremental-uy-011).
+- ~~El catálogo de `dq_flags` y las suites de GX~~: escritos en
+  [Calidad de datos](#calidad-de-datos-dq_flags-y-gx-uy-011).
+- ~~El plan de pruebas y los riesgos~~: escritos en [Pruebas y riesgos](#pruebas-y-riesgos-uy-011).
+
+**UY-011 está completo.** El documento entero es lo que el owner aprueba en **G2**.
