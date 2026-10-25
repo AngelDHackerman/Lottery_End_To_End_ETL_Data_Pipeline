@@ -5,7 +5,8 @@
 # subsequent PR (noted per block) uncomments its module, moves the resources in via
 # `terraform state mv`, and threads the inputs/outputs through. Uncomment top-to-bottom
 # in roughly dependency order: storage -> network -> iam -> etl-* -> catalog ->
-# orchestration -> lake-formation -> observability -> sagemaker.
+# orchestration -> lake-formation -> observability. (sagemaker came last until PR-052
+# removed it.)
 
 # PR-033: needed to build the SNS alerts topic ARN by name (see the local below).
 data "aws_caller_identity" "current" {}
@@ -243,15 +244,3 @@ module "observability" {
   no_success_alarm_days = var.no_success_alarm_days
 }
 
-# --- PR-015: sagemaker (optional; gated so a fresh cloner gets nothing) ---
-module "sagemaker" {
-  source      = "./modules/sagemaker"
-  count       = var.enable_sagemaker ? 1 : 0
-  environment = var.environment
-
-  vpc_id            = module.network.vpc_id
-  subnet_ids        = module.network.private_subnet_ids
-  security_group_id = module.network.sagemaker_sg_id
-
-  sagemaker_execution_role_arn = module.iam.sagemaker_execution_role_arn
-}
