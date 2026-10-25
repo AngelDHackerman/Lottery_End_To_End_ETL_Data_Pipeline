@@ -205,7 +205,7 @@ Signed off by the owner on 2026-06-28.
 | D7 | CI provider | **GitHub Actions** | Free, universal. |
 | D8 | Lambda packaging | **Lambda Layer for deps + thin function zip** | Faster cold starts. |
 | D9 | Notebooks | **Move to `docs/notebooks/` + render to HTML in CI** | Portfolio artifacts, clean diffs. |
-| D10 | SageMaker Studio domain | **Remove from default deploy**, optional `make sagemaker` | Reduces day-1 complexity for reviewer. |
+| D10 | SageMaker Studio domain | **Remove from default deploy**, optional `make sagemaker` — **superseded 2026-10-25 by PR-052: removed entirely** | Reduces day-1 complexity for reviewer. The owner never used it after the simple bucket went. |
 | D11 | Region | **`us-east-1`** | Matches existing data location. |
 | D12 | Branching | **Stay on `master`** with PR-gated CI | Owner preference; do not rename. |
 

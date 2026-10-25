@@ -39,12 +39,6 @@ variable "enable_internet" {
   default     = false
 }
 
-variable "enable_sagemaker" {
-  description = "Create the optional SageMaker module. TODO PR-015."
-  type        = bool
-  default     = false
-}
-
 variable "alert_email" {
   description = "Address subscribed to the alerts SNS topic. Empty (the default) creates NO subscription, which means PR-025's six alarms fire into a topic with zero subscribers — working alarms, silent inbox. Set it in the gitignored terraform.tfvars, never in terraform.tfvars.example (that file is public). AWS then emails a confirmation link that MUST be clicked; Terraform cannot confirm it, and reports the resource created either way — so a green apply is not proof that alerts will arrive. See terraform.tfvars.example and docs/runbooks/PR-028-alert-email.md."
   type        = string

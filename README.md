@@ -9,8 +9,8 @@
 >
 > ⚠️ **The two NAT diagrams below no longer describe the deployment.** They show the VPC as
 > central to the ETL, and it is not: the extractor Lambda has no `vpc_config`, the Glue jobs
-> have no connection, and the only module that consumes the network is `sagemaker`, which sits
-> behind `enable_sagemaker = false`. **The whole pipeline runs outside the VPC.** The network
+> have no connection, and the only module that ever consumed the network, `sagemaker`, was removed
+> in PR-052 (2026-10-25). **The whole pipeline runs outside the VPC.** The network
 > is still deployed (with NAT off, so it costs almost nothing), but these images predate that
 > and are kept as history until PR-037 redraws them.
 
@@ -175,8 +175,8 @@ This automated ETL project demonstrates expertise in data extraction, transforma
 - **(Planned)** **AWS Step Functions / EventBridge** – For orchestration of the full pipeline.
 
 ### 💻 Development & Runtime Environment
-- **Jupyter Notebooks (SageMaker Studio)** – For exploratory data analysis and chart prototyping.
-- **Terraform** – Infrastructure-as-code used to provision S3, IAM, SageMaker, Glue, etc. All infra lives under [`terraform/`](./terraform/) (modular layout: `storage`, `network`, `iam`, `etl-lambda`, `etl-glue`, `catalog`, `orchestration`, `lake-formation`, `observability`, and the opt-in `sagemaker`).
+- **Jupyter Notebooks** – Local exploratory data analysis and chart prototyping ([`notebooks/`](./notebooks/)). SageMaker Studio was used early on and removed in PR-052.
+- **Terraform** – Infrastructure-as-code used to provision S3, IAM, Glue, etc. All infra lives under [`terraform/`](./terraform/) (modular layout: `storage`, `network`, `iam`, `etl-lambda`, `etl-glue`, `catalog`, `orchestration`, `lake-formation` and `observability`).
 - **ChromeDriver + Headless Chrome** – For scraping the official lottery website.
 
 ### 📊 Visualization & Analytics

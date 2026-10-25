@@ -3859,6 +3859,59 @@ would be lost.
 >   disk (a tracked file removed upstream is removed locally). Restore with
 >   `cp -a ~/backups/loteria-uy-2026-10-25/. data/uy/`.
 
+## PR-052 — SageMaker, removed
+**Found in the 2026-10-24 security audit (finding D); the owner confirmed on 2026-10-25 that it is unused.**
+
+**The defect.** `module.iam` created `lottery-sagemaker-execution-role-prod` on every deploy, even
+with `enable_sagemaker = false`, carrying `AmazonSageMakerFullAccess` and
+`CloudWatchLogsFullAccess` — the second one can delete every log group in the account,
+including the pipeline's. Only SageMaker could assume it, but nothing in the pipeline needs it:
+the domain existed to read the simple bucket, which PR-041.3 deleted. Last used 2025-07-12.
+
+> **PR-052 outcome (2026-10-25).** Built; the apply and the AWS clean-up are the owner's.
+>
+> - Removed: the role, `sagemaker_s3_read_policy`, `sagemaker_studio_admin_policy`, their 4
+>   attachments, `module.network`'s `sm-studio-sg-prod` (no ENIs attached), `modules/sagemaker/`,
+>   `var.enable_sagemaker`, the `make sagemaker` target, both module outputs and the three
+>   checkov baseline entries. READMEs, the diagram, `vpc-separation.md` and DoD D10 updated;
+>   `challanges_faced.md` and `scripts/reconstruct_legacy_state.sh` stay as history.
+> - **Read-only plan `0/3/8`:** the 8 destroys above, PR-051's extractor update (not deployed
+>   yet) and the `gold_purge` phantom (the same one PR-049's apply showed: any change in `module.iam` defers its data source).
+> - **Inventory (read-only, 2026-10-25).** Outside Terraform there are TWO domains:
+>   `lottery-sagemaker-prod` (profile `lottery-analyst`, space `Lottery-EDA`, a 12 KB EFS, two
+>   NFS security groups) and a console `QuickSetupDomain-20250610T182623` in the default VPC
+>   (profile, a `service-role/AmazonSageMaker-ExecutionRole-20250610T182623` last used
+>   2025-06-16; its EFS is already gone). No apps, notebook instances, endpoints, models or
+>   pipelines.
+> - **Found on the way, not fixed here:** the layer build is not reproducible across shells.
+>   `bin/idna` and `bin/normalizer` carry the shebang of whichever `pip` runs the build, so a
+>   shell with `.venv` first on `PATH` produces a different zip (and a layer replacement in the
+>   plan). Built with `/usr/bin/pip` it is byte-identical to the deployed `loteria-deps-prod:6`.
+
+## PR-046.3 — The layer depended on which `pip` built it
+**Found 2026-10-25, in PR-052's plan.**
+
+**The defect.** PR-046 locked the dependencies and PR-046.2 normalised the zip's modes, but one
+input was still the build machine: pip writes each console script's shebang from the interpreter
+that runs it. The layer carries two (`bin/idna`, `bin/normalizer`), so `/usr/bin/pip` gave
+`#!/usr/bin/python3` — byte-identical to the deployed `loteria-deps-prod:6` — while a shell with
+`.venv` first on `PATH` gave `#!/home/<user>/.../.venv/bin/python3` and a layer replacement in an
+unrelated plan. CI could not see it: its two builds share one pip.
+
+> **PR-046.3 outcome (2026-10-25).** Built, no AWS change until the next deploy.
+>
+> - `build_lambda_layer.sh` deletes `site-packages/bin/` and the `../../bin/` lines of every
+>   RECORD (a path that was wrong under `--target` anyway). Nothing in Lambda could run those
+>   scripts: `/opt/python/.../bin` is not on `PATH` and the shebang names the build machine.
+> - **Verified both ways:** without the fix, `/usr/bin/pip` and a fresh venv build different
+>   zips; with it, the same one (203 entries). The layer still imports `requests`, `bs4`,
+>   `idna`, `charset_normalizer`, `urllib3`, `certifi`, `soupsieve` and `typing_extensions`,
+>   and `importlib.metadata` still reads their versions.
+> - CI's `build-reproducible` job gains a third build from a fresh venv, compared byte for byte.
+> - **⚠️ One deliberate layer replacement** at the next `make deploy`: the new zip has 2 entries
+>   fewer than `loteria-deps-prod:6`. After that, `plan` shows the layer only when the lock
+>   changes, whoever builds it.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -3950,6 +4003,7 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
 | 046.2 | **The shell's umask leaked into every zip** — a leftover `umask 077` made identical code plan `1/4/1` (layer replace + extractor) at the 2026-10-22 deploy, and 0600 files can fail Lambda's import. `_zipdir.py` normalises modes to 0644/0755 | **merged** (2026-10-22) — builds under umask 022 and 077 are byte-identical to the deployed zips; no AWS change | [PR #105](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/105) |
+| 046.3 | **The layer depended on which `pip` built it** — `bin/idna` and `bin/normalizer` carried the shebang of the interpreter that ran pip, so a shell with `.venv` first on `PATH` built a different zip and PR-052's plan wanted to replace the layer. Found 2026-10-25 | **built** (2026-10-25) — `site-packages/bin/` and its RECORD lines are dropped; builds with `/usr/bin/pip` and a fresh venv are byte-identical, and CI now builds a third time from a fresh venv. ⚠️ The next deploy replaces the layer ONCE (2 files fewer than `loteria-deps-prod:6`) | [PR #110](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/110) |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; **10-15 run (sorteo 3139): no regression** — extractor succeeded on its first attempt (6 s), no retrier fired | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. **verified end to end 2026-10-15** — sorteo 3139's Silver landed in the prod bucket during the run; DQ PASS on 120 files | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
@@ -3957,3 +4011,4 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 049.1 | **#103 committed the whole Uruguay bronze to master** — 21,174 files under `data/uy/` (1.1 GB, incl. `manifest.sqlite`), now on the public `origin/master`. Since the beta branch ignores the path, every switch master → `loteria-uruguaya-test` deleted the local bronze | **built** (2026-10-25) — untracked + `/data/uy/` ignored on master with the beta branch's exact `.gitignore` block (so the later sync merges clean); files stay in history. ⚠️ the `pull` that brings the merge deletes the local copy — restore from the backup | [PR #107](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/107) |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
 | 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |
+| 052 | **SageMaker removed** — the always-created `lottery-sagemaker-execution-role-prod` (AmazonSageMakerFullAccess + CloudWatchLogsFullAccess), its 2 policies, 4 attachments, the `sm-studio-sg-prod` SG, `module.sagemaker`, `enable_sagemaker` and `make sagemaker`. Found in the 2026-10-24 security audit; the owner never used it after the simple bucket went | **built** (2026-10-25) — read-only plan `0/3/8`: the 8 SageMaker destroys + PR-051's extractor update + the known `gold_purge` phantom. The two domains outside Terraform are deleted by the owner, by hand | [PR #109](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/109) |

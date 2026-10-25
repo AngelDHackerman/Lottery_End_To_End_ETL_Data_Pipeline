@@ -142,6 +142,21 @@ jobs:
           test "$first" = "$second" \
             || { echo "::error::lambda_layer.zip is not reproducible"; exit 1; }
 
+      # PR-046.3. The two runs above share one pip, so they could not see a zip that depends
+      # on WHICH pip ran: console-script shebangs carried that pip's interpreter path, and a
+      # laptop with `.venv` first on PATH built a different layer than one using /usr/bin/pip.
+      # A third build from a fresh venv puts a different interpreter path in play.
+      - name: layer build does not depend on which pip runs it
+        run: |
+          expected=$(sha256sum terraform/lambda_layer.zip | cut -d' ' -f1)
+          python -m venv "$RUNNER_TEMP/other-pip"
+          PATH="$RUNNER_TEMP/other-pip/bin:$PATH" bash scripts/build_lambda_layer.sh
+          other=$(sha256sum terraform/lambda_layer.zip | cut -d' ' -f1)
+          echo "setup-python pip: $expected"
+          echo "fresh venv pip:   $other"
+          test "$expected" = "$other" \
+            || { echo "::error::lambda_layer.zip changes with the pip that builds it"; exit 1; }
+
   # -------------------------------------------------------------------------------------
   tf-validate:
     name: terraform validate
