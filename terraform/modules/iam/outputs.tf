@@ -1,6 +1,6 @@
 # Outputs exposed by the "iam" module.
-# Consumed by etl-lambda (PR-010), etl-glue (PR-011), catalog + orchestration (PR-012),
-# and sagemaker (PR-015) as they migrate.
+# Consumed by etl-lambda (PR-010), etl-glue (PR-011), catalog + orchestration (PR-012).
+# The sagemaker consumer (PR-015) was removed in PR-052.
 
 output "lambda_exec_role_arn" {
   description = "ARN of the extractor Lambda execution role."
@@ -27,10 +27,6 @@ output "eventbridge_to_sfn_role_arn" {
   value       = aws_iam_role.eventbridge_to_sfn_role.arn
 }
 
-output "sagemaker_execution_role_arn" {
-  description = "ARN of the SageMaker Studio execution role."
-  value       = aws_iam_role.sagemaker_execution_role.arn
-}
 
 output "gold_purge_lambda_role_arn" {
   description = "ARN of the gold-purge Lambda execution role (PR-022)."

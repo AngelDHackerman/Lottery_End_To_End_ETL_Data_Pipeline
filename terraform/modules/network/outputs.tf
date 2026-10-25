@@ -1,6 +1,6 @@
 # Outputs exposed by the "network" module.
-# Consumed by the sagemaker module (PR-015) and any resource that needs to land
-# in the VPC.
+# Consumed by any resource that needs to land in the VPC (the sagemaker module that
+# used them was removed in PR-052).
 
 output "vpc_id" {
   description = "ID of the lottery VPC."
@@ -8,7 +8,7 @@ output "vpc_id" {
 }
 
 output "private_subnet_ids" {
-  description = "IDs of the two private subnets (SageMaker Studio / S3-endpoint side)."
+  description = "IDs of the two private subnets (the S3-endpoint side)."
   value       = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
 
@@ -17,7 +17,3 @@ output "public_subnet_id" {
   value       = aws_subnet.public.id
 }
 
-output "sagemaker_sg_id" {
-  description = "ID of the SageMaker Studio security group."
-  value       = aws_security_group.sagemaker_studio.id
-}

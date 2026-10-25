@@ -1,8 +1,8 @@
 # Module: `iam`
 
 All IAM roles, customer-managed policies, and attachments for the pipeline: the extractor
-Lambda role, Glue job + crawler roles, SageMaker Studio role, and the Step Functions +
-EventBridge roles.
+Lambda role, Glue job + crawler roles, and the Step Functions + EventBridge roles. (The
+SageMaker Studio role and its two policies were removed in PR-052.)
 
 **Status:** migrated from `terraform-lottery/Prod/{iam.tf, iam_stepFunctions_eventBridge.tf}`
 in **PR-009** via cross-state `terraform state rm` (legacy) + `terraform import` (main) — no
@@ -31,7 +31,7 @@ none; the owner lists their own users in a gitignored tfvars.
 
 ## Outputs
 `lambda_exec_role_arn`, `glue_job_role_arn`, `glue_crawler_role_arn`,
-`sfn_execution_role_arn`, `eventbridge_to_sfn_role_arn`, `sagemaker_execution_role_arn`.
+`sfn_execution_role_arn`, `eventbridge_to_sfn_role_arn`.
 
 ## PR-033: `glue_dq_role` — read-only, on purpose
 

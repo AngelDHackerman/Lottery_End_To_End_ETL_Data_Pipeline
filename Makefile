@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan sagemaker lineage-views uy-backfill uy-pilot uy-report
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -123,9 +123,6 @@ tf-plan: build tf-init ## Build, then terraform plan the main stack into terrafo
 # PR-045.2 — run it AFTER that apply, or the CREATE fails on a column Athena cannot see.
 lineage-views: ## Create/replace the Silver lineage views in Athena (PR-045.2)
 	bash scripts/create_lineage_views.sh
-
-sagemaker: ## Apply the optional SageMaker module (opt-in, see terraform/modules/sagemaker)
-	cd terraform && terraform apply -var=enable_sagemaker=true -target=module.sagemaker
 
 # ---------------------------------------------------------------------------------------
 # Uruguay extension — LOCAL ONLY during the beta (roadmap-uruguay.md). Nothing below touches

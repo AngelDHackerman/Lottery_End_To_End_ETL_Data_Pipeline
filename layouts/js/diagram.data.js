@@ -155,7 +155,7 @@
 
     {id:"consumer", x:1136, y:756, w:212, h:72, st:"off", t:"Consumidor", s:["no existe","aplazado a propósito"],
      title:"El grifo que falta", desc:"Siete tablas gold se construyen cada jueves y nadie las bebe. No hay ni una línea de QuickSight, dashboard o API en el repo.",
-     kv:{"Estado":"aplazado por decisión explícita","Lo más cerca":"el rol de SageMaker, repuntado a silver/ y gold/ el 25 sep","Nota":"el README promete QuickSight desde 2025"},
+     kv:{"Estado":"aplazado por decisión explícita","Lo más cerca":"nada: el rol de SageMaker, repuntado a silver/ y gold/ el 25 sep, se eliminó en PR-052 (25 oct)","Nota":"el README promete QuickSight desde 2025"},
      warn:{k:"p",t:"Que no haya consumidor es lo que hizo barato arreglar el defecto B: durante cinco semanas las tablas gold estuvieron vacías unos minutos cada jueves y nadie lo notó, porque no había nadie mirando. El día que exista un consumidor, ese mismo defecto habría sido un incidente."}}
   ];
 
@@ -191,7 +191,7 @@
   const VPC_LABELS = {
     x: 440,
     title: {y: 666, t: "VPC 10.0.0.0/16 · NAT APAGADO · SIN CONSUMIDORES"},
-    note:  {y: 688, t: "El extractor no tiene vpc_config y Glue no tiene connection. Su único consumidor sería SageMaker, que está apagado."}
+    note:  {y: 688, t: "El extractor no tiene vpc_config y Glue no tiene connection. SageMaker, su único consumidor posible, se eliminó en PR-052."}
   };
 
   /* La NO-conexión entre el plano de control y la cuenta: línea tachada. Es a propósito:

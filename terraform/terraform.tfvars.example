@@ -84,7 +84,6 @@
 # OPT-IN TOGGLES
 # ---------------------------------------------------------------------------------------
 # enable_internet  = false   # NAT + IGW in the network module. Costs ~$32/mo when true.
-# enable_sagemaker = false   # the optional SageMaker Studio domain (PR-015)
 # enable_iam_allowed_principals_compat = true   # Lake Formation hybrid-mode grant (PR-013)
 #
 # enable_object_count_emitter = true
