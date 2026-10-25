@@ -3831,6 +3831,34 @@ writing the fix above.
 >   `/aws/lambda/lottery-extractor-prod` for `"token="` → no events, so the token was not
 >   rotated. That covers the log group's retention window only.
 
+## PR-049.1 — #103 committed the whole Uruguay bronze to master
+**Found 2026-10-25, while starting UY-011: `data/uy/manifest.sqlite` was gone from disk.**
+
+**The defect.** PR-049's docs commit (`34e7b1a1`, merged as #103) staged `data/uy/` along with
+the docs: 21,173 bronze pages and PDFs plus the 15.9 MB manifest. Master's `.gitignore` never
+listed the path — only the beta branch's does — so `git add -A` on a master-based branch picks
+it up, the exact trap the Uruguay notes warn about. Two consequences: the bronze (with ~9,000
+real coupon numbers C7 keeps out of the repo, and no cédulas — `DET_INVALIDAS` is never
+fetched) is public, and a switch from master to the beta branch **deletes** the files from
+disk, because one side tracks them and the other ignores them. The reverse switch silently
+overwrites the ignored local copy with master's, so anything a backfill wrote after the commit
+would be lost.
+
+> **PR-049.1 outcome (2026-10-25).** Built, no AWS change.
+>
+> - `git rm -r --cached data/uy` and `/data/uy/` in master's `.gitignore`. The block is the
+>   beta branch's, copied verbatim (its two extra lines are harmless here), so the master →
+>   beta sync that PR-051 is waiting for adds the same hunk on both sides and merges clean —
+>   `git merge-tree` agrees.
+> - The local data was restored first from `git archive master data/uy` (integrity ok, last
+>   fetch 2026-10-21T01:15Z = the last backfill, every `bronze_key` on disk) and backed up to
+>   `~/backups/loteria-uy-2026-10-25/`.
+> - **Not done:** purging the files from history. That needs a force-push the
+>   "Protect-master" ruleset forbids and rewrites every SHA; the owner chose not to.
+> - **Owner, after merging:** the `git pull` that brings this commit deletes `data/uy/` from
+>   disk (a tracked file removed upstream is removed locally). Restore with
+>   `cp -a ~/backups/loteria-uy-2026-10-25/. data/uy/`.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -3926,5 +3954,6 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; **10-15 run (sorteo 3139): no regression** — extractor succeeded on its first attempt (6 s), no retrier fired | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. **verified end to end 2026-10-15** — sorteo 3139's Silver landed in the prod bucket during the run; DQ PASS on 120 files | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | **applied 2026-10-15 + deploy verified** — green on prod Silver (premios 13 → 14 expectations), red on an orphan. Apply `0/2/0` (the plan's 3rd change was the `gold_purge` phantom); the deployed `loteria_dq_lib.zip` carries `referential_checks`, and the gate from a checkout gives 14 expectations, PASS on 120 files. **verified 2026-10-22** — the first gated run (Extraordinario 416) passed with premios at 14 expectations, 127,837 rows from 121 files; lineage sums match | [PR #89](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/89) |
+| 049.1 | **#103 committed the whole Uruguay bronze to master** — 21,174 files under `data/uy/` (1.1 GB, incl. `manifest.sqlite`), now on the public `origin/master`. Since the beta branch ignores the path, every switch master → `loteria-uruguaya-test` deleted the local bronze | **built** (2026-10-25) — untracked + `/data/uy/` ignored on master with the beta branch's exact `.gitignore` block (so the later sync merges clean); files stay in history. ⚠️ the `pull` that brings the merge deletes the local copy — restore from the backup | [PR #107](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/107) |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
 | 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |
