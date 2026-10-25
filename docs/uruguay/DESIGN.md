@@ -6,8 +6,8 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D12](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
-[propuestas P1–P9](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
+**Cómo leerlo.** Las [decisiones D1–D15](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+[propuestas P1–P10](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
 y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
 
 ---
@@ -28,6 +28,9 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D10 | **Correcciones manuales en una tabla aparte** | `manual_overrides`, donde cada fila cita una fila de `calendar_events`. El manifiesto no se edita a mano. | Así se conserva lo que clasificó el código y queda escrito quién corrigió qué, y por qué. |
 | D11 | **Tres fallas iguales pasan a `missing`** | Un `error` que falla igual en 3 corridas seguidas pasa a `missing` (owner, 2026-10-21). | Sin esto, los 35 PDF de pozos con error se volverían a pedir en cada corrida diaria para siempre. |
 | D12 | **El manifiesto es una interfaz** | Un `Protocol` desde UY-021, con SQLite como implementación local. DynamoDB es la candidata para la nube (UY-040). En la v1 nunca se vuelve a pedir una página final. | La Fase 5 cambia el backend sin tocar a quien lo usa. |
+| D13 | **Un solo detector de huecos** | Una función pura, `expected_draws()`, que usan tanto el reporte del backfill como la alarma del incremental. Su salida es la tabla de plata `draw_gaps`. Ver [Detector de huecos](#detector-de-huecos-uy-011). | Si el reporte y la alarma tuvieran cada uno su lógica, tarde o temprano dirían cosas distintas sobre el mismo día. |
+| D14 | **La regla combinada** (Q7, 2026-10-21) | Se espera la fecha que anunció el sorteo anterior si cae en (anterior, anterior + 7 días]; si no, el siguiente día del calendario del juego. Hay hueco si no hay sorteo entre esa fecha y 3 días después. Un anuncio descartado lleva `next_draw_implausible`. Las fechas se leen aceptando cualquier separador, sin corregir nunca un dígito. | Ninguna de las dos fuentes alcanza sola. El anuncio acierta el 98 % y el calendario no ve feriados ni traslados; combinadas pasan del 99,7 %. |
+| D15 | **Los huecos conocidos son filas de `calendar_events`** | Semana de Turismo, fin de año, paros y duelos se explican con una fila, nunca con una excepción en el código. | Un hueco explicado queda en `draw_gaps` con su causa, y uno sin explicar es el que alarma. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -42,6 +45,7 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P7 | **`is_replacement` se define con los datos:** un número de la Tómbola es reposición si no está entre las dos últimas cifras de los 20 números de esa Quiniela. | Así se cumple en el 99,7% de los sorteos, y todas las excepciones son de 2006 ([Evidencia](#la-tómbola-sale-de-la-quiniela)). El mecanismo exacto (cómo se sortean las reposiciones) es una **hipótesis** hasta leer el reglamento. Lo que plata guarda no depende de ella. |
 | P8 | **"Falla igual" quiere decir la misma firma**: el mismo `http_status` y el mismo `content_sha256`, o el mismo `detail` si no hubo respuesta. Se cuenta sobre las 3 últimas filas de `fetch_log` de esa clave, y la regla vale para **todas** las fuentes. | Un 403 que siempre devuelve los mismos 146 bytes es un archivo que no está. Un 403 distinto, o un timeout, puede ser un mal momento del sitio, y no debe cerrar la puerta. Ver [Manifiesto](#manifiesto-uy-011). |
 | P9 | **`manual_overrides` es un CSV versionado en git**, junto a `calendar_events`, y el estado efectivo es el de la corrección cuando existe. | Es el mismo tratamiento que `calendar_events`: un cambio es una decisión revisada en un PR, no una edición de una base local. |
+| P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 19 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
 
 ---
 
@@ -313,8 +317,8 @@ del sorteo, no se escribe en el YAML.
 | `dq_flags` | array\<string\> | |
 | linaje | | ver convenciones |
 
-Solo los días con sorteo llegan a plata. Los `no_draw` y la detección de huecos viven en el
-manifiesto y se diseñan en UY-011.
+Solo los días con sorteo llegan a plata. Los `no_draw` viven en el manifiesto, y los huecos en
+[`draw_gaps`](#detector-de-huecos-uy-011).
 
 ### `draw_numbers`: formato largo (D3)
 
@@ -399,7 +403,8 @@ def parse_amount(text: str, style: Literal["us", "uy"]) -> Decimal | None: ...
 El manifiesto es la memoria de la ingesta: para cada fuente y fecha guarda **qué pidió, qué
 respondió el sitio y qué concluyó el clasificador**. Es lo que evita pedir dos veces lo mismo y lo
 que permite reanudar un backfill cortado. No es el calendario: qué *debería* haber habido ese día lo
-decide el detector de huecos, que lee el manifiesto pero no lo escribe (D9).
+decide el [detector de huecos](#detector-de-huecos-uy-011), que trabaja sobre plata y nunca
+escribe el manifiesto (D9).
 
 ### Lo que ya existe (UY-001, verificado)
 
@@ -514,6 +519,109 @@ viernes 2019-10-04). Los tres coinciden con el manifiesto, y
 los documentos no se leyeron: el contenido sale de su título, y la causa del 30 (el paro), de la
 nota de [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas).
 
+## Detector de huecos (UY-011)
+
+El detector responde una sola pregunta: **¿faltó un sorteo que debía haber ocurrido?** No mira el
+manifiesto, que dice lo que mostró la página (D9). Trabaja sobre los sorteos de plata, el
+calendario de cada juego y `calendar_events`.
+
+### Una función, dos usos (D13)
+
+`expected_draws()` vive en `sorteos/core/gaps.py` y es pura: recibe la lista ordenada de sorteos de
+un juego (`draw_date` y `next_draw_date`), el calendario del YAML (`calendar.weekdays`) y las filas
+de `calendar_events`, y devuelve los huecos. No hace peticiones, no lee archivos y no conoce la
+fecha de hoy, que llega como argumento.
+
+- **El reporte del backfill** la corre sobre toda la historia y escribe `draw_gaps` completa.
+- **La alarma del incremental** la corre en la corrida diaria de las 23:30 de Montevideo (decidido
+  el 2026-10-20) y avisa solo de los huecos **abiertos** cuya ventana cerró desde la corrida
+  anterior.
+
+### La regla (D14)
+
+1. **Fecha esperada.** Si el sorteo anterior anunció una fecha y esa fecha cae en
+   (anterior, anterior + 7 días], se espera esa. Si no anunció nada, o anunció algo imposible, se
+   espera el siguiente día de `calendar.weekdays` (miércoles o domingo para el 5 de Oro, por
+   ejemplo).
+2. **Ventana.** El sorteo cuenta si ocurre entre la fecha esperada y 3 días después, porque la
+   DNLQ traslada un sorteo al día siguiente sin cambiar el anuncio (31 de los 34 desaciertos del
+   anuncio del 5 de Oro, [FINDINGS](FINDINGS.md#próximo-sorteo-predice-el-siguiente-verificado)).
+3. **Un sorteo adelantado no es un hueco.** Si el sorteo siguiente ocurrió *antes* de la fecha
+   esperada, no falta nada y no hay alarma. Pasa dos veces en 20 años (5 de Oro 2012-06-20,
+   Nocturna 2022-12-24).
+4. **Si no hay sorteo en la ventana, hay hueco.** Queda **explicado** cuando una fila de
+   `calendar_events` de ese juego cae entre la fecha esperada y el sorteo que finalmente ocurrió
+   (D15). Si no, queda **abierto**.
+5. **Un anuncio descartado** deja `next_draw_implausible` en los `dq_flags` del sorteo que lo
+   publicó. El sorteo es válido; lo que no sirve es su anuncio.
+6. **Leer la fecha.** Se acepta `/`, `-`, `.` o espacios como separador, con o sin espacios
+   alrededor, el formato compacto `ddmmaaaa` y el año en dos dígitos. **Nunca se corrige un
+   dígito**: `30 / 09 / 203` o `30 / 07 / 25007` quedan como anuncio imposible, no como 2023 o 2007
+   (owner, 2026-10-21).
+
+### Medido sobre el bronce (verificado, 2026-10-25)
+
+Con un script desechable sobre el bronce local y el manifiesto en solo lectura, sin peticiones.
+Cada par es un sorteo y el siguiente del mismo juego. Las cifras de la Quiniela repiten las de la
+medición del 2026-10-21.
+
+| Juego | Pares | Aciertos (tope 7 días) | Aciertos (tope 14 días, P10) |
+|---|---|---|---|
+| 5 de Oro | 2.076 (2006-08-16 → 2026-10-18) | 99,71 % (2.070) | 99,81 % (2.072) |
+| Quiniela Vespertina | 4.953 (2006-08-16 → 2026-10-20) | 99,96 % (4.951) | 99,98 % (4.952) |
+| Quiniela Nocturna | 5.947 (2006-08-11 → 2026-10-20) | 99,95 % (5.944) | 99,97 % (5.945) |
+
+Con el tope de 14 días quedan **5 desaciertos**, y ninguno es un error de la regla:
+
+| Juego | Esperado | Ocurrió | Qué fue | En `calendar_events` |
+|---|---|---|---|---|
+| 5 de Oro | 2006-08-27 | 2006-09-03 | Las dos primeras semanas del sitio ([FINDINGS](FINDINGS.md#miércoles-o-domingos-sin-5-de-oro-y-sin-reemplazo-34-fechas-verificado), sin explicar) | No: **hueco abierto** |
+| 5 de Oro | 2015-12-23 | 2015-12-27 | Fin de año | Sí (del brief, sin URL) |
+| 5 de Oro | 2019-09-25 | 2019-10-01 | Paro de AFAL | Sí (OIS 2036 a 2039) |
+| Vespertina | 2019-09-25 | 2019-10-02 | Paro de AFAL | Sí |
+| Nocturna | 2019-09-25 | 2019-10-01 | Paro de AFAL | Sí |
+
+Los adelantos (2012-06-20 y 2022-12-24) no cuentan como desacierto por el punto 3. Los demás
+huecos conocidos (las 13 Semanas de Turismo y casi todos los fines de año) **no aparecen**: el
+sorteo anterior ya anunciaba la fecha correcta, después del feriado, así que no faltó nada.
+
+### Cuánto creerle a un anuncio (P10)
+
+El tope de 7 días existe para descartar los errores de tipeo. Con ese tope se descartan 23
+anuncios, pero **4 eran correctos**: la Semana de Turismo 2020 (el 3, 4 y 5 de abril anunciaron el
+13, con 8 a 10 días de anticipación) y el fin de año 2022 (el 2022-12-21 anunció el 2023-01-03,
+con 13). Al descartarlos, el detector espera un sorteo que la DNLQ ya había dicho que no iba a
+haber, y reporta un hueco. El resultado no cambia mucho, porque `calendar_events` lo explica, pero
+el sorteo queda marcado con `next_draw_implausible` cuando su anuncio era correcto.
+
+Los otros 19 son errores de verdad: año equivocado (`2008` por `2009`, `2013` por `2023`), mes
+equivocado (`16/12` por `16/11`), dígitos de más o de menos (`25007`, `2208`, `203`) y un anuncio
+con la misma fecha del sorteo. **El más cercano está a 31 días** (2010-11-11 anuncia el
+2010-12-12), así que un tope de 14 días acepta los 4 correctos y sigue descartando los 19. La
+propuesta es usar 14.
+
+### `draw_gaps`
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `country`, `operator`, `game` | string | D1 |
+| `previous_draw_date` | date | El último sorteo antes del hueco |
+| `expected_date` | date | Lo que esperaba la regla |
+| `expected_from` | string | `announcement` o `calendar`: de dónde salió la fecha esperada |
+| `window_end` | date | `expected_date` + 3 días |
+| `next_draw_date` | date | El sorteo que finalmente ocurrió. Nulo si todavía no hubo |
+| `status` | string | `explained` u `open` |
+| `calendar_event_date` | date | La fila de `calendar_events` que lo explica. Nula si está abierto |
+| linaje | | ver convenciones |
+
+Un hueco se recalcula entero en cada corrida, como el resto de plata por año. Si mañana se agrega
+la fila de `calendar_events` que lo explica, la próxima corrida lo pasa a `explained` sin tocar
+nada más.
+
+**El 2006-08-27 queda abierto para siempre**, salvo que aparezca una fuente. No alarma: la alarma
+solo mira ventanas que cerraron desde la corrida anterior, y el reporte lo muestra como un hueco
+documentado.
+
 ## Impacto en la Fase 3
 
 Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
@@ -530,7 +638,7 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 ## Lo que queda para UY-011
 
 - ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011).
-- El detector de huecos: "Próximo sorteo" más `calendar_events` (propuesta 3 de FINDINGS).
+- ~~El detector de huecos~~: escrito en [Detector de huecos](#detector-de-huecos-uy-011).
 - Backfill e incremental: horarios, reanudación e idempotencia.
 - El catálogo completo de `dq_flags` y las suites de GX.
 - El plan de pruebas y los riesgos.
