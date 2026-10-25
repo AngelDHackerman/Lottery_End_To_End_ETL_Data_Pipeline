@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
 SCRAPE_DO_TOKEN = buckets["scrape_do_token"]
-BASE_PROXY_URL = "http://api.scrape.do/"
+# PR-051: HTTPS, because the token is a query parameter. This was http:// from the first
+# commit, which sent the token in cleartext on every request. The canary re-declares this
+# URL, and test_the_token_travels_encrypted guards both copies.
+BASE_PROXY_URL = "https://api.scrape.do/"
 
 # PR-031.2 — the proxy profile that still gets through Cloudflare.
 #
@@ -133,6 +136,34 @@ def build_proxy_url(target_url: str, token: str = SCRAPE_DO_TOKEN) -> str:
     return f"{BASE_PROXY_URL}?{urllib.parse.urlencode(params)}"
 
 
+def _scrubbed(exc: requests.exceptions.RequestException) -> Exception:
+    """A copy of ``exc`` with the scrape.do token replaced by ``***`` (PR-051).
+
+    scrape.do takes the token as a query parameter, and a ``ConnectionError`` embeds the URL
+    it failed to reach ("Max retries exceeded with url: /?url=...&token=..."). Re-raised
+    as-is, that message lands in the Lambda's CloudWatch log and in the Step Functions
+    execution history, where anyone with read access to either can lift the token. The
+    canary scrubs the same way (tests/integration/test_scraper_contract.py), but turns the
+    error into a RuntimeError; this one cannot.
+
+    The CLASS has to survive: RunExtractorLambda's Retry matches the Lambda errorType —
+    ``ReadTimeout``, ``ConnectTimeout``, ``ConnectionError`` — so a wrapper class would turn
+    off the network-fault retries without failing anything. The caller re-raises with
+    ``from None`` for the canary's reason: chaining would print the original message under
+    "During handling of the above exception", token and all.
+    """
+    message = str(exc)
+    for form in {SCRAPE_DO_TOKEN, urllib.parse.quote_plus(SCRAPE_DO_TOKEN)} - {""}:
+        message = message.replace(form, "***")
+    try:
+        return type(exc)(message)
+    except TypeError:
+        # A subclass whose __init__ wants more than a message (requests' JSONDecodeError,
+        # which get() never raises). Failing here, inside the except, would chain the
+        # unscrubbed original onto the TypeError — the leak this function exists to stop.
+        return requests.exceptions.RequestException(message)
+
+
 def fetch_via_proxy(target_url: str) -> requests.Response:
     """Make a request via scrape.do and leave traces in CloudWatch"""
     proxy_url = build_proxy_url(target_url)
@@ -144,7 +175,7 @@ def fetch_via_proxy(target_url: str) -> requests.Response:
         # datapoint at all, which is precisely how the 2026-08-20 outage kept
         # ScrapeDo_Failed green while the pipeline had been dead for two weeks.
         record_scraper_no_response(type(exc).__name__)
-        raise
+        raise _scrubbed(exc) from None
 
     logger.info(
         "[PROXY] %s -> HTTP %s | Preview: %.300s",

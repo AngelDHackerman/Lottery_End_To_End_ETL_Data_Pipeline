@@ -38,7 +38,7 @@ bs4 = pytest.importorskip("bs4")
 from bs4 import BeautifulSoup  # noqa: E402
 
 AWARD_URL = "https://loteria.org.gt/site/award"
-BASE_PROXY_URL = "http://api.scrape.do/"
+BASE_PROXY_URL = "https://api.scrape.do/"
 
 # The canary must take the SAME proxy path as the extractor or it stops being a canary: a
 # profile that works here and not in production tells you nothing. These are re-declared
@@ -229,7 +229,7 @@ class TestTokenIsNeverLeaked:
     @staticmethod
     def _raise_connection_error(*_args, **_kwargs):
         raise requests.ConnectionError(
-            "HTTPConnectionPool(host='api.scrape.do', port=80): Max retries exceeded with "
+            "HTTPSConnectionPool(host='api.scrape.do', port=443): Max retries exceeded with "
             f"url: /?url=https%3A%2F%2Floteria.org.gt&token={FAKE_TOKEN}&geoCode=MX"
         )
 

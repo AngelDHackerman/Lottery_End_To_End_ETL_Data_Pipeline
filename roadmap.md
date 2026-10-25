@@ -3793,6 +3793,44 @@ and fixed it with a single `# noqa`, which protects one line.
 >   `common` modules in the closure); a probe file shows ruff still flags UP017 in
 >   `extractor/` (Lambda, 3.12) and no longer in `common/`. 488 tests, ruff clean.
 
+## PR-051 — The scrape.do token rode out in every `ConnectionError`, and over plain HTTP
+**Found in the 2026-10-24 security audit (prompted by that week's news, none of which hit this stack).**
+
+**The defect.** scrape.do authenticates by query parameter, so the token sits in the proxy
+URL — and a `requests.ConnectionError` puts that URL in its message (`Max retries exceeded
+with url: /?url=...&token=...`). `fetch_via_proxy` re-raised it unchanged, so a transport
+fault wrote the token into the Lambda's CloudWatch log and into the Step Functions execution
+history, both readable by anything with plain read access. Non-200 answers were already
+safe (PR-047's errors carry only `target_url`); the canary already scrubbed (PR-031.1), but
+production never got the same treatment.
+
+**And the wire itself.** `BASE_PROXY_URL` was `http://api.scrape.do/` from the first commit,
+so every request — not just the failing ones — sent the token in cleartext. Found while
+writing the fix above.
+
+> **PR-051 outcome (2026-10-25).** Built, no AWS change until the next `make deploy`.
+>
+> - `_scrubbed()` replaces the token (raw and URL-encoded) with `***` and rebuilds the
+>   **same class**: `RunExtractorLambda`'s Retry matches `ReadTimeout` / `ConnectTimeout` /
+>   `ConnectionError` by errorType, so the canary's RuntimeError wrapper would have turned
+>   the network retries off without failing anything. Re-raised `from None`, so the
+>   original is not printed under "During handling of the above exception".
+> - A subclass whose constructor rejects a lone message falls back to `RequestException`
+>   — otherwise the TypeError, raised inside the `except`, would chain the unscrubbed
+>   original.
+> - Tests go through the real `requests` stack (loopback port 9) so a change in its message
+>   format breaks them. **Verified by breaking it:** with the bare `raise` back, 4 of the 7
+>   new tests fail.
+> - `BASE_PROXY_URL` → `https://` in the extractor and the canary, guarded by
+>   `test_the_token_travels_encrypted` (it reads the canary's copy from source, since that
+>   file cannot import the extractor). The PR-031.2 runbook had already probed the profile
+>   over HTTPS by hand; a token-less request answers 400 with a valid certificate (failed
+>   requests are free). **Owed:** the first real run over HTTPS — the canary
+>   (`workflow_dispatch`, ~20 credits) or the next Thursday run after `make deploy`.
+> - **Exposure check (owner, 2026-10-25):** `filter-log-events` on
+>   `/aws/lambda/lottery-extractor-prod` for `"token="` → no events, so the token was not
+>   rotated. That covers the log group's retention window only.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -3883,9 +3921,10 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 043 | **8E** · Incremental Gold (fault C) — `.1` **measure** (on the path) · `.2` `.3` → **Open later L8** | `.1` **merged — verdict: KEEP the full rebuild** (2026-09-27, docs-only, nothing to apply): 4.84 MiB scanned per run, +36.6 KB per draw, but Athena's 10 MiB-per-query floor puts the whole year at **$0.019** and keeps it there at 10× Silver, while `BuildGold` spends 9% of its 179 s scanning — the rewrite would add minimum-billed statements to save nothing. Three tripwires recorded · `.2`/`.3` deferred (2026-09-23) | [#78](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/78) |
 | 046 | Pin transitive deps so `make build` is reproducible (found at 042.1's apply) — extractor locked with hashes; the owed `idna` bump rode along | **applied + verified** (2026-09-23) | [PR #59](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/59) |
 | 046.1 | ~~Stop installing great-expectations at runtime~~ — same root cause as L6, moved to **Open later L7** | **deferred** (2026-09-23) | — |
-| 046.2 | **The shell's umask leaked into every zip** — a leftover `umask 077` made identical code plan `1/4/1` (layer replace + extractor) at the 2026-10-22 deploy, and 0600 files can fail Lambda's import. `_zipdir.py` normalises modes to 0644/0755 | **built** (2026-10-22) — builds under umask 022 and 077 are byte-identical to the deployed zips; no AWS change | [PR #105](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/105) |
+| 046.2 | **The shell's umask leaked into every zip** — a leftover `umask 077` made identical code plan `1/4/1` (layer replace + extractor) at the 2026-10-22 deploy, and 0600 files can fail Lambda's import. `_zipdir.py` normalises modes to 0644/0755 | **merged** (2026-10-22) — builds under umask 022 and 077 are byte-identical to the deployed zips; no AWS change | [PR #105](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/105) |
 | *Phase 9 — added 2026-10-03. **050 first; 047 → 048 → 049 after the 2026-10-08 run** — which happened and verified 044/045, so 047 is next.* | | | |
 | 047 | **Extractor Retry misses the proxy 502** (a `ValueError`, not in `ErrorEquals`) + the alarm description that still says "no Retry/Catch". Filed in PR-031.2 | **applied 2026-10-09 + deploy verified** — `ProxyRetryableError` (429/5xx) + a 300 s × 3 retrier. Deployed ASL carries both retriers, the live Lambda zip has both classes, all three alarm texts rewritten. The retry path itself waits for a real 502; **10-15 run (sorteo 3139): no regression** — extractor succeeded on its first attempt (6 s), no retrier fired | [PR #86](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/86) |
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. **verified end to end 2026-10-15** — sorteo 3139's Silver landed in the prod bucket during the run; DQ PASS on 120 files | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | **applied 2026-10-15 + deploy verified** — green on prod Silver (premios 13 → 14 expectations), red on an orphan. Apply `0/2/0` (the plan's 3rd change was the `gold_purge` phantom); the deployed `loteria_dq_lib.zip` carries `referential_checks`, and the gate from a checkout gives 14 expectations, PASS on 120 files. **verified 2026-10-22** — the first gated run (Extraordinario 416) passed with premios at 14 expectations, 127,837 rows from 121 files; lineage sums match | [PR #89](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/89) |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
+| 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |
