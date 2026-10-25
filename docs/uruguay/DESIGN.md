@@ -6,8 +6,8 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D19](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
-[propuestas P1–P12](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
+**Cómo leerlo.** Las [decisiones D1–D22](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+[propuestas P1–P14](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
 y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
 
 ---
@@ -35,6 +35,9 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D17 | **Plata se reescribe por año** | Cada corrida reescribe entera la partición de cada año que tocó, sin merges. | Un año son unos 650 sorteos. Reescribir es idempotente y evita la lógica de upsert que Parquet no tiene. |
 | D18 | **El backfill de plata es local primero** | Se parsea en local en la Fase 4 y en la nube con un `Map` de Step Functions por año (UY-042). | El bronce ya está en disco: la nube lo recibe subido (UY-042) y nunca vuelve a scrapear la historia. |
 | D19 | **Los PDF de extracto históricos no se bajan** | El PDF es respaldo y se guarda solo desde la ingesta diaria en adelante. | Plata sale siempre del HTML (UY-003), y el PDF es una impresión del mismo PHP. |
+| D20 | **GX en un job aparte, con GX ya empaquetado** | Un job de Glue 5.0 propio para las suites de UY, que no instala GX desde PyPI al arrancar. Ver [Calidad de datos](#calidad-de-datos-dq_flags-y-gx-uy-011). | En `master`, `--additional-python-modules` llegó a gastar ~21 minutos de arranque por corrida (PR-033.2). |
+| D21 | **Fila por fila en el transform, el conjunto en GX** | El transform marca cada fila (`dq_flags`) o la manda a cuarentena. GX valida la tabla entera y es el gate antes de oro. | Una fila rara no debe frenar un año; una tabla rota, sí. |
+| D22 | **El catálogo de `dq_flags` es cerrado** | Solo valen los nombres del catálogo. El escritor de plata rechaza cualquier otro, y GX lo comprueba. | Un flag escrito a mano en el código, con otro nombre o una errata, es un flag que ningún filtro de oro va a ver. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -52,6 +55,8 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** **Aprobada por el owner el 2026-10-25.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 17 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
 | P11 | **El incremental mira los últimos 7 días más toda clave no final del manifiesto.** **Aprobada por el owner el 2026-10-25.** | 7 = el *settle* de 3 días, más la ventana de 3 del detector, más uno. Las claves no finales de cualquier fecha (hoy, 39 `error`) se incluyen para que la regla de las 3 fallas (D11) termine de cerrarlas: si no, los 35 PDF de pozos de 2016–2026 solo se volverían a pedir con un backfill manual. |
 | P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
+| P13 | **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
+| P14 | **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. |
 
 ---
 
@@ -703,6 +708,82 @@ volver a correr da exactamente el mismo resultado.
 - **Lo que no se baja.** Los PDF de extracto históricos (D19): el respaldo empieza con la ingesta
   diaria. Las páginas finales tampoco se vuelven a pedir (D12).
 
+## Calidad de datos: `dq_flags` y GX (UY-011)
+
+Dos capas, cada una con su tarea (D21):
+
+- **El transform**, fila por fila. Lo que se puede interpretar entra a plata **con el valor
+  publicado** y, si algo no cuadra, con un `dq_flag`. Lo que no se puede interpretar (un número
+  fuera de rango, 19 bolillas, una fecha que no coincide) va a cuarentena, como en PR-044.
+- **GX**, sobre la tabla entera, después de escribir plata. Es el gate: si una suite falla, oro no
+  se reconstruye y el aviso nombra la suite, la expectativa y la columna, como `NotifyDQFailure`
+  en `master`.
+
+### El catálogo (D22, P13)
+
+Cada flag sale de un caso que se vio en los datos. Las cifras son de hoy, sobre el bronce local.
+
+| Flag | Tabla | Cuándo se pone | Filas hoy | En oro |
+|---|---|---|---|---|
+| `pozo_plata_equals_oro` | `prizes` | El Pozo de Plata es igual al de Oro en el mismo sorteo | 1 (2006-12-06, [FINDINGS](FINDINGS.md#calidad-de-los-datos-de-2006-verificado)) | La dinámica de pozos lo excluye |
+| `amount_sources_differ` | `prizes` | `ver_resultados` y el extracto dan montos distintos (D6). Plata guarda el de `ver_resultados` | 0 en los 2.072 sorteos comparados del 5 de Oro | Igual que el anterior |
+| `next_draw_unparsed` | `draws` | Hay texto de "Próximo", pero no es una fecha (`30 / 09 / 203`). `next_draw_date` queda nulo | 2 | El detector usa el calendario |
+| `next_draw_implausible` | `draws` | La fecha anunciada cae fuera de (sorteo, sorteo + 14 días] | 17 | El detector usa el calendario |
+| `draw_number_inferred` | `draws` | El número de sorteo sale de los vecinos porque falta el PDF de pozos (owner, 2026-10-21) | Hasta 35 (los PDF de pozos con `error`) | Los análisis del número pueden excluirlo |
+| `tombola_repeated_number` | `draws` | La Tómbola trae un número repetido | 31, todos de 2006 | Las frecuencias de la Tómbola lo excluyen |
+| `tombola_not_from_quiniela` | `draws` | No se cumple P7: la Tómbola no es las terminaciones de la Quiniela más sus reposiciones | 30 a 31, todos de 2006 | `is_replacement` queda nulo en ese sorteo |
+
+- **El monto vacío no lleva flag.** Por D6 ya es nulo, y nulo quiere decir eso. Un flag más
+  diría lo mismo dos veces.
+- **Tampoco llevan flag** los sorteos sin "Próximo" (117, casi todos de 2006): un nulo en
+  `next_draw_text` ya lo dice.
+- **Sumar un flag** es cambiar este documento, el catálogo del código y su test, en el mismo PR.
+  El escritor de plata falla ante un nombre que no conoce.
+
+### Dónde corre GX (D20, P14)
+
+En un job de Glue 5.0 propio, separado del de Santa Lucía. La diferencia con `master` está en el
+arranque: allí el job instala GX desde PyPI en cada corrida, y eso llegó a gastar ~21 minutos antes
+de la primera línea del script (PR-033.2). Aquí GX llega ya empaquetado.
+
+La propuesta (P14) es construirlo como el layer de Lambda: un lock con hashes, wheels para
+`manylinux` y Python 3.11, subidos a S3, e instalados con `--additional-python-modules` apuntando a
+esos archivos y sin PyPI. Un zip por `--extra-py-files` alcanza solo para código Python puro, y GX
+1.20 requiere `numpy` y `scipy` (y `pydantic-core` si usa pydantic 2), que son extensiones
+compiladas: Python no las carga desde un zip, salvo que Glue 5.0 ya las traiga. **Hipótesis:** que instalar desde S3 sin
+resolver dependencias baje el arranque a segundos. UY-026 lo mide antes de cerrarlo.
+
+Las lecciones de `master` que se repiten tal cual:
+
+- **Las expectativas se derivan de los datos** (PR-032). Cada una se corre contra la plata local
+  completa de UY-031 antes de entrar a la suite. Si falla con datos reales, se revisa la
+  expectativa, nunca el dato.
+- **GX con versión fija y suites versionadas** (PR-034): el JSON de las suites está en git y un
+  test comprueba que coincide con el código que lo genera.
+- **Las expectativas que dependen de una tabla de referencia se arman al correr** (PR-049). El rango
+  del 5 de Oro sale de `game_rules`, no de una constante.
+
+### Las suites (UY-026)
+
+Cada expectativa cita su evidencia. Es la lista de partida; UY-026 la confirma contra los datos.
+
+| Tabla | Expectativa | Evidencia |
+|---|---|---|
+| `draws` | (`country`, `operator`, `game`, `draw_date`) es única | P1 |
+| `draws` | `game` está en {`5_de_oro`, `quiniela_vespertina`, `quiniela_nocturna`} | El alcance de la v1 (el Kini queda para UL2) |
+| `draws` | La Quiniela nunca cae en domingo, y la Vespertina nunca en sábado | Q2 (verificado en toda la historia) |
+| `draws` | `dq_flags` solo tiene nombres del catálogo | D22 |
+| `draws` | `draw_number` solo existe en el 5 de Oro, es único por juego y es nulo antes de 2016-06-01 | C11 y el inicio del PDF de pozos |
+| `draws` | Los horarios son nulos en el 5 de Oro | P2 |
+| `draw_numbers` | Cada Quiniela tiene 20 números de 3 cifras, en las posiciones 1 a 20 | D3, 10.877 extractos |
+| `draw_numbers` | Cada Tómbola tiene 20 números de 2 cifras, ordenados; sin repetidos desde 2007 | La evidencia de la Tómbola: los 31 con repetidos son de 2006 |
+| `draw_numbers` | Cada 5 de Oro tiene 5 de Oro, 1 extra que no está entre ellos y 5 de Revancha | El YAML del 5 de Oro |
+| `draw_numbers` | Los números del 5 de Oro están en el rango de su época: 01–44 hasta el 2014-03-16 y 01–48 desde el 2014-03-19 | `game_rules` (Q8), armada al correr |
+| `prizes` | `currency` es `UYU` y todo monto es nulo o mayor o igual que 0 | D6 |
+| `prizes` | `winning_coupons` es 0 si y solo si `winners_status` es `no_winners`, y nulo si y solo si es `unknown` | D7 |
+| todas | Toda clave de `draw_numbers` y `prizes` existe en `draws` | PR-049 |
+| `draw_gaps` | `status` está en {`explained`, `open`}, y `explained` si y solo si `calendar_event_date` no es nulo | D13, D15 |
+
 ## Impacto en la Fase 3
 
 Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
@@ -721,5 +802,6 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 - ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011).
 - ~~El detector de huecos~~: escrito en [Detector de huecos](#detector-de-huecos-uy-011).
 - ~~Backfill e incremental~~: escrito en [Backfill e incremental](#backfill-e-incremental-uy-011).
-- El catálogo completo de `dq_flags` y las suites de GX.
+- ~~El catálogo de `dq_flags` y las suites de GX~~: escritos en
+  [Calidad de datos](#calidad-de-datos-dq_flags-y-gx-uy-011).
 - El plan de pruebas y los riesgos.
