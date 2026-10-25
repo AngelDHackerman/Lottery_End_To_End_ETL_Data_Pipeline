@@ -3793,7 +3793,7 @@ and fixed it with a single `# noqa`, which protects one line.
 >   `common` modules in the closure); a probe file shows ruff still flags UP017 in
 >   `extractor/` (Lambda, 3.12) and no longer in `common/`. 488 tests, ruff clean.
 
-## PR-051 — The scrape.do token rode out in every `ConnectionError`
+## PR-051 — The scrape.do token rode out in every `ConnectionError`, and over plain HTTP
 **Found in the 2026-10-24 security audit (prompted by that week's news, none of which hit this stack).**
 
 **The defect.** scrape.do authenticates by query parameter, so the token sits in the proxy
@@ -3803,6 +3803,10 @@ fault wrote the token into the Lambda's CloudWatch log and into the Step Functio
 history, both readable by anything with plain read access. Non-200 answers were already
 safe (PR-047's errors carry only `target_url`); the canary already scrubbed (PR-031.1), but
 production never got the same treatment.
+
+**And the wire itself.** `BASE_PROXY_URL` was `http://api.scrape.do/` from the first commit,
+so every request — not just the failing ones — sent the token in cleartext. Found while
+writing the fix above.
 
 > **PR-051 outcome (2026-10-25).** Built, no AWS change until the next `make deploy`.
 >
@@ -3817,6 +3821,12 @@ production never got the same treatment.
 > - Tests go through the real `requests` stack (loopback port 9) so a change in its message
 >   format breaks them. **Verified by breaking it:** with the bare `raise` back, 4 of the 7
 >   new tests fail.
+> - `BASE_PROXY_URL` → `https://` in the extractor and the canary, guarded by
+>   `test_the_token_travels_encrypted` (it reads the canary's copy from source, since that
+>   file cannot import the extractor). The PR-031.2 runbook had already probed the profile
+>   over HTTPS by hand; a token-less request answers 400 with a valid certificate (failed
+>   requests are free). **Owed:** the first real run over HTTPS — the canary
+>   (`workflow_dispatch`, ~20 credits) or the next Thursday run after `make deploy`.
 > - **Exposure check (owner, 2026-10-25):** `filter-log-events` on
 >   `/aws/lambda/lottery-extractor-prod` for `"token="` → no events, so the token was not
 >   rotated. That covers the log group's retention window only.
@@ -3917,4 +3927,4 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 048 | **`transform()` reads `bucket_name`, writes the global `partitioned_bucket`**. Filed in PR-030 | **applied 2026-10-09** — writes to `bucket_name`, `main()` stops mutating the global; the deployed Glue zip (01:29:40Z) carries both. **verified end to end 2026-10-15** — sorteo 3139's Silver landed in the prod bucket during the run; DQ PASS on 120 files | [PR #88](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/88) |
 | 049 | **DQ gate: referential integrity** — every `premios.numero_sorteo` in `sorteos`. Filed in PR-032 | **applied 2026-10-15 + deploy verified** — green on prod Silver (premios 13 → 14 expectations), red on an orphan. Apply `0/2/0` (the plan's 3rd change was the `gold_purge` phantom); the deployed `loteria_dq_lib.zip` carries `referential_checks`, and the gate from a checkout gives 14 expectations, PASS on 120 files. **verified 2026-10-22** — the first gated run (Extraordinario 416) passed with premios at 14 expectations, 127,837 rows from 121 files; lineage sums match | [PR #89](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/89) |
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
-| 051 | **The scrape.do token rode out in every `ConnectionError`** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | — |
+| 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **built** (2026-10-25) — re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | — |

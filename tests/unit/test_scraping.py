@@ -121,6 +121,19 @@ class TestBuildProxyUrl:
     def test_token_is_included(self, scraping_module):
         assert "token=test-token-123" in scraping_module.build_proxy_url("https://example.com")
 
+    def test_the_token_travels_encrypted(self, scraping_module):
+        """PR-051: the token is a query parameter, so http:// sends it in cleartext.
+
+        The canary re-declares the URL (it cannot import this module without AWS), so its
+        copy is read from the source text.
+        """
+        assert scraping_module.build_proxy_url("https://example.com").startswith("https://")
+
+        canary = (
+            Path(__file__).parents[1] / "integration" / "test_scraper_contract.py"
+        ).read_text()
+        assert 'BASE_PROXY_URL = "https://api.scrape.do/"' in canary
+
     def test_timeout_stays_above_the_proxy_give_up(self, scraping_module):
         """scrape.do itself takes ~57 s to return ROTATION_FAILED.
 

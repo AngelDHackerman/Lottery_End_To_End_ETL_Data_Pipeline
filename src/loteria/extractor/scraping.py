@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 buckets = get_secrets()
 partitioned_bucket = buckets["partitioned"]
 SCRAPE_DO_TOKEN = buckets["scrape_do_token"]
-BASE_PROXY_URL = "http://api.scrape.do/"
+# PR-051: HTTPS, because the token is a query parameter. This was http:// from the first
+# commit, which sent the token in cleartext on every request. The canary re-declares this
+# URL, and test_the_token_travels_encrypted guards both copies.
+BASE_PROXY_URL = "https://api.scrape.do/"
 
 # PR-031.2 — the proxy profile that still gets through Cloudflare.
 #
