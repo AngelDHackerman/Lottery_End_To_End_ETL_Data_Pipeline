@@ -2,7 +2,7 @@
 **Owner:** Angel Hernandez
 **Brief de origen:** [`docs/uruguay/BRIEF.md`](./docs/uruguay/BRIEF.md)
 **Rama base:** `loteria-uruguaya-test` (hace de `master` para esta extensión hasta la fase de merge)
-**Última actualización:** 2026-10-20
+**Última actualización:** 2026-10-25 (G2 aprobado; tabla de la Fase 3 reescrita)
 
 > Plan de ejecución de la extensión a Uruguay (DNLQ, `www.loteria.gub.uy`). El roadmap principal
 > ([`roadmap.md`](./roadmap.md)) sigue siendo el de Santa Lucía; este archivo **no** lo reemplaza
@@ -282,19 +282,22 @@ UY-005 y solo si no bloquea nada.
 
 # Fase 3 — Construcción en local
 
-El detalle de cada PR se escribe al cerrar G2, porque depende del diseño aprobado. El orden y el
-alcance son estos:
+> **G2 aprobado por el owner el 2026-10-25** (#111). Esta tabla reemplaza a la que se escribió
+> antes del diseño. Cada fila cita lo que la decide en [`DESIGN.md`](docs/uruguay/DESIGN.md)
+> (decisiones D, propuestas P aprobadas). El orden importa: cada PR usa lo del anterior, y ninguno
+> se apila sobre otro sin fusionar.
 
-| PR | Qué | Notas |
-|---|---|---|
-| UY-020 | Esqueleto del paquete, carga del YAML y registro de juegos | Mueve el cliente de UY-001 a su lugar definitivo. Dependencias nuevas (pyyaml y la biblioteca de PDF) en un extra propio en `pyproject.toml`. |
-| UY-021 | Manifiesto y almacén de bronce local | Rutas idénticas a las futuras claves de S3 (`country=uy/game=…/draw_date=…`), para que la Fase 5 solo cambie el backend. |
-| UY-022 | Parser de `ver_resultados`, layout 2007 → 2016-06 | Quiniela, Tómbola y 5 de Oro (si Q1 lo confirma). Ignora el bloque "Sorteos para el día de hoy". |
-| UY-023 | Parser de `ver_resultados`, layout desde 2016-07 | Posiciones numeradas y montos en estilo EE.UU. |
-| UY-024 | Parsers de extractos (HTML, y PDF si Q5 lo exige) | Distingue "Vacío" de "Sin Aciertos". Cupones según la decisión C7. |
-| UY-025 | Escritor de plata (Parquet) con validaciones cruzadas y cuarentena | Las validaciones: "Próximo sorteo", continuidad del número de sorteo, Tómbola ⊇ las dos últimas cifras de la Quiniela, `is_replacement`. Las filas rechazadas van a `quarantine/`, como en PR-044. Cuidado con el tipo Parquet `Null` en columnas que vienen todas en None (ver la memoria sobre tipos de Parquet). |
-| UY-026 | Suites de GX para la plata de UY | Las expectativas se derivan de los datos, no se inventan (la lección de PR-032). |
-| UY-027 | CLI y targets de Make: `uy-backfill --from --to`, `uy-incremental` y `uy-report` | Todos se pueden reanudar. |
+| PR | Qué | Lo que lo decide | Aceptación |
+|---|---|---|---|
+| UY-020 | **Esqueleto del paquete, YAML y registro de juegos.** `src/sorteos/core/` y `src/sorteos/uy/`; un YAML por juego validado con dataclasses propias; `game_rules` y `calendar_events` pasan de `docs/uruguay/drafts/` a `src/sorteos/uy/reference/`; el código de `src/loteria_uy/` se muda sin cambiar su comportamiento; extra `uy` en `pyproject.toml` (`pyyaml`, `pdfplumber`) | D1, D4, P4, P5, la migración de DESIGN | Los 53 tests de hoy pasan contra el paquete nuevo; un test de oro compara las URLs que arma el YAML con las del cliente viejo; el guard `DET_INVALIDAS` sigue en el código |
+| UY-021 | **Manifiesto como interfaz.** `Manifest` como `Protocol` con SQLite detrás; el estado efectivo; la regla de las 3 fallas iguales; `manual_overrides.csv` con los 4 días del paro de 2019 | D8–D12, P8, P9 | Los 35 PDF de pozos y los 4 días del paro dejan de pedirse según la regla; el manifiesto actual se lee sin migrarlo |
+| UY-022 | **Un solo parser de `ver_resultados`** para 2006–2026, con los tres juegos | D3, D5, P1, P6 | Fixtures nuevos de pruebas y riesgos (Quiniela con repetidos, Tómbola de 2006, "Próximo" raros); ignora "Sorteos para el día de hoy" |
+| UY-023 | **Parsers de los extractos PHP** del 5 de Oro y de la Quiniela, con sus horarios | P2, D6, D7 | Celda vacía frente a "Sin Aciertos"; horas locales con `timezone` |
+| UY-024 | **Parser del PDF de pozos** (el número de sorteo) y `core/money.py` | D6, C11 | Montos por fuente con su regex estricta; vacío = nulo; un PDF de 2016 y uno de 2026 como fixtures |
+| UY-025 | **Escritor de plata** (Parquet por año) con flags y cuarentena | D17, D21, D22, P7, P13 | Solo los 7 flags del catálogo; P7 para la Tómbola; el número de sorteo inferido con su flag; nada de columnas con tipo Parquet `Null` |
+| UY-026 | **Suites de GX** en un job aparte, con GX empaquetado como wheels | D20, P14 | Las 14 expectativas de partida corridas contra plata real antes de entrar; versión fija y suites versionadas |
+| UY-027 | **CLI y targets de Make:** `uy-backfill`, `uy-incremental`, `uy-report` y `uy-properties` | D16, D23, P11, P12 | `uy-incremental` mira 7 días más las claves no finales y pide las cuatro fuentes; todo se puede reanudar |
+| UY-028 | **Detector de huecos:** `expected_draws()` en `core/gaps.py` y la tabla `draw_gaps` | D13–D15, P10 | Reproduce sobre el bronce el 99,81 % / 99,98 % / 99,97 % de DESIGN, con el 2006-08-27 como único hueco abierto |
 
 ---
 
@@ -379,17 +382,18 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 | UY-007 | Cierre de FINDINGS.md → **G1** | **merged**, **G1 aprobado** por el owner (2026-10-16): FINDINGS.md abre con el cierre (decisiones del owner, lo que se decide en UY-010/011, huecos, contradicciones C8–C15) · **C7 decidida:** cupones solo en bronce · Decreto 635/989 leído en IMPO: el 5 de Oro nació con 01–36 y el cambio a 01–44 queda como hueco que no bloquea G1 · fixture `error` real (2019-09-25, 1 petición) con su test · C13–C15 nuevas | [#100](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/100) |
 | *Fase 2 — Diseño* | | | |
 | UY-010 | Esquema canónico, paquete, runtime, YAML y épocas | **merged** (2026-10-18): `docs/uruguay/DESIGN.md` escrito · **decisiones del owner D1–D7 aprobadas el 2026-10-16:** `src/sorteos/core/` + `src/sorteos/<iso2>/` con `country`/`operator`/`game` en plata; **Lambda 3.12, Glue Python Shell descartado** (C6); `draw_numbers` largo, clave de la Quiniela = (sorteo, posición); un YAML por juego (configuración, no dato); una época de parser por fuente; montos por fuente en `decimal(18,2)`, vacío = nulo, `currency`; **C7: plata guarda cuántos cupones ganaron** · verificado sobre el bronce: los 3 extractos tienen una sola plantilla 2006–2026 y `ver_resultados` solo cambia por el Kini (2013) y unos botones (2016-05-29) → UY-022/023 se juntan; Quiniela en orden de extracción con repetidos en el 17,5% e igual en las dos fuentes en los 10.877 sorteos; la Tómbola = terminaciones distintas de la Quiniela + reposiciones (10.846/10.877, excepciones solo en 2006) · propuestas P1–P7 esperan G2 | [#101](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/101) |
-| UY-011 | Manifiesto, backfill/incremental, pruebas y riesgos → **G2** | **en revisión (G2)** (2026-10-25): `docs/uruguay/DESIGN.md` suma 5 secciones (Manifiesto, Detector de huecos, Backfill e incremental, Calidad de datos, Pruebas y riesgos) · **decisiones del owner D8–D23** (2026-10-20/21 y 25) · **propuestas P8–P14, todas aprobadas sección por sección** (P10: tope del anuncio 7 → 14 días) · medido sobre el bronce: regla combinada 99,81 % (5 de Oro), 99,98 % (Vespertina), 99,97 % (Nocturna) · `calendar_events` 54 → 57 filas (OIS 2039, 2040 y 2041) · corrige FINDINGS: los dos 5 de Oro de 2025 "sin fecha" tienen el separador repetido | [#111](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/111) |
+| UY-011 | Manifiesto, backfill/incremental, pruebas y riesgos → **G2** | **merged** (2026-10-25), **G2 aprobado** por el owner: DESIGN.md completo con D8–D23 y P8–P14 (el detalle de lo medido está en #111) · la Fase 3 se reescribió en el PR siguiente | [#111](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/111) |
 | UY-011.1 | Fix: cupones falsos en los fixtures (C7) | **merged** (2026-10-23, #102): `scripts/uy_redact_fixture.py` reemplaza cada cupón por uno falso con la misma forma (`000000001-0`, numerado por página); los 5 cupones reales de 2 fixtures se reemplazaron; el scanner de privacidad falla ante un cupón que no empiece con `000000`. Los reales siguen en la historia de git (el owner lo aceptó: no se reescribe una rama protegida) | [#102](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/102) |
 | *Fase 3 — Construcción local* | | | |
-| UY-020 | Esqueleto, YAML y registro | todo | — |
-| UY-021 | Manifiesto y bronce local | todo | — |
-| UY-022 | Parser `ver_resultados` 2007 → 2016-06 | todo | — |
-| UY-023 | Parser `ver_resultados` desde 2016-07 | todo | — |
-| UY-024 | Parsers de extractos (HTML y PDF) | todo | — |
+| UY-020 | Esqueleto, YAML, registro y migración de `loteria_uy` | todo | — |
+| UY-021 | Manifiesto como interfaz, 3 fallas y `manual_overrides` | todo | — |
+| UY-022 | Un solo parser de `ver_resultados` (2006–2026) | todo | — |
+| UY-023 | Parsers de los extractos PHP | todo | — |
+| UY-024 | PDF de pozos y `core/money.py` | todo | — |
 | UY-025 | Plata, validaciones cruzadas y cuarentena | todo | — |
 | UY-026 | Suites de GX para UY | todo | — |
 | UY-027 | CLI y targets de Make | todo | — |
+| UY-028 | Detector de huecos (`expected_draws()` y `draw_gaps`) | todo | — |
 | *Fase 4 — Pruebas locales* | | | |
 | UY-030 | Backfill piloto (2016) | todo | — |
 | UY-031 | Backfill completo y reconciliación | todo | — |
