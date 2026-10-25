@@ -6,8 +6,8 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D7](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
-[propuestas P1–P7](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
+**Cómo leerlo.** Las [decisiones D1–D12](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
+[propuestas P1–P9](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
 y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
 
 ---
@@ -23,6 +23,11 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D5 | **Épocas del parser** | El mecanismo existe (`parser_epochs` con `valid_from` y `valid_to` en el YAML), pero se arranca con **una sola época por fuente**. Si una página no tiene la forma esperada, va a cuarentena y el parser nunca adivina. Solo se agrega una época cuando un parseo real falla. Hay un fixture por cada variante conocida, y `parser_version` va en el linaje. | El HTML de Uruguay casi no cambió en 20 años (ver [Evidencia](#evidencia-verificada-el-2026-10-16)). Lo que cambió fueron las fuentes y las reglas: el PDF desde 2018, el de pozos desde 2016, el rango del 5 de Oro en 2014 y los datos tipeados a mano en 2006. |
 | D6 | **Montos** | Un parser por **fuente** con una expresión regular estricta: `^\d{1,3}(,\d{3})*\.\d{2}$` para `ver_resultados` (estilo EE.UU.) y `^\d{1,3}(\.\d{3})*,\d{2}$` para el extracto (estilo uruguayo). Siempre `Decimal`, guardado como `decimal(18,2)` en Parquet y en el catálogo. El vacío (`$` sin monto o `0,00` de plantilla) pasa a **nulo, nunca a 0**. Lleva una columna `currency` (`'UYU'`). Plata guarda pesos nominales, y el ajuste por inflación va en oro. `ver_resultados` es la fuente principal, el extracto es el control, y si difieren queda un `dq_flag`. | Un monto como `365,323` o `1.234` es ambiguo si se lee sin saber de qué fuente vino. Lo que no encaja va a cuarentena. `currency` hace falta desde ya por D1 (Guatemala es `GTQ` y Argentina `ARS`). El PDF de pozos será un tercer formato, que se fija cuando se construya su parser (hoy hay solo 4 muestras verificadas). |
 | D7 | **C7: cuántos cupones ganaron** | Plata guarda, por premio (Oro, Plata y Revancha), la **cantidad** de cupones ganadores, nunca sus números (que siguen solo en bronce). "Sin Aciertos" es `0` y la celda vacía es **nulo**. | Permite medir qué tan común es que un pozo se reparta entre varios o que un solo cupón se lo lleve entero, y calcular el premio por cupón. Es un conteo de **cupones**, no de personas: alguien con dos cupones ganadores cuenta dos veces, y eso se aclara en el diccionario de datos. |
+| D8 | **Cinco estados en el manifiesto** | Se mantienen `draw`, `no_draw`, `not_yet_published`, `missing` y `error`. Son finales `draw`, `no_draw` y `missing`. Ver [Manifiesto](#manifiesto-uy-011). | `missing` separa un hueco de la fuente (el juego figura en `ver_resultados` pero su extracto no está) de un día sin sorteo. |
+| D9 | **El manifiesto registra lo que mostró la página** | El *settle* sigue en 3 días fijos. Lo que se esperaba ese día lo decide el detector de huecos, que es otra pieza. | Mezclar las dos cosas haría que un error del calendario esperado cambie lo que se guardó. |
+| D10 | **Correcciones manuales en una tabla aparte** | `manual_overrides`, donde cada fila cita una fila de `calendar_events`. El manifiesto no se edita a mano. | Así se conserva lo que clasificó el código y queda escrito quién corrigió qué, y por qué. |
+| D11 | **Tres fallas iguales pasan a `missing`** | Un `error` que falla igual en 3 corridas seguidas pasa a `missing` (owner, 2026-10-21). | Sin esto, los 35 PDF de pozos con error se volverían a pedir en cada corrida diaria para siempre. |
+| D12 | **El manifiesto es una interfaz** | Un `Protocol` desde UY-021, con SQLite como implementación local. DynamoDB es la candidata para la nube (UY-040). En la v1 nunca se vuelve a pedir una página final. | La Fase 5 cambia el backend sin tocar a quien lo usa. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -35,6 +40,8 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P5 | **El guard de privacidad `DET_INVALIDAS` queda en el código, nunca en el YAML.** | Un error en un archivo de configuración nunca debe poder apagar el guard. El patrón vive en `sorteos/uy/` y se le pasa al cliente HTTP, con sus tests de UY-001 sin cambios. |
 | P6 | **Se reordena la Fase 3:** UY-022 y UY-023 se juntan en un solo parser de `ver_resultados`. | Las dos épocas que suponía el roadmap no existen (D5 y [Evidencia](#la-estructura-del-html-casi-no-cambió)). Ver [Impacto en la Fase 3](#impacto-en-la-fase-3). |
 | P7 | **`is_replacement` se define con los datos:** un número de la Tómbola es reposición si no está entre las dos últimas cifras de los 20 números de esa Quiniela. | Así se cumple en el 99,7% de los sorteos, y todas las excepciones son de 2006 ([Evidencia](#la-tómbola-sale-de-la-quiniela)). El mecanismo exacto (cómo se sortean las reposiciones) es una **hipótesis** hasta leer el reglamento. Lo que plata guarda no depende de ella. |
+| P8 | **"Falla igual" quiere decir la misma firma**: el mismo `http_status` y el mismo `content_sha256`, o el mismo `detail` si no hubo respuesta. Se cuenta sobre las 3 últimas filas de `fetch_log` de esa clave, y la regla vale para **todas** las fuentes. | Un 403 que siempre devuelve los mismos 146 bytes es un archivo que no está. Un 403 distinto, o un timeout, puede ser un mal momento del sitio, y no debe cerrar la puerta. Ver [Manifiesto](#manifiesto-uy-011). |
+| P9 | **`manual_overrides` es un CSV versionado en git**, junto a `calendar_events`, y el estado efectivo es el de la corrección cuando existe. | Es el mismo tratamiento que `calendar_events`: un cambio es una decisión revisada en un PR, no una edición de una base local. |
 
 ---
 
@@ -387,6 +394,123 @@ def parse_amount(text: str, style: Literal["us", "uy"]) -> Decimal | None: ...
 
 ---
 
+## Manifiesto (UY-011)
+
+El manifiesto es la memoria de la ingesta: para cada fuente y fecha guarda **qué pidió, qué
+respondió el sitio y qué concluyó el clasificador**. Es lo que evita pedir dos veces lo mismo y lo
+que permite reanudar un backfill cortado. No es el calendario: qué *debería* haber habido ese día lo
+decide el detector de huecos, que lee el manifiesto pero no lo escribe (D9).
+
+### Lo que ya existe (UY-001, verificado)
+
+`src/loteria_uy/bronze.py` tiene dos tablas SQLite. `manifest` guarda una fila por
+(`source`, `draw_date`) con su estado, el HTTP status, el hash de los bytes (`content_sha256`),
+`attempts` y las fechas del primer y del último pedido. `fetch_log` guarda una fila por **cada**
+pedido, también los repetidos. Bronce guarda bytes solo para los `draw`.
+
+| Estado | Qué significa | ¿Final? | Hoy en el manifiesto |
+|---|---|---|---|
+| `draw` | Hay sorteo, y los bytes están en bronce | Sí | 21.173 |
+| `no_draw` | `ver_resultados` vacío y con más de 3 días: ese día no hubo juegos | Sí | 458 |
+| `not_yet_published` | Vacío, pero con menos de 3 días: se vuelve a pedir | No | 0 |
+| `missing` | El juego figura en `ver_resultados` pero su fuente no tiene nada | Sí | 2 |
+| `error` | El pedido o la clasificación fallaron: se vuelve a pedir | No | 39 |
+
+Cifras medidas el 2026-10-25 sobre el manifiesto local, en solo lectura y sin peticiones nuevas
+(21.672 claves, 21.677 pedidos en tres corridas: 2026-10-04, 10-14 y 10-21).
+
+- **El *settle* funciona (observado).** Solo una clave pasó alguna vez por `not_yet_published`, y
+  terminó en `draw` en la corrida siguiente.
+- **Los dos `missing` son PDF de extracto que respondieron 404** (2019-01-07 y 2022-06-01).
+  `classify_pdf` trata el 404 como vacío, así que después del *settle* el hueco queda registrado
+  como final.
+- **Los 39 `error` son dos grupos.** Por un lado los 4 días del paro de AFAL de 2019 en
+  `resultados` (25, 26, 27 y 30 de septiembre, con `attempts = 2`), que el clasificador marca bien
+  porque la página no se entiende ([FINDINGS, Q2](FINDINGS.md#los-4-días-error-de-septiembre-de-2019-paro-verificado)).
+  Por otro, 35 PDF de pozos: **34 respondieron 403 con los mismos 146 bytes** (un solo
+  `content_sha256`), y uno respondió 200 con 0 bytes. No es el 404 de los `missing`: el cuerpo es
+  otro, así que el clasificador no puede tratarlos igual sin una regla nueva.
+
+### El problema: un `error` se pide para siempre
+
+Como `error` no es final, cada corrida vuelve a pedir esas 39 claves. En el backfill da igual,
+pero en el incremental diario (una corrida al día, decidido el 2026-10-20) serían 39 peticiones inútiles por día, y
+cada día que la DNLQ deje un PDF roto suma una más. Además, `attempts` cuenta todos los pedidos de
+la clave, no cuántas veces seguidas falló de la misma forma, así que no alcanza para decidir.
+
+### Tres fallas iguales pasan a `missing` (D11, P8)
+
+Cuando un pedido da `error`, se miran las **3 últimas filas de `fetch_log`** de esa clave. Si las
+tres son `error` con la **misma firma**, la clave pasa a `missing`, queda registrada y se informa
+igual que cualquier otro `missing`.
+
+- **Firma:** (`http_status`, `content_sha256`). Si no hubo respuesta (timeout, conexión), es el
+  `detail` del error.
+- **Por qué la firma y no solo el contador:** un 403 que siempre devuelve los mismos 146 bytes es
+  un archivo que no está. Un 403 con otro cuerpo, o un timeout, puede ser un mal momento del sitio.
+  Contar sin mirar la firma cerraría la puerta por tres cortes de luz.
+- **Vale para todas las fuentes (P8).** También para `resultados`, aunque ahí las correcciones
+  manuales llegan antes. Sin la regla, un `error` de `resultados` que nadie corrige se pediría para
+  siempre.
+- **Se puede deshacer.** `--refresh` sigue existiendo como herramienta manual para volver a pedir
+  una clave final. En la v1 ninguna corrida automática lo usa (D12).
+
+**Con los datos de hoy (observado):** los 35 PDF de pozos tienen `attempts = 1`, así que pasarían a
+`missing` después de dos corridas más con la misma respuesta. El 200 con 0 bytes también tiene una
+firma estable (el hash del contenido vacío), así que entra en la misma regla.
+
+### Correcciones manuales: `manual_overrides` (D10, P9)
+
+Hay días que el clasificador marca bien como `error`, pero que una persona puede explicar: el paro
+de 2019 es el caso conocido. Para esos casos hay una tabla aparte, y **el manifiesto nunca se edita
+a mano.**
+
+| Columna | Ejemplo |
+|---|---|
+| `source` | `resultados` |
+| `draw_date` | `2019-09-25` |
+| `state` | `no_draw` |
+| `calendar_event_date` | `2019-09-25`, la fila de `calendar_events` que lo explica |
+| `reason` | `paro parcial de AFAL (OIS 2036)` |
+| `decided_by` / `decided_on` | `owner` / `2026-10-20` |
+
+- **El estado efectivo** de una clave es el de su corrección, si tiene una, y si no el del
+  manifiesto. El backfill salta las claves cuyo estado efectivo es final, así que un día corregido
+  deja de pedirse.
+- **Por qué aparte:** si la corrección viviera en la fila del manifiesto, un `--refresh` la
+  borraría, y se perdería lo que el código clasificó de verdad. Así quedan las dos cosas: lo que vio
+  el clasificador y lo que decidió una persona, con su fuente.
+- **Dónde vive:** `src/sorteos/uy/reference/manual_overrides.csv`, al lado de `calendar_events`.
+  Es un dato de referencia revisado en un PR, igual que
+  [`game_rules` y `calendar_events`](#game_rules-y-calendar_events).
+- **Un `error` nuevo sigue pidiendo revisión humana.** La tabla no tiene comodines: cada fila es una
+  fuente y una fecha.
+
+### Una interfaz, dos backends (D12)
+
+UY-021 define `Manifest` como un `Protocol` con lo que la ingesta usa hoy: `get`, `record`, el
+estado efectivo y el historial de una clave. SQLite es la implementación local. **DynamoDB es la
+candidata para UY-040**: clave de partición `source`, clave de orden `draw_date`, y el historial en
+una tabla aparte o como ítems con sufijo. Esa elección se cierra en la Fase 5, no aquí.
+
+### Lo que el manifiesto no hace
+
+- **No guarda el hash de los datos.** `content_sha256` es el hash de los bytes. El hash de las
+  filas canónicas que produce el parser va en el linaje de plata (UY-025), porque dos páginas con
+  bytes distintos pueden traer los mismos datos.
+- **No infiere el número de sorteo.** Cuando falta un PDF de pozos, el número se infiere en plata a
+  partir de los vecinos consecutivos, con `dq_flags: draw_number_inferred` (owner,
+  2026-10-21). Eso es del parser y del escritor de plata, no del manifiesto.
+- **No decide si faltó un sorteo.** Eso es del detector de huecos.
+
+### Pendiente para G2
+
+- **El 2019-09-30 no tiene fila en `calendar_events`.** Es uno de los 4 días del paro, pero
+  [`calendar_events.csv`](drafts/calendar_events.csv) solo trae el 25, el 26 y el 27, con su OIS.
+  Su corrección necesita algo que citar: la nota de
+  [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas) ("había
+  decretado un paro desde la semana pasada") o un OIS de ese día, si existe.
+
 ## Impacto en la Fase 3
 
 Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
@@ -394,7 +518,7 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 | PR | Antes | Ahora |
 |---|---|---|
 | UY-020 | Esqueleto, YAML y registro | Igual, más la [migración](#migración-desde-srcloteria_uy-en-uy-020) y el test de oro de las URLs |
-| UY-021 | Manifiesto y bronce con rutas `game=…/draw_date=…` | Lo que UY-011 decida del manifiesto (estados y reintentos). **El bronce no se mueve** (P3) |
+| UY-021 | Manifiesto y bronce con rutas `game=…/draw_date=…` | El `Protocol`, la regla de las 3 fallas y `manual_overrides` ([Manifiesto](#manifiesto-uy-011)). **El bronce no se mueve** (P3) |
 | UY-022 | Parser de `ver_resultados` 2007 → 2016-06 | **Un solo parser de `ver_resultados`** para 2006–2026 |
 | UY-023 | Parser de `ver_resultados` desde 2016-07 | **Parsers de los extractos PHP** (5 de Oro y Quiniela con horarios) |
 | UY-024 | Parsers de extractos (HTML y PDF) | **Parser del PDF de pozos** (número de sorteo) y `core/money.py` completo |
@@ -402,8 +526,8 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 
 ## Lo que queda para UY-011
 
-- El manifiesto: estados, la transición `not_yet_published` → `no_draw` y la corrección manual de
-  los 4 días de 2019 (propuesta 2 de FINDINGS).
+- ~~El manifiesto~~: escrito en [Manifiesto](#manifiesto-uy-011), salvo la fila de
+  `calendar_events` del 2019-09-30.
 - El detector de huecos: "Próximo sorteo" más `calendar_events` (propuesta 3 de FINDINGS).
 - Backfill e incremental: horarios, reanudación e idempotencia.
 - El catálogo completo de `dq_flags` y las suites de GX.
