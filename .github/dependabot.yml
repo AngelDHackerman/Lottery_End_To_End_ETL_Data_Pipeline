@@ -1,0 +1,42 @@
+# PR-053. Version and security updates, so a CVE in a dependency reaches us as a PR instead
+# of as a news item. The 2026-10-24 audit found urllib3 CVE-2026-97689 by reading the news;
+# the deployed layer was safe only because PR-046's lock happened to pin the fixed release.
+#
+# Weekly and capped, because every PR here costs a review and a CI run, and two kinds will be
+# red on arrival BY DESIGN — read the failure before closing the PR:
+#   - great-expectations: the committed suites under qa/great_expectations/ record the GX
+#     version, and tests/unit/test_dq_suites.py fails on an un-synced bump (pyproject.toml,
+#     PR-034). Bumping GX means changing its three pins together and running `make dq-sync`.
+#   - requirements/extractor.txt: CI's "lock is in sync" check fails until someone runs
+#     `make lock` and commits requirements/extractor.lock (PR-046). Dependabot does not
+#     regenerate that lock, so that half stays manual.
+version: 2
+updates:
+  # Every `uses:` is pinned to a commit SHA with its version in a comment (PR-053), so a tag
+  # moved by whoever controls the action's repository cannot change what runs here. Dependabot
+  # reads the comment and proposes the new SHA together with the new version.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # pyproject.toml: the dev and dq extras (pytest, moto, ruff, GX...).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+
+  # What actually ships: extractor.txt (the Lambda layer's input), glue.txt and dq.txt.
+  - package-ecosystem: "pip"
+    directory: "/requirements"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
