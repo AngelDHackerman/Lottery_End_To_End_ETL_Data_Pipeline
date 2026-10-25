@@ -183,6 +183,86 @@ class TestFetchViaProxyTelemetry:
 
 
 # ==========================================================================================
+# PR-051 — the token never leaves in an exception
+# ==========================================================================================
+def _raised_by(scraping_module, exc: Exception) -> BaseException:
+    """What fetch_via_proxy raises when requests.get raises ``exc``."""
+    with (
+        patch.object(scraping_module.requests, "get", side_effect=exc),
+        patch.object(scraping_module, "record_scraper_no_response"),
+        pytest.raises(BaseException) as excinfo,
+    ):
+        scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
+    return excinfo.value
+
+
+class TestTheTokenNeverLeavesInAnError:
+    TOKEN = FAKE_SECRETS["scrape_do_token"]
+
+    def test_a_real_connection_error_is_scrubbed(self, scraping_module):
+        """Through the real requests stack, so the test breaks if its message format moves.
+
+        Port 9 (discard) on loopback refuses at once; nothing leaves the machine.
+        """
+        with (
+            patch.object(scraping_module, "BASE_PROXY_URL", "http://127.0.0.1:9/"),
+            patch.object(scraping_module, "record_scraper_no_response"),
+            pytest.raises(requests.exceptions.ConnectionError) as excinfo,
+        ):
+            scraping_module.fetch_via_proxy("https://loteria.org.gt/site/award")
+
+        assert "token=***" in str(excinfo.value)
+        assert self.TOKEN not in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "exc_type",
+        [
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ReadTimeout,
+        ],
+    )
+    def test_the_class_survives_so_the_retry_still_engages(self, scraping_module, exc_type):
+        """Step Functions matches the exact errorType; a wrapper would silently stop it."""
+        raised = _raised_by(scraping_module, exc_type(f"with url: /?token={self.TOKEN}"))
+
+        assert type(raised) is exc_type
+        assert f'"{exc_type.__name__}"' in _extractor_retry_block()
+
+    def test_nothing_unscrubbed_is_chained(self, scraping_module):
+        """What the Lambda runtime prints is the whole chain, not just the last message."""
+        import traceback
+
+        raised = _raised_by(
+            scraping_module, requests.exceptions.ConnectionError(f"/?token={self.TOKEN}&x=1")
+        )
+        printed = "".join(traceback.format_exception(raised))
+
+        assert raised.__cause__ is None
+        assert raised.__suppress_context__
+        assert self.TOKEN not in printed
+
+    def test_the_url_encoded_form_is_scrubbed_too(self, scraping_module):
+        with patch.object(scraping_module, "SCRAPE_DO_TOKEN", "tok/en+1"):
+            raised = _raised_by(
+                scraping_module, requests.exceptions.ConnectionError("/?token=tok%2Fen%2B1")
+            )
+
+        assert str(raised) == "/?token=***"
+
+    def test_a_class_that_cannot_take_a_message_still_scrubs(self, scraping_module):
+        """requests' JSONDecodeError needs (msg, doc, pos); get() never raises it, but a
+        TypeError inside the except would chain the original — token included."""
+        original = requests.exceptions.JSONDecodeError(f"token={self.TOKEN}", "", 0)
+
+        raised = _raised_by(scraping_module, original)
+
+        assert type(raised) is requests.exceptions.RequestException
+        assert self.TOKEN not in str(raised)
+        assert raised.__context__ is None or raised.__suppress_context__
+
+
+# ==========================================================================================
 # PR-047 — which proxy failures the state machine retries
 # ==========================================================================================
 REPO = Path(__file__).parents[2]
