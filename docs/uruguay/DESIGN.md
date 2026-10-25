@@ -29,7 +29,7 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D11 | **Tres fallas iguales pasan a `missing`** | Un `error` que falla igual en 3 corridas seguidas pasa a `missing` (owner, 2026-10-21). | Sin esto, los 35 PDF de pozos con error se volverían a pedir en cada corrida diaria para siempre. |
 | D12 | **El manifiesto es una interfaz** | Un `Protocol` desde UY-021, con SQLite como implementación local. DynamoDB es la candidata para la nube (UY-040). En la v1 nunca se vuelve a pedir una página final. | La Fase 5 cambia el backend sin tocar a quien lo usa. |
 | D13 | **Un solo detector de huecos** | Una función pura, `expected_draws()`, que usan tanto el reporte del backfill como la alarma del incremental. Su salida es la tabla de plata `draw_gaps`. Ver [Detector de huecos](#detector-de-huecos-uy-011). | Si el reporte y la alarma tuvieran cada uno su lógica, tarde o temprano dirían cosas distintas sobre el mismo día. |
-| D14 | **La regla combinada** (Q7, 2026-10-21) | Se espera la fecha que anunció el sorteo anterior si cae en (anterior, anterior + 7 días]; si no, el siguiente día del calendario del juego. Hay hueco si no hay sorteo entre esa fecha y 3 días después. Un anuncio descartado lleva `next_draw_implausible`. Las fechas se leen aceptando cualquier separador, sin corregir nunca un dígito. | Ninguna de las dos fuentes alcanza sola. El anuncio acierta el 98 % y el calendario no ve feriados ni traslados; combinadas pasan del 99,7 %. |
+| D14 | **La regla combinada** (Q7, 2026-10-21) | Se espera la fecha que anunció el sorteo anterior si cae en (anterior, anterior + 14 días] (el tope pasó de 7 a 14 con P10, aprobada el 2026-10-25); si no, el siguiente día del calendario del juego. Hay hueco si no hay sorteo entre esa fecha y 3 días después. Un anuncio descartado lleva `next_draw_implausible`. Las fechas se leen aceptando cualquier separador, sin corregir nunca un dígito. | Ninguna de las dos fuentes alcanza sola. El anuncio acierta el 98 % y el calendario no ve feriados ni traslados; combinadas pasan del 99,7 %. |
 | D15 | **Los huecos conocidos son filas de `calendar_events`** | Semana de Turismo, fin de año, paros y duelos se explican con una fila, nunca con una excepción en el código. | Un hueco explicado queda en `draw_gaps` con su causa, y uno sin explicar es el que alarma. |
 
 ## Propuestas de este documento (se aprueban en G2)
@@ -45,7 +45,7 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P7 | **`is_replacement` se define con los datos:** un número de la Tómbola es reposición si no está entre las dos últimas cifras de los 20 números de esa Quiniela. | Así se cumple en el 99,7% de los sorteos, y todas las excepciones son de 2006 ([Evidencia](#la-tómbola-sale-de-la-quiniela)). El mecanismo exacto (cómo se sortean las reposiciones) es una **hipótesis** hasta leer el reglamento. Lo que plata guarda no depende de ella. |
 | P8 | **"Falla igual" quiere decir la misma firma**: el mismo `http_status` y el mismo `content_sha256`, o el mismo `detail` si no hubo respuesta. Se cuenta sobre las 3 últimas filas de `fetch_log` de esa clave, y la regla vale para **todas** las fuentes. | Un 403 que siempre devuelve los mismos 146 bytes es un archivo que no está. Un 403 distinto, o un timeout, puede ser un mal momento del sitio, y no debe cerrar la puerta. Ver [Manifiesto](#manifiesto-uy-011). |
 | P9 | **`manual_overrides` es un CSV versionado en git**, junto a `calendar_events`, y el estado efectivo es el de la corrección cuando existe. | Es el mismo tratamiento que `calendar_events`: un cambio es una decisión revisada en un PR, no una edición de una base local. |
-| P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 19 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
+| P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** **Aprobada por el owner el 2026-10-25.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 19 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
 
 ---
 
@@ -540,7 +540,7 @@ fecha de hoy, que llega como argumento.
 ### La regla (D14)
 
 1. **Fecha esperada.** Si el sorteo anterior anunció una fecha y esa fecha cae en
-   (anterior, anterior + 7 días], se espera esa. Si no anunció nada, o anunció algo imposible, se
+   (anterior, anterior + 14 días], se espera esa ([P10](#cuánto-creerle-a-un-anuncio-p10)). Si no anunció nada, o anunció algo imposible, se
    espera el siguiente día de `calendar.weekdays` (miércoles o domingo para el 5 de Oro, por
    ejemplo).
 2. **Ventana.** El sorteo cuenta si ocurre entre la fecha esperada y 3 días después, porque la
@@ -565,7 +565,7 @@ Con un script desechable sobre el bronce local y el manifiesto en solo lectura, 
 Cada par es un sorteo y el siguiente del mismo juego. Las cifras de la Quiniela repiten las de la
 medición del 2026-10-21.
 
-| Juego | Pares | Aciertos (tope 7 días) | Aciertos (tope 14 días, P10) |
+| Juego | Pares | Aciertos con el tope anterior (7 días) | Aciertos con el tope de 14 días (P10) |
 |---|---|---|---|
 | 5 de Oro | 2.076 (2006-08-16 → 2026-10-18) | 99,71 % (2.070) | 99,81 % (2.072) |
 | Quiniela Vespertina | 4.953 (2006-08-16 → 2026-10-20) | 99,96 % (4.951) | 99,98 % (4.952) |
@@ -587,7 +587,7 @@ sorteo anterior ya anunciaba la fecha correcta, después del feriado, así que n
 
 ### Cuánto creerle a un anuncio (P10)
 
-El tope de 7 días existe para descartar los errores de tipeo. Con ese tope se descartan 23
+El tope existe para descartar los errores de tipeo. Con el tope original de 7 días se descartan 23
 anuncios, pero **4 eran correctos**: la Semana de Turismo 2020 (el 3, 4 y 5 de abril anunciaron el
 13, con 8 a 10 días de anticipación) y el fin de año 2022 (el 2022-12-21 anunció el 2023-01-03,
 con 13). Al descartarlos, el detector espera un sorteo que la DNLQ ya había dicho que no iba a
@@ -597,8 +597,8 @@ el sorteo queda marcado con `next_draw_implausible` cuando su anuncio era correc
 Los otros 19 son errores de verdad: año equivocado (`2008` por `2009`, `2013` por `2023`), mes
 equivocado (`16/12` por `16/11`), dígitos de más o de menos (`25007`, `2208`, `203`) y un anuncio
 con la misma fecha del sorteo. **El más cercano está a 31 días** (2010-11-11 anuncia el
-2010-12-12), así que un tope de 14 días acepta los 4 correctos y sigue descartando los 19. La
-propuesta es usar 14.
+2010-12-12), así que un tope de 14 días acepta los 4 correctos y sigue descartando los 19. **El
+owner aprobó usar 14 el 2026-10-25.**
 
 ### `draw_gaps`
 
