@@ -15,7 +15,7 @@
 # on Python 3.9 makes pip fall back to the great-expectations 0.18 line, whose API bears no
 # resemblance to the one `src/loteria/dq` is written against — it would install cleanly and
 # then fail at import. PR-033 must pick a 3.10+ runtime; see the note in pyproject.toml.
-great-expectations==1.20.0
+great-expectations==1.24.1
 pandas==3.1.0
 pyarrow==20.0.0
 # boto3 is deliberately absent, same as extractor.txt and glue.txt: every AWS runtime we
