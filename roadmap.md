@@ -3933,6 +3933,27 @@ urllib3 CVE of that week was found by reading the news.
 > - Not done here: Dependabot *alerts* are a repository setting (Settings → Code security), not
 >   part of this file.
 
+> **PR-053.1 outcome (2026-10-26).** Built, no AWS change. Dependabot scoped to what is installed.
+>
+> - The first run opened 11 PRs (#115–#125) the moment the file reached `master`. Only #125
+>   (Actions) was right as proposed: its 6 SHAs were checked against their tags and the steps CI
+>   never runs (`github-script` on a canary failure, `upload-artifact`) against the release
+>   notes, and it was merged.
+> - The `/` entry already scans `requirements/*.txt`, so the `/requirements` entry only
+>   duplicated every pip bump. Removed.
+> - `requirements/glue.txt` and `requirements/dq.txt` are excluded: nothing installs either.
+>   glue.txt records what Glue Python Shell 3.9 ships (pandas 3.1 would describe a runtime we do
+>   not have); dq.txt mirrors the Terraform variable the DQ job installs GX from.
+> - `great-expectations` is ignored: its upgrade is the three pins, `make dq-sync`,
+>   `great_expectations_version` and an apply, and a bot can do only the first. #117 (GX 1.24)
+>   was closed unmerged for that reason.
+> - #115 (pandas 3.1.0 in dq.txt and glue.txt) and #116 (python-dateutil 3.0.0 in glue.txt)
+>   were merged before this landed. Both files are restored here to pandas 2.2.3 and
+>   python-dateutil 2.9.0.post0. No AWS effect either way, since nothing installs them; the
+>   exclusion above keeps them from being bumped again.
+> - What remains (requests and beautifulsoup4 in `extractor.txt`) arrives as one grouped PR a
+>   week, red until `make lock` is run on its branch.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -4033,4 +4054,5 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 050 | **ruff could rewrite Glue code into 3.10+** — per-file-ignores for the 3.9/3.11 trees + a test that derives the transform job's import closure. Filed in PR-045.1 | **merged** (2026-10-04), no AWS change | [PR #81](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/81) |
 | 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **applied + verified** (2026-10-25) — the owner's `make deploy`; the deployed `loteria/extractor/scraping.py` has `BASE_PROXY_URL = "https://api.scrape.do/"` and `_scrubbed`. The first real HTTPS fetch is the Thursday 2026-10-29 run. Built: re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |
 | 052 | **SageMaker removed** — the always-created `lottery-sagemaker-execution-role-prod` (AmazonSageMakerFullAccess + CloudWatchLogsFullAccess), its 2 policies, 4 attachments, the `sm-studio-sg-prod` SG, `module.sagemaker`, `enable_sagemaker` and `make sagemaker`. Found in the 2026-10-24 security audit; the owner never used it after the simple bucket went | **applied + verified** (2026-10-25) — the owner's `make deploy` (`0/3/8`); the role is `NoSuchEntity` afterwards. Both domains, the 12 QuickSetup roles, 2 empty buckets, a log group and the projects portfolio were deleted by hand with the owner's approval; only the account's service-linked role and another project's role remain. Built: read-only plan `0/3/8`: the 8 SageMaker destroys + PR-051's extractor update + the known `gold_purge` phantom. The two domains outside Terraform are deleted by the owner, by hand | [PR #109](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/109) |
-| 053 | **CI supply chain** — every GitHub Action pinned to a commit SHA (26 references, each verified to sit on its repository's default or release branch) and a `.github/dependabot.yml` for Actions and pip. Findings B and E of the 2026-10-24 security audit | **built** (2026-10-25), no AWS change | [PR #113](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/113) |
+| 053 | **CI supply chain** — every GitHub Action pinned to a commit SHA (26 references, each verified to sit on its repository's default or release branch) and a `.github/dependabot.yml` for Actions and pip. Findings B and E of the 2026-10-24 security audit | **merged** (2026-10-25), no AWS change | [PR #113](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/113) |
+| 053.1 | **Dependabot scoped to what is installed** — its first run opened 11 PRs, mostly duplicates and bumps of files nothing installs. One pip entry, `glue.txt` and `dq.txt` excluded, great-expectations ignored, pip grouped | **built** (2026-10-26), no AWS change | [PR #126](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/126) |
