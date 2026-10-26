@@ -7,4 +7,4 @@
 # the layer hash moves, so the recompile is its own reviewable plan — which is the whole
 # point. Editing this file without recompiling is caught by CI (`lock in sync with input`).
 beautifulsoup4==4.13.4
-requests==2.32.4
+requests==2.34.2
