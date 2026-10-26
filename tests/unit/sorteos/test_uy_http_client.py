@@ -12,8 +12,9 @@ from sorteos.core.http_client import (
     FetchError,
     PoliteClient,
     _RateLimiter,
-    blocked_pattern,
 )
+from sorteos.uy import privacy
+from sorteos.uy.privacy import blocked_pattern
 
 # The three files the brief lists as EXCLUDED. Strings only: nothing here may fetch them.
 EXCLUDED = [
@@ -51,7 +52,7 @@ class FakeSession:
 
 def client(session, **kwargs) -> PoliteClient:
     kwargs.setdefault("sleep", lambda _s: None)
-    return PoliteClient(session=session, **kwargs)
+    return privacy.polite_client(session=session, **kwargs)
 
 
 @pytest.mark.parametrize("url", EXCLUDED)
@@ -172,7 +173,7 @@ def test_a_404_is_returned_not_retried():
 
 def test_faster_than_one_request_per_second_is_refused():
     with pytest.raises(ValueError):
-        PoliteClient(min_interval=0.5, session=FakeSession({}))
+        privacy.polite_client(min_interval=0.5, session=FakeSession({}))
 
 
 def test_rate_limiter_spaces_request_starts():
@@ -188,3 +189,52 @@ def test_rate_limiter_spaces_request_starts():
     now[0] += 0.25
     limiter.wait(1.0, clock=lambda: now[0], sleep=sleep)
     assert slept == [pytest.approx(0.75)]
+
+
+# --- The blocklist is the caller's, and it has no default (UY-020; DESIGN.md, P5) ---------
+
+
+def test_a_client_cannot_be_built_without_a_blocklist():
+    with pytest.raises(TypeError, match="blocklist"):
+        PoliteClient(session=FakeSession({}))
+
+
+def test_a_single_string_is_refused_not_iterated_letter_by_letter():
+    with pytest.raises(TypeError, match="not a single string"):
+        PoliteClient(blocklist="DET_INVALIDAS", session=FakeSession({}))
+
+
+@pytest.mark.parametrize("bad", ["", "   ", None, 7])
+def test_an_empty_or_non_text_pattern_is_refused(bad):
+    # An empty pattern would match every URL; anything not a string is a mistake.
+    with pytest.raises(ValueError, match="non-empty strings"):
+        PoliteClient(blocklist=("DET_INVALIDAS", bad), session=FakeSession({}))
+
+
+def test_an_empty_blocklist_is_allowed_when_said_out_loud():
+    url = "https://example.test/DET_INVALIDAS.pdf"
+    session = FakeSession({url: [response(200)]})
+    no_guard = PoliteClient(blocklist=(), session=session, sleep=lambda _s: None)
+    assert no_guard.get(url).status == 200
+
+
+def test_patterns_are_matched_whatever_case_they_were_given_in():
+    session = FakeSession({})
+    lower = PoliteClient(blocklist=("det_invalidas",), session=session, sleep=lambda _s: None)
+    assert lower.blocklist == ("DET_INVALIDAS",)
+    with pytest.raises(BlockedURLError):
+        lower.get(EXCLUDED[0])
+    assert session.calls == []
+
+
+def test_the_uruguayan_client_always_carries_the_uruguayan_blocklist():
+    assert privacy.polite_client(session=FakeSession({})).blocklist == ("DET_INVALIDAS",)
+    # And it cannot be swapped for another one on the way in.
+    with pytest.raises(TypeError):
+        privacy.polite_client(blocklist=(), session=FakeSession({}))
+
+
+def test_the_core_guard_knows_no_country():
+    # The pattern lives in sorteos.uy.privacy only; core would match nothing on its own.
+    assert not hasattr(http_client, "BLOCKED_PATTERNS")
+    assert http_client.blocked_pattern(EXCLUDED[0], ()) is None

@@ -1,10 +1,11 @@
-"""The only door this package has to the network (UY-001).
+"""The only door ``sorteos`` has to the network (UY-001).
 
 Three properties, each enforced here so no caller can forget them:
 
-1. **Privacy blocklist.** The DNLQ publishes ``*_DET_INVALIDAS_*`` PDFs next to its
-   results, and they carry a "Cédula Id." column — national ID numbers tied to voided
-   phone bets. Nothing matching ``DET_INVALIDAS`` is requested, followed through a
+1. **Privacy blocklist.** Every client is built with the URL patterns it must never touch,
+   and there is no default: a country with nothing to hide passes ``blocklist=()`` out
+   loud. The patterns themselves live with each country, in code and never in a YAML
+   (``sorteos.uy.privacy``; DESIGN.md, P5). A match is never requested, followed through a
    redirect, stored or logged. The check runs BEFORE a socket is opened, against the
    percent-decoded URL, case-insensitively, and again on every redirect hop (redirects are
    followed by hand for exactly that reason). A blocked URL is logged by pattern only,
@@ -28,6 +29,7 @@ import random
 import re
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import unquote, urljoin
@@ -35,8 +37,6 @@ from urllib.parse import unquote, urljoin
 import requests
 
 logger = logging.getLogger(__name__)
-
-BLOCKED_PATTERNS = ("DET_INVALIDAS",)
 
 DEFAULT_CONTACT = "https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline"
 USER_AGENT_TEMPLATE = "loteria-uy-research/0.1 (data-engineering portfolio; +{contact})"
@@ -58,11 +58,26 @@ class FetchError(RuntimeError):
     """The request could not be completed after every retry."""
 
 
-def blocked_pattern(url: str) -> str | None:
-    """Return the blocklist pattern ``url`` matches, or None.
+def checked_blocklist(blocklist: Sequence[str]) -> tuple[str, ...]:
+    """Validate a blocklist and return it upper-cased.
+
+    A bare string is refused rather than iterated: ``"DET_INVALIDAS"`` would otherwise turn
+    into thirteen one-letter patterns. An empty pattern would match every URL.
+    """
+    if isinstance(blocklist, str):
+        raise TypeError("blocklist is a sequence of patterns, not a single string")
+    patterns = tuple(blocklist)
+    for pattern in patterns:
+        if not isinstance(pattern, str) or not pattern.strip():
+            raise ValueError(f"blocklist patterns must be non-empty strings, got {pattern!r}")
+    return tuple(p.upper() for p in patterns)
+
+
+def blocked_pattern(url: str, blocklist: Sequence[str]) -> str | None:
+    """Return the pattern of ``blocklist`` that ``url`` matches, or None.
 
     Decoded repeatedly so ``%5F`` / ``%255F`` tricks cannot hide an underscore, and compared
-    upper-case because the site serves the same file as ``.PDF`` and ``.pdf``.
+    upper-case because a site may serve the same file as ``.PDF`` and ``.pdf``.
     """
     text = url
     for _ in range(3):
@@ -71,14 +86,14 @@ def blocked_pattern(url: str) -> str | None:
             break
         text = decoded
     upper = text.upper()
-    for pattern in BLOCKED_PATTERNS:
+    for pattern in checked_blocklist(blocklist):
         if pattern in upper:
             return pattern
     return None
 
 
-def assert_allowed(url: str) -> None:
-    pattern = blocked_pattern(url)
+def assert_allowed(url: str, blocklist: Sequence[str]) -> None:
+    pattern = blocked_pattern(url, blocklist)
     if pattern is not None:
         logger.warning("blocked request", extra={"blocked_url_pattern": pattern})
         raise BlockedURLError(pattern)
@@ -119,6 +134,7 @@ class PoliteClient:
     def __init__(
         self,
         *,
+        blocklist: Sequence[str],
         min_interval: float = 1.0,
         max_retries: int = 5,
         backoff_base: float = 2.0,
@@ -130,6 +146,7 @@ class PoliteClient:
     ) -> None:
         if min_interval < 1.0:
             raise ValueError("min_interval below 1 s breaks the courtesy rule (1 req/s)")
+        self.blocklist = checked_blocklist(blocklist)
         self.min_interval = min_interval
         self.max_retries = max_retries
         self.backoff_base = backoff_base
@@ -144,7 +161,7 @@ class PoliteClient:
     def get(self, url: str) -> FetchResult:
         """GET ``url`` politely. Returns any final status (callers judge a 404); raises
         FetchError only when retries are exhausted on 429/5xx/transport errors."""
-        assert_allowed(url)
+        assert_allowed(url, self.blocklist)
         attempt = 0
         while True:
             try:
@@ -174,7 +191,7 @@ class PoliteClient:
     def _get_following_redirects(self, url: str) -> FetchResult:
         current = url
         for _ in range(MAX_REDIRECTS + 1):
-            assert_allowed(current)
+            assert_allowed(current, self.blocklist)
             _GLOBAL_LIMITER.wait(self.min_interval, sleep=self._sleep)
             started = time.monotonic()
             response = self._session.get(current, timeout=self.timeout, allow_redirects=False)

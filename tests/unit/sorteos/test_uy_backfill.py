@@ -57,7 +57,7 @@ def july_2016() -> dict:
 @pytest.fixture
 def stores(tmp_path):
     manifest = bronze.Manifest(tmp_path / "manifest.sqlite")
-    yield bronze.BronzeStore(tmp_path), manifest
+    yield bronze.BronzeStore(tmp_path, "uy"), manifest
     manifest.close()
 
 
@@ -231,6 +231,25 @@ def test_main_runs_and_reports(tmp_path, monkeypatch, capsys, root_logger_restor
     assert len(client.calls) == 7  # --report requested nothing
 
 
+def test_main_builds_its_client_through_the_privacy_module(
+    tmp_path, monkeypatch, root_logger_restored
+):
+    # Without an injected client, main() must get the one that carries DET_INVALIDAS, never a
+    # bare PoliteClient (DESIGN.md, P5).
+    monkeypatch.setattr(backfill, "today_in_uruguay", lambda: date(2026, 10, 4))
+    built = []
+
+    def polite_client(**kwargs):
+        built.append(kwargs)
+        return FakeClient(july_2016())
+
+    monkeypatch.setattr(backfill.privacy, "polite_client", polite_client)
+    argv = ["--start", "2016-07-06", "--end", "2016-07-06", "--root", str(tmp_path)]
+    assert backfill.main(argv) == 0
+    assert built == [{}]
+    assert list(tmp_path.glob("bronze/country=uy/source=resultados/year=2016/*.html"))
+
+
 def test_manifest_keeps_a_log_of_every_attempt(stores):
     _, manifest = stores
     rec = bronze.Record("resultados", DAY, "u", "error", "2026-10-04T00:00:00+00:00")
@@ -242,9 +261,28 @@ def test_manifest_keeps_a_log_of_every_attempt(stores):
 
 
 def test_bronze_write_is_atomic(tmp_path):
-    store = bronze.BronzeStore(tmp_path)
+    store = bronze.BronzeStore(tmp_path, "uy")
     key = store.key("resultados", DAY, "html")
     store.write(key, b"one")
     store.write(key, b"two")
     assert store.read(key) == b"two"
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_bronze_keys_carry_the_country_they_were_built_with(tmp_path):
+    # The layout the ~21,000 local files already use; another country gets its own branch.
+    assert bronze.BronzeStore(tmp_path, "uy").key("resultados", DAY, "html") == (
+        "bronze/country=uy/source=resultados/year=2016/resultados_2016-07-06.html"
+    )
+    assert (
+        bronze.BronzeStore(tmp_path, "gt")
+        .key("resultados", DAY, "html")
+        .startswith("bronze/country=gt/")
+    )
+
+
+@pytest.mark.parametrize("bad", ["UY", "ury", "u", "", "u/", "../uy"])
+def test_bronze_refuses_a_country_that_is_not_an_iso_code(tmp_path, bad):
+    # It becomes a path segment: an upper-case code would fork the layout, a slash escape it.
+    with pytest.raises(ValueError, match="ISO 3166-1"):
+        bronze.BronzeStore(tmp_path, bad)

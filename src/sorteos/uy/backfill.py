@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 
 from sorteos.core import bronze
 from sorteos.core.http_client import FetchError, PoliteClient
-from sorteos.uy import classify
-from sorteos.uy.sources import ALL_SOURCES, RESULTADOS, SOURCE_GROUPS, Source
+from sorteos.uy import classify, privacy
+from sorteos.uy.sources import ALL_SOURCES, COUNTRY, RESULTADOS, SOURCE_GROUPS, Source
 
 logger = logging.getLogger(__name__)
 
@@ -258,8 +258,8 @@ def main(argv: list[str] | None = None, *, client: PoliteClient | None = None) -
         if not args.report:
             today = today_in_uruguay()
             job = Backfill(
-                client or PoliteClient(),
-                bronze.BronzeStore(args.root),
+                client or privacy.polite_client(),
+                bronze.BronzeStore(args.root, COUNTRY),
                 manifest,
                 sources=resolve_sources(args.sources),
                 today=today,

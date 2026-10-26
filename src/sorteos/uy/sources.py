@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import date
 
 BASE_URL = "https://www.loteria.gub.uy"
+COUNTRY = "uy"  # ISO 3166-1 alpha-2, lower case (DESIGN.md, D1); the bronze keys carry it
 
 # The day MostrarExtracto() starts serving the PDF instead of the PHP extract.
 PDF_EXTRACTS_FROM = date(2018, 11, 30)
