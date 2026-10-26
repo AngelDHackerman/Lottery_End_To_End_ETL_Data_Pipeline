@@ -3,7 +3,7 @@
 # because the Python Shell runtime already ships pandas, pyarrow and boto3. This file is a
 # record of the versions the code was written against, so a lock here would be a file no
 # build consumes — and one nothing would catch going stale.
-beautifulsoup4==4.13.4
+beautifulsoup4==4.15.0
 pandas==3.1.0
 pyarrow==20.0.0
 python-dateutil==3.0.0
