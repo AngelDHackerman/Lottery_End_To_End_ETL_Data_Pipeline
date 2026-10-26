@@ -3945,7 +3945,12 @@ urllib3 CVE of that week was found by reading the news.
 >   glue.txt records what Glue Python Shell 3.9 ships (pandas 3.1 would describe a runtime we do
 >   not have); dq.txt mirrors the Terraform variable the DQ job installs GX from.
 > - `great-expectations` is ignored: its upgrade is the three pins, `make dq-sync`,
->   `great_expectations_version` and an apply, and a bot can do only the first.
+>   `great_expectations_version` and an apply, and a bot can do only the first. #117 (GX 1.24)
+>   was closed unmerged for that reason.
+> - #115 (pandas 3.1.0 in dq.txt and glue.txt) and #116 (python-dateutil 3.0.0 in glue.txt)
+>   were merged before this landed. Both files are restored here to pandas 2.2.3 and
+>   python-dateutil 2.9.0.post0. No AWS effect either way, since nothing installs them; the
+>   exclusion above keeps them from being bumped again.
 > - What remains (requests and beautifulsoup4 in `extractor.txt`) arrives as one grouped PR a
 >   week, red until `make lock` is run on its branch.
 

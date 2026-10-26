@@ -4,7 +4,7 @@
 # record of the versions the code was written against, so a lock here would be a file no
 # build consumes — and one nothing would catch going stale.
 beautifulsoup4==4.13.4
-pandas==3.1.0
+pandas==2.2.3
 pyarrow==20.0.0
-python-dateutil==3.0.0
+python-dateutil==2.9.0.post0
 requests==2.32.4
