@@ -16,7 +16,7 @@
 # resemblance to the one `src/loteria/dq` is written against — it would install cleanly and
 # then fail at import. PR-033 must pick a 3.10+ runtime; see the note in pyproject.toml.
 great-expectations==1.20.0
-pandas==2.2.3
+pandas==3.1.0
 pyarrow==20.0.0
 # boto3 is deliberately absent, same as extractor.txt and glue.txt: every AWS runtime we
 # would use ships it, and pinning it here would fight the runtime's own version.
