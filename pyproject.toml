@@ -38,7 +38,7 @@ dependencies = [
 # Bumping GX is therefore a deliberate, reviewable act: change all three pins together and
 # run `make dq-sync` to regenerate the committed suites. The test failing on an un-synced
 # bump is the test doing its job.
-dq = ["great-expectations==1.20.0"]
+dq = ["great-expectations==1.24.1"]
 dev = [
     "pytest",
     "pytest-cov",
@@ -46,7 +46,7 @@ dev = [
     "black",
     "mypy",
     "moto",
-    "great-expectations==1.20.0",  # keep in step with the "dq" extra and requirements/dq.txt
+    "great-expectations==1.24.1",  # keep in step with the "dq" extra and requirements/dq.txt
     "nbstripout",
     "pre-commit",
     # PR-046. Provides `pip-compile`, which `make lock` runs to regenerate
