@@ -4,7 +4,7 @@
 
 Results pages from mid-2016 on link the DNLQ's ``*_DET_INVALIDAS_*`` PDFs, which carry
 national ID numbers. The page holds only the link, never the data, but the fixture scanner
-(tests/unit/uy/test_uy_privacy.py) refuses any fixture that so much as names the pattern —
+(tests/unit/sorteos/test_uy_privacy.py) refuses any fixture that so much as names the pattern —
 a rule simple enough to stay true. So each such href is replaced.
 
 Winning coupon numbers stay in bronze only (owner decision C7, roadmap-uruguay.md), so each

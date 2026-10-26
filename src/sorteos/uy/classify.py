@@ -26,8 +26,8 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from loteria_uy.http_client import blocked_pattern
-from loteria_uy.sources import BASE_URL, KINI, ORO, QN, QV, game_for_code
+from sorteos.core.http_client import blocked_pattern
+from sorteos.uy.sources import BASE_URL, KINI, ORO, QN, QV, game_for_code
 
 CLASSIFIER_VERSION = "2026-10-14"
 

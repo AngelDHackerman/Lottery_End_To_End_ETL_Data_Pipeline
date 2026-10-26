@@ -135,10 +135,10 @@ UY_END ?= today
 UY_SOURCES ?= resultados,extractos
 
 uy-pilot: ## One year (2016, crosses the layout change) — validates before the full run
-	PYTHONPATH=src python -m loteria_uy.backfill --start 2016-01-01 --end 2016-12-31 --sources $(UY_SOURCES)
+	PYTHONPATH=src python -m sorteos.uy.backfill --start 2016-01-01 --end 2016-12-31 --sources $(UY_SOURCES)
 
 uy-backfill: ## Full raw backfill to local bronze (several hours at 1 req/s; resumable)
-	PYTHONPATH=src python -m loteria_uy.backfill --start $(UY_START) --end $(UY_END) --sources $(UY_SOURCES)
+	PYTHONPATH=src python -m sorteos.uy.backfill --start $(UY_START) --end $(UY_END) --sources $(UY_SOURCES)
 
 uy-report: ## Manifest summary: states per source and the date span of each
-	PYTHONPATH=src python -m loteria_uy.backfill --report
+	PYTHONPATH=src python -m sorteos.uy.backfill --report

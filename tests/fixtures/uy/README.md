@@ -1,10 +1,10 @@
 # Uruguay fixtures (www.loteria.gub.uy)
 
-Real pages, fetched 2026-10-04 (two on 2026-10-14, one on 2026-10-16) through `loteria_uy.http_client.PoliteClient` (1 req/s,
+Real pages, fetched 2026-10-04 (two on 2026-10-14, one on 2026-10-16) through `sorteos.core.http_client.PoliteClient` (1 req/s,
 identifiable User-Agent) and copied here with `scripts/uy_redact_fixture.py`. The script
 replaces every `href` naming `DET_INVALIDAS` with `#privacy-link-removed` and changes
 nothing else. Those links point at PDFs with national ID numbers; the PDFs themselves were
-never requested. `tests/unit/uy/test_uy_privacy.py` fails if any file here names the
+never requested. `tests/unit/sorteos/test_uy_privacy.py` fails if any file here names the
 pattern or the word "cédula".
 
 Winning coupon numbers stay in bronze only (owner decision C7). Since UY-011.1 the script also

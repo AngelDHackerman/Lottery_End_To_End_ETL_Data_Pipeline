@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from loteria_uy import backfill, bronze, sources
-from loteria_uy.http_client import FetchError, FetchResult
+from sorteos.core import bronze
+from sorteos.core.http_client import FetchError, FetchResult
+from sorteos.uy import backfill, sources
 
 UY = Path(__file__).parents[2] / "fixtures" / "uy"
 EMPTY_DAY = (UY / "resultados_2025-12-25.html").read_bytes()
@@ -190,11 +191,26 @@ def test_today_in_uruguay_is_a_date():
     assert isinstance(backfill.today_in_uruguay(), date)
 
 
-def test_main_runs_and_reports(tmp_path, monkeypatch, capsys):
+@pytest.fixture
+def root_logger_restored():
+    """main() reconfigures the root logger; put its handlers AND its level back afterwards.
+
+    The handlers, or every later test logs into capsys's closed stream. The level, because
+    main() leaves the root at INFO and quiet_sdk_loggers decides from effective levels:
+    test_cloudwatch_logging's TestAttach then raised botocore to WARNING (under the default
+    WARNING root it leaves it alone), nothing put it back, and TestItDoesNotFeedItself lost
+    its "Found credentials" records. It surfaced when UY-020 moved this file from
+    tests/unit/uy/ to tests/unit/sorteos/, which pytest collects before test_cloudwatch_*.
+    """
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    root.handlers = handlers
+    root.setLevel(level)
+
+
+def test_main_runs_and_reports(tmp_path, monkeypatch, capsys, root_logger_restored):
     monkeypatch.setattr(backfill, "today_in_uruguay", lambda: date(2026, 10, 4))
-    # main() installs the JSON handler on the root logger, bound to capsys's stream; put the
-    # old handlers back afterwards or every later test logs into a closed file.
-    monkeypatch.setattr(logging.getLogger(), "handlers", list(logging.getLogger().handlers))
     client = FakeClient(july_2016())
     argv = [
         "--start",

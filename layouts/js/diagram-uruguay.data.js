@@ -43,12 +43,12 @@
        warn:{k:"b", t:"Lo único permitido de esa carpeta es RES_INFORMACION_DE_POZOS, y por allowlist, no por «no está bloqueado»: la misma fila de enlaces trae los dos, y una regla más floja tomaría el equivocado el día que el sitio los reordene."}},
 
       {id:"cli", x:48, y:196, w:220, h:84, st:"ok", t:"backfill CLI", s:["make uy-backfill · uy-pilot", "día por día, reanudable", "--max-requests · --refresh"],
-       title:"El que camina el calendario", desc:"python -m loteria_uy.backfill. Recorre el rango día por día: primero la página consolidada, que descubre qué juegos hubo, y solo después los extractos de esos juegos. Se puede cortar en cualquier momento; la siguiente corrida sigue donde quedó.",
-       kv:{"Módulo":"src/loteria_uy/backfill.py", "Por defecto":"2006-08-01 → hoy en Montevideo", "Fuentes":"resultados · extractos (+ pdf · pozos)", "Nunca pide":"un día que en Uruguay aún no pasó", "Rango completo":"~7.400 días + un extracto por juego sorteado"}},
+       title:"El que camina el calendario", desc:"python -m sorteos.uy.backfill. Recorre el rango día por día: primero la página consolidada, que descubre qué juegos hubo, y solo después los extractos de esos juegos. Se puede cortar en cualquier momento; la siguiente corrida sigue donde quedó.",
+       kv:{"Módulo":"src/sorteos/uy/backfill.py", "Por defecto":"2006-08-01 → hoy en Montevideo", "Fuentes":"resultados · extractos (+ pdf · pozos)", "Nunca pide":"un día que en Uruguay aún no pasó", "Rango completo":"~7.400 días + un extracto por juego sorteado"}},
 
       {id:"client", x:420, y:196, w:330, h:84, st:"ok", t:"PoliteClient", s:["1 req/s global · backoff 429/5xx", "User-Agent con contacto (el repo)", "blocklist antes del socket"],
        title:"La única puerta a la red", desc:"Todo lo que sale del paquete pasa por aquí. Un limitador compartido por el proceso entero (dos clientes no duplican el ritmo), reintentos con espera creciente y jitter, Retry-After respetado, y las redirecciones seguidas a mano para poder revisar cada salto.",
-       kv:{"Módulo":"src/loteria_uy/http_client.py", "Ritmo":"1 req/s; menos de 1 s se rechaza en el constructor", "Reintenta":"429 · 500 · 502 · 503 · 504 · fallas de transporte", "Contacto":"URL del repo, configurable con LOTERIA_UY_CONTACT", "Caché":"ninguna aquí: es el manifiesto"}},
+       kv:{"Módulo":"src/sorteos/core/http_client.py", "Ritmo":"1 req/s; menos de 1 s se rechaza en el constructor", "Reintenta":"429 · 500 · 502 · 503 · 504 · fallas de transporte", "Contacto":"URL del repo, configurable con LOTERIA_UY_CONTACT", "Caché":"ninguna aquí: es el manifiesto"}},
 
       {id:"classify", x:420, y:330, w:330, h:84, st:"ok", t:"classify.py", s:["MostrarExtracto('<código>', fecha)", "+ imágenes de cabecera como 2.ª señal", "draw · empty · error"],
        title:"¿Hubo sorteo?", desc:"No es el parser: no saca números. Responde lo que el manifiesto necesita. La señal principal es la tabla de ruteo del propio sitio: cada bloque llama a MostrarExtracto con un código de juego y la fecha. Un código con otra fecha es un error, nunca un sorteo.",
@@ -85,18 +85,18 @@
       {id:"quar", x:300, y:600, w:260, h:76, st:"pend", t:"quarantine/", s:["filas que el parser rechaza", "contadas y clasificadas (PR-044)"],
        title:"Lo que no se entendió", desc:"El mismo patrón que Santa Lucía: nada se descarta en silencio. Una página que el parser no entiende va aquí con su motivo, y la corrida sigue."},
 
-      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 77 tests · loteria_uy al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
+      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 102 tests · sorteos al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
        title:"La red de seguridad", desc:"77 tests sin red: un cliente falso responde desde páginas reales del 4 de octubre. Cubren la blocklist (mayúsculas, %5F, doble codificación, redirecciones), los reintentos, la clasificación de cada tipo de página y el backfill de punta a punta.",
        kv:{"Suite completa":"565 tests · cobertura total 99,28 % (gate 98)", "Fixtures":"tests/fixtures/uy/ · 8 páginas · README con su origen", "Script":"scripts/uy_redact_fixture.py", "Lint":"ruff check + format en verde"}},
 
       {id:"branch", x:48, y:770, w:420, h:52, st:"ok", t:"rama loteria-uruguaya-test", s:["PRs feat/UY-NNN → la rama · nunca apilados"],
        title:"El master de la beta", desc:"Todo PR de Uruguay sale de esta rama y vuelve a ella. master se trae hacia aquí con merge (no rebase) cuando cambia algo compartido."},
 
-      {id:"ci", x:500, y:770, w:380, h:52, st:"ok", t:"ci.yml (el mismo de master)", s:["lint · test · gate 98 sobre loteria + loteria_uy"],
+      {id:"ci", x:500, y:770, w:380, h:52, st:"ok", t:"ci.yml (el mismo de master)", s:["lint · test · gate 98 sobre loteria + sorteos"],
        title:"Un solo CI", desc:"El CI corre en cualquier pull_request, así que los PRs hacia la rama beta quedan cubiertos sin tocar ci.yml. El gate de cobertura mide los dos paquetes juntos."},
 
       {id:"master", x:930, y:770, w:420, h:52, st:"off", t:"master · Lotería Santa Lucía", s:["no se toca hasta UY-050"],
-       title:"El proyecto principal", desc:"Durante la beta, ni src/loteria/, ni terraform/, ni roadmap.md. Los scripts de build copian solo src/loteria, así que nada de loteria_uy puede colarse en un artefacto de Santa Lucía ni redesplegarlo."}
+       title:"El proyecto principal", desc:"Durante la beta, ni src/loteria/, ni terraform/, ni roadmap.md. Los scripts de build copian solo src/loteria, así que nada de sorteos puede colarse en un artefacto de Santa Lucía ni redesplegarlo."}
     ],
 
     EDGES: [
@@ -238,7 +238,7 @@
       {id:"tfstate", x:940, y:612, w:200, h:76, st:"ok", t:"Terraform", s:["un estado · módulos", "reutilizados"],
        title:"Un solo estado", desc:"Uruguay entra como módulos nuevos en el mismo stack. Criterio del merge: el plan no toca ningún recurso de Santa Lucía, solo agrega."},
       {id:"code", x:1164, y:612, w:186, h:76, st:"ok", t:"lambda-code-zip-prod", s:["artefactos de", "ambos países"],
-       title:"Bucket de código", desc:"make deploy sube los artefactos de los dos. El de Uruguay se construye aparte, así que un cambio en loteria_uy no redespliega a Santa Lucía."},
+       title:"Bucket de código", desc:"make deploy sube los artefactos de los dos. El de Uruguay se construye aparte, así que un cambio en sorteos no redespliega a Santa Lucía."},
 
       /* --- abajo --- */
       {id:"owner", x:48, y:766, w:300, h:56, st:"pend", t:"El owner · make deploy", s:["+ subida única del bronce local"],

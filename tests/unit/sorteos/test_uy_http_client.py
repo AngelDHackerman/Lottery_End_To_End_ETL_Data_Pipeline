@@ -6,8 +6,8 @@ import pytest
 import requests
 from requests.structures import CaseInsensitiveDict
 
-from loteria_uy import http_client
-from loteria_uy.http_client import (
+from sorteos.core import http_client
+from sorteos.core.http_client import (
     BlockedURLError,
     FetchError,
     PoliteClient,
