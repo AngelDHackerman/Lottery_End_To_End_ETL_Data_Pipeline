@@ -57,44 +57,38 @@ def test_the_uruguayan_configuration_loads(uy):
     assert ("5_de_oro", "rango_numeros") in uy.rules
 
 
-def test_the_site_codes_say_what_sources_py_says_today(uy):
-    # UY-020 commit 4 makes sources.py read these; until then the two must agree code by code.
-    from_yaml = {g.site_code: name for name, g in uy.games.items()}
-    for game, codes in uy.site.other_games.items():
-        from_yaml.update(dict.fromkeys(codes, game))
-    for code in range(0, 60):
-        assert from_yaml.get(code, f"unknown_{code}") == sources.game_for_code(code), code
+# What the hand-written _FIXED_CODES of UY-001 did, spelled out: the YAML must keep it.
+_CODES_BEFORE_UY_020 = {2: "kini", 3: "quiniela_vespertina", 4: "quiniela_nocturna"}
+_CODES_BEFORE_UY_020 |= {5: "5_de_oro", 19: "quiniela_vn", 1: "loteria"}
+_CODES_BEFORE_UY_020 |= {c: "loteria" for c in range(6, 27) if c != 19}
 
 
-def test_the_url_templates_say_what_sources_py_says_today(uy):
-    base = uy.site.base_url
-    for day in (date(2006, 8, 11), date(2018, 11, 30), date(2026, 1, 9), date(2026, 12, 31)):
-        fields = {"day": day.day, "month": day.month, "year": day.year}
-        page = uy.site.pages["resultados"]
-        query = "&".join(f"{k}={v.format(**fields)}" for k, v in page.params.items())
-        assert f"{base}{page.path}?{query}" == sources.RESULTADOS.url(day)
-        for game in uy.games.values():
-            for spec in game.sources:
-                if spec.kind not in ("extracto_php", "extracto_pdf"):
-                    continue
-                url = base + spec.path.format(**fields)
-                if spec.params:
-                    url += "?" + "&".join(
-                        f"{k}={v.format(**fields)}" for k, v in spec.params.items()
-                    )
-                assert url == sources.ALL_SOURCES[spec.name].url(day), spec.name
-                if spec.valid_from is not None:
-                    assert spec.valid_from == sources.PDF_EXTRACTS_FROM
+@pytest.mark.parametrize("code", range(0, 60))
+def test_every_site_code_routes_where_it_did_before_the_yaml(code):
+    assert sources.game_for_code(code) == _CODES_BEFORE_UY_020.get(code, f"unknown_{code}")
 
 
-def test_every_named_source_exists_in_sources_py_with_its_kind(uy):
-    # The source names are the manifest's key: renaming one would orphan its rows.
-    for game in uy.games.values():
-        for spec in game.sources:
-            assert spec.name in sources.ALL_SOURCES
-            if spec.kind is not None:
-                assert sources.ALL_SOURCES[spec.name].kind == spec.kind
-                assert sources.ALL_SOURCES[spec.name].game == game.game
+def test_the_source_names_are_the_manifest_keys_and_keep_their_order():
+    # Renaming one would orphan its manifest rows; reordering would change the fetch order.
+    assert list(sources.ALL_SOURCES) == [
+        "resultados",
+        "extracto_5_de_oro",
+        "extracto_quiniela_vespertina",
+        "extracto_quiniela_nocturna",
+        "extracto_pdf_5_de_oro",
+        "extracto_pdf_quiniela_vespertina",
+        "extracto_pdf_quiniela_nocturna",
+        "pozos_5_de_oro",
+    ]
+    assert [s.extension for s in sources.ALL_SOURCES.values()] == ["html"] * 4 + ["pdf"] * 4
+    assert sources.COUNTRY == "uy" and sources.BASE_URL == "https://www.loteria.gub.uy"
+
+
+def test_the_pdf_extracts_start_the_day_the_site_switched_to_them():
+    for source in sources.EXTRACTOS_PDF:
+        assert not source.applies_to(date(2018, 11, 29))
+        assert source.applies_to(date(2018, 11, 30))
+    assert all(s.applies_to(date(2006, 8, 1)) for s in sources.EXTRACTOS_PHP)
 
 
 def test_the_guard_is_not_configuration():

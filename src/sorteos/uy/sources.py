@@ -16,23 +16,30 @@ docs/uruguay/FINDINGS.md). Two layers:
 Game codes are the first argument of ``MostrarExtracto('<code>', dd, mm, yyyy)`` in the
 results page — the site's own routing table, which makes them a sturdier signal than the
 block images (kept as a cross-check in classify.py).
+
+Since UY-020 the paths, query parameters, start dates and game codes come from
+``site.yaml`` and ``games/*.yaml`` (docs/uruguay/DESIGN.md, D4): this module only turns them
+into URLs. The source **names** are the manifest's key, so they never change — renaming one
+would orphan its rows and make the backfill fetch everything again.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
-BASE_URL = "https://www.loteria.gub.uy"
-COUNTRY = "uy"  # ISO 3166-1 alpha-2, lower case (DESIGN.md, D1); the bronze keys carry it
+from sorteos.core.config import load_country
+
+CONFIG = load_country(Path(__file__).parent)
+
+BASE_URL = CONFIG.site.base_url
+COUNTRY = CONFIG.site.country  # ISO 3166-1 alpha-2, lower case (DESIGN.md, D1)
 # How the DNLQ has seen us since UY-001 (in its access logs): keep it stable.
 AGENT = "loteria-uy-research/0.1"
 
-# The day MostrarExtracto() starts serving the PDF instead of the PHP extract.
-PDF_EXTRACTS_FROM = date(2018, 11, 30)
-
-# Games in scope for v1 (roadmap-uruguay.md). Lotería and Kini are recorded when the
-# results page shows them, but no per-game source is fetched for them yet.
+# Game names the code branches on (classify.py maps block images to them). The YAML is
+# what defines them; the checks below make a rename there fail at import, not at run time.
 ORO = "5_de_oro"
 QV = "quiniela_vespertina"
 QN = "quiniela_nocturna"
@@ -40,17 +47,28 @@ LOTERIA = "loteria"
 KINI = "kini"
 QVN = "quiniela_vn"
 
-# MostrarExtracto() codes -> game. 1 and 6..26 (except 19) are Lotería variants — the
-# function maps each to a different yearly extract script (Gordo, Revancha, ...).
-_FIXED_CODES = {2: KINI, 3: QV, 4: QN, 5: ORO, 19: QVN}
+# The order sources are requested in, which the YAML file names would not keep.
+_V1_GAMES = (ORO, QV, QN)
+if set(_V1_GAMES) != set(CONFIG.games):  # pragma: no cover — a broken checkout, not a test
+    raise RuntimeError(f"games/*.yaml declares {sorted(CONFIG.games)}, the code knows {_V1_GAMES}")
+if not {LOTERIA, KINI, QVN} <= set(CONFIG.site.other_games):  # pragma: no cover
+    raise RuntimeError(f"site.yaml other_games lacks one of {LOTERIA}, {KINI}, {QVN}")
+
+_GAME_BY_CODE = {game.site_code: name for name, game in CONFIG.games.items()} | {
+    code: name for name, codes in CONFIG.site.other_games.items() for code in codes
+}
 
 
 def game_for_code(code: int) -> str:
-    if code in _FIXED_CODES:
-        return _FIXED_CODES[code]
-    if code == 1 or 6 <= code <= 26:
-        return LOTERIA
-    return f"unknown_{code}"
+    return _GAME_BY_CODE.get(code, f"unknown_{code}")
+
+
+_EXTENSIONS = {
+    "resultados": "html",
+    "extracto_php": "html",
+    "extracto_pdf": "pdf",
+    "pozos_pdf": "pdf",
+}
 
 
 @dataclass(frozen=True)
@@ -59,39 +77,53 @@ class Source:
     game: str | None  # None for the multi-game results page
     kind: str  # "resultados" | "extracto_php" | "extracto_pdf" | "pozos_pdf"
     extension: str
+    path: str | None = None  # a template; None when the URL comes from a page's link
+    params: tuple[tuple[str, str], ...] = ()  # (name, template), in the order the site uses
+    valid_from: date | None = None
 
     def url(self, day: date) -> str:
-        if self.kind == "resultados":
-            # The site accepts and normalises unpadded values; keep them unpadded so the
-            # URL matches what the page's own calendar links produce.
-            return f"{BASE_URL}/ver_resultados.php?vdia={day.day}&vmes={day.month}&vano={day.year}"
-        if self.kind == "extracto_php":
-            query = f"?vdia={day.day:02d}&vmes={day.month:02d}&vano={day.year}"
-            return BASE_URL + _PHP_PATHS[self.game] + query
-        if self.kind == "extracto_pdf":
-            return f"{BASE_URL}/extractosweb/{day:%Y%m%d}{_PDF_LETTERS[self.game]}.pdf"
-        raise ValueError(f"{self.name}: URL comes from the results page, not from a date")
+        if self.path is None:
+            raise ValueError(f"{self.name}: URL comes from the results page, not from a date")
+        fields = {"day": day.day, "month": day.month, "year": day.year}
+        url = BASE_URL + self.path.format(**fields)
+        if self.params:
+            # Built by hand, not urlencoded: the values are digits and the site's own links
+            # use exactly this shape.
+            url += "?" + "&".join(f"{k}={v.format(**fields)}" for k, v in self.params)
+        return url
 
     def applies_to(self, day: date) -> bool:
-        if self.kind == "extracto_pdf":
-            return day >= PDF_EXTRACTS_FROM
-        return True
+        return self.valid_from is None or day >= self.valid_from
 
 
-_PHP_PATHS = {
-    ORO: "/extractosweb/5deOro/extracto_5_de_oro.php",
-    QV: "/extractosweb/quiniela/vespertina/extracto_QV_S.php",
-    QN: "/extractosweb/quiniela/nocturna/extracto_QN_S.php",
-}
-# From MostrarExtracto(): 'o' for 5 de Oro, 'v' vespertina, 'n' nocturna ('l' is Lotería).
-_PDF_LETTERS = {ORO: "o", QV: "v", QN: "n"}
+_page = CONFIG.site.pages["resultados"]
+RESULTADOS = Source(
+    "resultados", None, "resultados", "html", _page.path, tuple(_page.params.items())
+)
 
-RESULTADOS = Source("resultados", None, "resultados", "html")
-EXTRACTOS_PHP = tuple(Source(f"extracto_{g}", g, "extracto_php", "html") for g in (ORO, QV, QN))
-EXTRACTOS_PDF = tuple(Source(f"extracto_pdf_{g}", g, "extracto_pdf", "pdf") for g in (ORO, QV, QN))
+
+def _game_sources(kind: str) -> tuple[Source, ...]:
+    return tuple(
+        Source(
+            spec.name,
+            game,
+            kind,
+            _EXTENSIONS[kind],
+            spec.path,
+            tuple(spec.params.items()),
+            spec.valid_from,
+        )
+        for game in _V1_GAMES
+        for spec in CONFIG.games[game].sources
+        if spec.kind == kind
+    )
+
+
+EXTRACTOS_PHP = _game_sources("extracto_php")
+EXTRACTOS_PDF = _game_sources("extracto_pdf")
 # The 5 de Oro pozos PDF. Its folder mixes date formats (ddmmyyyy for Oro), so its URL is
 # taken from the results page's own link instead of being rebuilt — see classify.pozos_href.
-POZOS = Source("pozos_5_de_oro", ORO, "pozos_pdf", "pdf")
+(POZOS,) = _game_sources("pozos_pdf")
 
 ALL_SOURCES = {s.name: s for s in (RESULTADOS, *EXTRACTOS_PHP, *EXTRACTOS_PDF, POZOS)}
 

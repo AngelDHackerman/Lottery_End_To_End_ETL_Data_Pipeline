@@ -44,7 +44,7 @@
 
       {id:"cli", x:48, y:196, w:220, h:84, st:"ok", t:"backfill CLI", s:["make uy-backfill · uy-pilot", "día por día, reanudable", "--max-requests · --refresh"],
        title:"El que camina el calendario", desc:"python -m sorteos.uy.backfill. Recorre el rango día por día: primero la página consolidada, que descubre qué juegos hubo, y solo después los extractos de esos juegos. Se puede cortar en cualquier momento; la siguiente corrida sigue donde quedó.",
-       kv:{"Módulo":"src/sorteos/uy/backfill.py", "Por defecto":"2006-08-01 → hoy en Montevideo", "Fuentes":"resultados · extractos (+ pdf · pozos)", "Nunca pide":"un día que en Uruguay aún no pasó", "Rango completo":"~7.400 días + un extracto por juego sorteado"}},
+       kv:{"Módulo":"src/sorteos/uy/backfill.py", "URLs":"de site.yaml y games/*.yaml; las 20.612 del manifiesto salen idénticas (make uy-golden-urls)", "Por defecto":"2006-08-01 → hoy en Montevideo", "Fuentes":"resultados · extractos (+ pdf · pozos)", "Nunca pide":"un día que en Uruguay aún no pasó", "Rango completo":"~7.400 días + un extracto por juego sorteado"}},
 
       {id:"client", x:420, y:196, w:330, h:84, st:"ok", t:"PoliteClient", s:["1 req/s global · backoff 429/5xx", "User-Agent con contacto (el repo)", "blocklist antes del socket"],
        title:"La única puerta a la red", desc:"Todo lo que sale del paquete pasa por aquí. Un limitador compartido por el proceso entero (dos clientes no duplican el ritmo), reintentos con espera creciente y jitter, Retry-After respetado, y las redirecciones seguidas a mano para poder revisar cada salto.",
@@ -85,8 +85,8 @@
       {id:"quar", x:300, y:600, w:260, h:76, st:"pend", t:"quarantine/", s:["filas que el parser rechaza", "contadas y clasificadas (PR-044)"],
        title:"Lo que no se entendió", desc:"El mismo patrón que Santa Lucía: nada se descarta en silencio. Una página que el parser no entiende va aquí con su motivo, y la corrida sigue."},
 
-      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 186 tests · sorteos al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
-       title:"La red de seguridad", desc:"186 tests sin red: un cliente falso responde desde páginas reales del 4 de octubre. Cubren la blocklist (mayúsculas, %5F, doble codificación, redirecciones), los reintentos, la clasificación de cada tipo de página y el backfill de punta a punta.",
+      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 255 tests · sorteos al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
+       title:"La red de seguridad", desc:"255 tests sin red: un cliente falso responde desde páginas reales del 4 de octubre. Cubren la blocklist (mayúsculas, %5F, doble codificación, redirecciones), los reintentos, la clasificación de cada tipo de página y el backfill de punta a punta.",
        kv:{"Suite completa":"565 tests · cobertura total 99,28 % (gate 98)", "Fixtures":"tests/fixtures/uy/ · 8 páginas · README con su origen", "Script":"scripts/uy_redact_fixture.py", "Lint":"ruff check + format en verde"}},
 
       {id:"branch", x:48, y:770, w:420, h:52, st:"ok", t:"rama loteria-uruguaya-test", s:["PRs feat/UY-NNN → la rama · nunca apilados"],

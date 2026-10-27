@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -133,6 +133,7 @@ lineage-views: ## Create/replace the Silver lineage views in Athena (PR-045.2)
 UY_START ?= 2006-08-01
 UY_END ?= today
 UY_SOURCES ?= resultados,extractos
+UY_MANIFEST ?= data/uy/manifest.sqlite
 
 uy-pilot: ## One year (2016, crosses the layout change) — validates before the full run
 	PYTHONPATH=src python -m sorteos.uy.backfill --start 2016-01-01 --end 2016-12-31 --sources $(UY_SOURCES)
@@ -142,3 +143,6 @@ uy-backfill: ## Full raw backfill to local bronze (several hours at 1 req/s; res
 
 uy-report: ## Manifest summary: states per source and the date span of each
 	PYTHONPATH=src python -m sorteos.uy.backfill --report
+
+uy-golden-urls: ## Every URL in the manifest must come out of the YAML again (UY-020; read-only)
+	PYTHONPATH=src python scripts/uy_golden_urls.py $(UY_MANIFEST)
