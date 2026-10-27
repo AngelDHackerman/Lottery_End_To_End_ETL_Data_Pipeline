@@ -17,14 +17,14 @@ Three properties, each enforced here so no caller can forget them:
    (bronze.Manifest) — a ``no_draw`` day is never stored in bronze but must not be fetched
    again either, so the cache cannot be the raw store (roadmap-uruguay.md, C3).
 
-The User-Agent's contact defaults to the repository URL, not a personal address; override
-with ``LOTERIA_UY_CONTACT``.
+The User-Agent names the caller's ``agent`` (a ``product/version`` token each country picks,
+since it is how that site knows us) and a contact that defaults to the repository URL, not a
+personal address.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import random
 import re
 import threading
@@ -39,7 +39,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONTACT = "https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline"
-USER_AGENT_TEMPLATE = "loteria-uy-research/0.1 (data-engineering portfolio; +{contact})"
+USER_AGENT_TEMPLATE = "{agent} (data-engineering portfolio; +{contact})"
 
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 MAX_REDIRECTS = 5
@@ -135,6 +135,7 @@ class PoliteClient:
         self,
         *,
         blocklist: Sequence[str],
+        agent: str,
         min_interval: float = 1.0,
         max_retries: int = 5,
         backoff_base: float = 2.0,
@@ -147,6 +148,8 @@ class PoliteClient:
         if min_interval < 1.0:
             raise ValueError("min_interval below 1 s breaks the courtesy rule (1 req/s)")
         self.blocklist = checked_blocklist(blocklist)
+        if not isinstance(agent, str) or not re.fullmatch(r"[\w.-]+/[\w.-]+", agent):
+            raise ValueError(f"agent must be a product/version token, got {agent!r}")
         self.min_interval = min_interval
         self.max_retries = max_retries
         self.backoff_base = backoff_base
@@ -154,8 +157,9 @@ class PoliteClient:
         self.timeout = timeout
         self._sleep = sleep
         self._session = session or requests.Session()
-        contact = contact or os.environ.get("LOTERIA_UY_CONTACT") or DEFAULT_CONTACT
-        self.user_agent = USER_AGENT_TEMPLATE.format(contact=contact)
+        self.user_agent = USER_AGENT_TEMPLATE.format(
+            agent=agent, contact=contact or DEFAULT_CONTACT
+        )
         self._session.headers.update({"User-Agent": self.user_agent})
 
     def get(self, url: str) -> FetchResult:

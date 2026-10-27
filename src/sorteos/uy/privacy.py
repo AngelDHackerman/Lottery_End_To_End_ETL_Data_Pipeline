@@ -11,16 +11,21 @@ must not be able to switch the guard off. Every Uruguayan client is built throug
 
 from __future__ import annotations
 
+import os
+
 from sorteos.core import http_client
 from sorteos.core.http_client import PoliteClient
+from sorteos.uy.sources import AGENT
 
 BLOCKED_PATTERNS = ("DET_INVALIDAS",)
 
 
 def polite_client(**kwargs) -> PoliteClient:
-    """A PoliteClient that refuses :data:`BLOCKED_PATTERNS`. It cannot be overridden:
-    passing ``blocklist`` here is a TypeError."""
-    return PoliteClient(blocklist=BLOCKED_PATTERNS, **kwargs)
+    """A PoliteClient that refuses :data:`BLOCKED_PATTERNS` and introduces itself as
+    :data:`~sorteos.uy.sources.AGENT`. Neither can be overridden: passing ``blocklist`` or
+    ``agent`` here is a TypeError. The contact comes from ``LOTERIA_UY_CONTACT`` if set."""
+    kwargs.setdefault("contact", os.environ.get("LOTERIA_UY_CONTACT"))
+    return PoliteClient(blocklist=BLOCKED_PATTERNS, agent=AGENT, **kwargs)
 
 
 def blocked_pattern(url: str) -> str | None:

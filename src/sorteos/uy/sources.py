@@ -25,6 +25,8 @@ from datetime import date
 
 BASE_URL = "https://www.loteria.gub.uy"
 COUNTRY = "uy"  # ISO 3166-1 alpha-2, lower case (DESIGN.md, D1); the bronze keys carry it
+# How the DNLQ has seen us since UY-001 (in its access logs): keep it stable.
+AGENT = "loteria-uy-research/0.1"
 
 # The day MostrarExtracto() starts serving the PDF instead of the PHP extract.
 PDF_EXTRACTS_FROM = date(2018, 11, 30)

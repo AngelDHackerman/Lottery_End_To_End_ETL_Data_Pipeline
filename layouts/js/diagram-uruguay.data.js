@@ -85,8 +85,8 @@
       {id:"quar", x:300, y:600, w:260, h:76, st:"pend", t:"quarantine/", s:["filas que el parser rechaza", "contadas y clasificadas (PR-044)"],
        title:"Lo que no se entendió", desc:"El mismo patrón que Santa Lucía: nada se descarta en silencio. Una página que el parser no entiende va aquí con su motivo, y la corrida sigue."},
 
-      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 120 tests · sorteos al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
-       title:"La red de seguridad", desc:"120 tests sin red: un cliente falso responde desde páginas reales del 4 de octubre. Cubren la blocklist (mayúsculas, %5F, doble codificación, redirecciones), los reintentos, la clasificación de cada tipo de página y el backfill de punta a punta.",
+      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 186 tests · sorteos al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
+       title:"La red de seguridad", desc:"186 tests sin red: un cliente falso responde desde páginas reales del 4 de octubre. Cubren la blocklist (mayúsculas, %5F, doble codificación, redirecciones), los reintentos, la clasificación de cada tipo de página y el backfill de punta a punta.",
        kv:{"Suite completa":"565 tests · cobertura total 99,28 % (gate 98)", "Fixtures":"tests/fixtures/uy/ · 8 páginas · README con su origen", "Script":"scripts/uy_redact_fixture.py", "Lint":"ruff check + format en verde"}},
 
       {id:"branch", x:48, y:770, w:420, h:52, st:"ok", t:"rama loteria-uruguaya-test", s:["PRs feat/UY-NNN → la rama · nunca apilados"],

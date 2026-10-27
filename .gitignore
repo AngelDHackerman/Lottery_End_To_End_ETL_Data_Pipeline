@@ -312,5 +312,7 @@ layer/
 /data/uy/
 # Hand-built documentation drafts (UY-004): small CSVs that cite their sources, not data dumps.
 !/docs/uruguay/drafts/*.csv
+# Reference tables shipped with the package (UY-020): game_rules and calendar_events.
+!/src/sorteos/uy/reference/*.csv
 # Windows "downloaded from the internet" marker that WSL copies in alongside files.
 *:Zone.Identifier

@@ -1,0 +1,29 @@
+# Quiniela y Tómbola Vespertina (docs/uruguay/DESIGN.md, «Un juego»).
+game: "quiniela_vespertina"
+name: "Quiniela y Tómbola Vespertina"
+site_code: 3                       # primer argumento de MostrarExtracto()
+
+calendar:
+  weekdays: ["mon", "tue", "wed", "thu", "fri"]   # nunca sábado ni domingo (Q2)
+  # En el HTML aparece con dos espacios («Próximo  Vespertino»): el parser los normaliza.
+  next_draw_label: "Próximo Vespertino"
+  # Termina ~15:19 y el PDF salió 10 min después (sondeo del 2026-10-14, uno solo).
+  publish_after_local: "15:30"
+
+sources:
+  - {name: "resultados", role: "primary"}
+  - name: "extracto_quiniela_vespertina"
+    kind: "extracto_php"
+    path: "/extractosweb/quiniela/vespertina/extracto_QV_S.php"
+    params: {vdia: "{day:02d}", vmes: "{month:02d}", vano: "{year}"}
+    role: "timing"                 # aporta los horarios (P2) y es el control cruzado
+    parser_epochs: [{version: 1, valid_from: "2006-08-11"}]
+  - name: "extracto_pdf_quiniela_vespertina"
+    kind: "extracto_pdf"
+    path: "/extractosweb/{year}{month:02d}{day:02d}v.pdf"
+    valid_from: "2018-11-30"       # desde ahí MostrarExtracto() sirve el PDF
+    role: "backup"                 # solo bronce, no se parsea (owner, UY-003)
+
+numbers:
+  quiniela: {count: 20, digits: 3, order: "drawn", repeats: true}
+  tombola: {count: 20, digits: 2, order: "sorted", repeats: false, replacements_from: "quiniela"}

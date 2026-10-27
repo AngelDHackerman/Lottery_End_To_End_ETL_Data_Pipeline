@@ -364,8 +364,8 @@ Clave: (`country`, `operator`, `game`, `draw_date`, `prize`).
 ### `game_rules` y `calendar_events`
 
 Salen de `src/sorteos/uy/reference/*.csv`, con las mismas columnas que los borradores de UY-004
-([`game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv) y
-[`calendar_events.csv`](drafts/calendar_events.csv)), más `country` y `operator`. Son datos de
+([`game_rules_5_de_oro.csv`](../../src/sorteos/uy/reference/game_rules.csv) y
+[`calendar_events.csv`](../../src/sorteos/uy/reference/calendar_events.csv)), más `country` y `operator`. Son datos de
 referencia con su fuente y su vigencia, y se versionan en git porque cada cambio es una decisión
 revisada. El escritor de plata los pasa a Parquet sin transformarlos.
 
@@ -527,7 +527,7 @@ El 2019-09-30 era el único de los 4 sin fila en `calendar_events`. `noticias.ph
 página trae dos OIS de esa semana que el borrador de UY-004 tampoco tenía: el **2040** (Vespertina
 suspendida el martes 2019-10-01) y el **2041** (el 5 de Oro del miércoles 2019-10-02 pasa al
 viernes 2019-10-04). Los tres coinciden con el manifiesto, y
-[`calendar_events.csv`](drafts/calendar_events.csv) pasa de 54 a 57 filas. Como con el OIS 2038,
+[`calendar_events.csv`](../../src/sorteos/uy/reference/calendar_events.csv) pasa de 54 a 57 filas. Como con el OIS 2038,
 los documentos no se leyeron: el contenido sale de su título, y la causa del 30 (el paro), de la
 nota de [FocusGN del 2019-10-03](https://focusgn.com/latinoamerica/loterias-uruguayas-apuestas).
 

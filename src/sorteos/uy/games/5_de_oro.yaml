@@ -1,0 +1,34 @@
+# 5 de Oro y Revancha (docs/uruguay/DESIGN.md, «Otro juego»).
+game: "5_de_oro"
+name: "5 de Oro y Revancha"
+site_code: 5                       # primer argumento de MostrarExtracto()
+
+calendar:
+  weekdays: ["wed", "sun"]         # se esperan, pero el 12,6 % cae otro día (C10)
+  next_draw_label: "Próximo 5 de Oro y Rev."
+  publish_after_local: "22:30"
+
+sources:
+  - {name: "resultados", role: "primary"}
+  - name: "extracto_5_de_oro"
+    kind: "extracto_php"
+    path: "/extractosweb/5deOro/extracto_5_de_oro.php"
+    params: {vdia: "{day:02d}", vmes: "{month:02d}", vano: "{year}"}
+    money_style: "uy"              # 9.999.999,99 (D6)
+    role: "cross_check"
+    parser_epochs: [{version: 1, valid_from: "2006-08-11"}]
+  - name: "extracto_pdf_5_de_oro"
+    kind: "extracto_pdf"
+    path: "/extractosweb/{year}{month:02d}{day:02d}o.pdf"
+    valid_from: "2018-11-30"       # desde ahí MostrarExtracto() sirve el PDF
+    role: "backup"                 # solo bronce, no se parsea (owner, UY-003)
+  # La URL sale del link de ver_resultados: su carpeta mezcla formatos de fecha (UY-001).
+  - {name: "pozos_5_de_oro", kind: "pozos_pdf", role: "draw_number"}
+
+numbers:
+  # El rango (01-44 o 01-48) depende de la fecha: lo resuelve game_rules.csv, no este archivo.
+  oro: {count: 5, digits: 2, order: "sorted", repeats: false, range_rule: "rango_numeros"}
+  extra: {count: 1, digits: 2, range_rule: "rango_numeros", not_in: ["oro"]}
+  revancha: {count: 5, digits: 2, order: "sorted", repeats: false, range_rule: "rango_numeros"}
+
+prizes: ["oro", "plata", "revancha"]
