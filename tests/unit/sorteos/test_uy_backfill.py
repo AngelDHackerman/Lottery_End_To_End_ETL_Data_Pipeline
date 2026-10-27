@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from loteria_uy import backfill, bronze, sources
-from loteria_uy.http_client import FetchError, FetchResult
+from sorteos.core import bronze
+from sorteos.core.http_client import FetchError, FetchResult
+from sorteos.uy import backfill, sources
 
 UY = Path(__file__).parents[2] / "fixtures" / "uy"
 EMPTY_DAY = (UY / "resultados_2025-12-25.html").read_bytes()
@@ -56,7 +57,7 @@ def july_2016() -> dict:
 @pytest.fixture
 def stores(tmp_path):
     manifest = bronze.Manifest(tmp_path / "manifest.sqlite")
-    yield bronze.BronzeStore(tmp_path), manifest
+    yield bronze.BronzeStore(tmp_path, "uy"), manifest
     manifest.close()
 
 
@@ -190,11 +191,26 @@ def test_today_in_uruguay_is_a_date():
     assert isinstance(backfill.today_in_uruguay(), date)
 
 
-def test_main_runs_and_reports(tmp_path, monkeypatch, capsys):
+@pytest.fixture
+def root_logger_restored():
+    """main() reconfigures the root logger; put its handlers AND its level back afterwards.
+
+    The handlers, or every later test logs into capsys's closed stream. The level, because
+    main() leaves the root at INFO and quiet_sdk_loggers decides from effective levels:
+    test_cloudwatch_logging's TestAttach then raised botocore to WARNING (under the default
+    WARNING root it leaves it alone), nothing put it back, and TestItDoesNotFeedItself lost
+    its "Found credentials" records. It surfaced when UY-020 moved this file from
+    tests/unit/uy/ to tests/unit/sorteos/, which pytest collects before test_cloudwatch_*.
+    """
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    root.handlers = handlers
+    root.setLevel(level)
+
+
+def test_main_runs_and_reports(tmp_path, monkeypatch, capsys, root_logger_restored):
     monkeypatch.setattr(backfill, "today_in_uruguay", lambda: date(2026, 10, 4))
-    # main() installs the JSON handler on the root logger, bound to capsys's stream; put the
-    # old handlers back afterwards or every later test logs into a closed file.
-    monkeypatch.setattr(logging.getLogger(), "handlers", list(logging.getLogger().handlers))
     client = FakeClient(july_2016())
     argv = [
         "--start",
@@ -215,6 +231,25 @@ def test_main_runs_and_reports(tmp_path, monkeypatch, capsys):
     assert len(client.calls) == 7  # --report requested nothing
 
 
+def test_main_builds_its_client_through_the_privacy_module(
+    tmp_path, monkeypatch, root_logger_restored
+):
+    # Without an injected client, main() must get the one that carries DET_INVALIDAS, never a
+    # bare PoliteClient (DESIGN.md, P5).
+    monkeypatch.setattr(backfill, "today_in_uruguay", lambda: date(2026, 10, 4))
+    built = []
+
+    def polite_client(**kwargs):
+        built.append(kwargs)
+        return FakeClient(july_2016())
+
+    monkeypatch.setattr(backfill.privacy, "polite_client", polite_client)
+    argv = ["--start", "2016-07-06", "--end", "2016-07-06", "--root", str(tmp_path)]
+    assert backfill.main(argv) == 0
+    assert built == [{}]
+    assert list(tmp_path.glob("bronze/country=uy/source=resultados/year=2016/*.html"))
+
+
 def test_manifest_keeps_a_log_of_every_attempt(stores):
     _, manifest = stores
     rec = bronze.Record("resultados", DAY, "u", "error", "2026-10-04T00:00:00+00:00")
@@ -226,9 +261,28 @@ def test_manifest_keeps_a_log_of_every_attempt(stores):
 
 
 def test_bronze_write_is_atomic(tmp_path):
-    store = bronze.BronzeStore(tmp_path)
+    store = bronze.BronzeStore(tmp_path, "uy")
     key = store.key("resultados", DAY, "html")
     store.write(key, b"one")
     store.write(key, b"two")
     assert store.read(key) == b"two"
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_bronze_keys_carry_the_country_they_were_built_with(tmp_path):
+    # The layout the ~21,000 local files already use; another country gets its own branch.
+    assert bronze.BronzeStore(tmp_path, "uy").key("resultados", DAY, "html") == (
+        "bronze/country=uy/source=resultados/year=2016/resultados_2016-07-06.html"
+    )
+    assert (
+        bronze.BronzeStore(tmp_path, "gt")
+        .key("resultados", DAY, "html")
+        .startswith("bronze/country=gt/")
+    )
+
+
+@pytest.mark.parametrize("bad", ["UY", "ury", "u", "", "u/", "../uy"])
+def test_bronze_refuses_a_country_that_is_not_an_iso_code(tmp_path, bad):
+    # It becomes a path segment: an upper-case code would fork the layout, a slash escape it.
+    with pytest.raises(ValueError, match="ISO 3166-1"):
+        bronze.BronzeStore(tmp_path, bad)

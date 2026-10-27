@@ -53,7 +53,14 @@ dev = [
     # requirements/extractor.lock. Only needed to CHANGE the lock — `make build` installs
     # from the committed lock with plain pip and does not need this.
     "pip-tools",
+    # UY-020. Keep in step with the "uy" extra below: CI installs only `.[dev]`.
+    "pyyaml",
+    "pdfplumber",
 ]
+# UY-020 (docs/uruguay/DESIGN.md, P4). The Uruguay package: pyyaml reads its YAML config and
+# pdfplumber will read the pozos PDF (UY-024). No pydantic: the YAML is validated by
+# sorteos/core/config.py with plain dataclasses.
+uy = ["pyyaml", "pdfplumber"]
 
 [tool.uv]
 # PR-016 landed the src/loteria layout, but the deployment artifacts are zips built by
@@ -196,7 +203,7 @@ pythonpath = ["src"]
 # Coverage is measured over ALL of src/loteria, deliberately. Scoping --cov to only the
 # tested modules would show a flattering number that hides the untested majority, which is
 # the opposite of what a repo about data quality should do.
-addopts = "-ra --strict-markers --cov=src/loteria --cov=src/loteria_uy --cov-report=term-missing --cov-fail-under=98"
+addopts = "-ra --strict-markers --cov=src/loteria --cov=src/sorteos --cov-report=term-missing --cov-fail-under=98"
 
 markers = [
     # PR-031: hits the real loteria.org.gt through scrape.do. Deselected by default (see

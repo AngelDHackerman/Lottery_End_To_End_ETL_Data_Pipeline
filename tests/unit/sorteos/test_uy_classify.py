@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from loteria_uy import classify, sources
-from loteria_uy.classify import DRAW, EMPTY, ERROR
+from sorteos.uy import classify, sources
+from sorteos.uy.classify import DRAW, EMPTY, ERROR
 
 UY = Path(__file__).parents[2] / "fixtures" / "uy"
 

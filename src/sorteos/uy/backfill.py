@@ -1,8 +1,8 @@
 """Walk a date range and land raw pages in local bronze (UY backfill, local-only beta).
 
-    python -m loteria_uy.backfill --start 2006-08-01 --end today
-    python -m loteria_uy.backfill --start 2016-01-01 --end 2016-12-31 --sources resultados
-    python -m loteria_uy.backfill --report
+    python -m sorteos.uy.backfill --start 2006-08-01 --end today
+    python -m sorteos.uy.backfill --start 2016-01-01 --end 2016-12-31 --sources resultados
+    python -m sorteos.uy.backfill --report
 
 Day by day, the results page first: it is the discovery layer, and the per-game sources are
 requested only for games it lists on that day. A day already in a final manifest state is
@@ -24,9 +24,10 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from loteria_uy import bronze, classify
-from loteria_uy.http_client import FetchError, PoliteClient
-from loteria_uy.sources import ALL_SOURCES, RESULTADOS, SOURCE_GROUPS, Source
+from sorteos.core import bronze
+from sorteos.core.http_client import FetchError, PoliteClient
+from sorteos.uy import classify, privacy
+from sorteos.uy.sources import ALL_SOURCES, COUNTRY, RESULTADOS, SOURCE_GROUPS, Source
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ def format_report(manifest: bronze.Manifest) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="python -m loteria_uy.backfill",
+        prog="python -m sorteos.uy.backfill",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -257,8 +258,8 @@ def main(argv: list[str] | None = None, *, client: PoliteClient | None = None) -
         if not args.report:
             today = today_in_uruguay()
             job = Backfill(
-                client or PoliteClient(),
-                bronze.BronzeStore(args.root),
+                client or privacy.polite_client(),
+                bronze.BronzeStore(args.root, COUNTRY),
                 manifest,
                 sources=resolve_sources(args.sources),
                 today=today,

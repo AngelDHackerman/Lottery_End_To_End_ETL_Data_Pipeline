@@ -1,0 +1,29 @@
+# Quiniela y Tómbola Nocturna (docs/uruguay/DESIGN.md, «Un juego»).
+game: "quiniela_nocturna"
+name: "Quiniela y Tómbola Nocturna"
+site_code: 4                       # primer argumento de MostrarExtracto()
+
+calendar:
+  weekdays: ["mon", "tue", "wed", "thu", "fri", "sat"]   # nunca domingo (Q2)
+  # En el HTML aparece con dos espacios («Próximo  Nocturno»): el parser los normaliza.
+  next_draw_label: "Próximo Nocturno"
+  # Termina ~21:20 y el HTML sale entre 3 y 13 min después (UY-003).
+  publish_after_local: "21:30"
+
+sources:
+  - {name: "resultados", role: "primary"}
+  - name: "extracto_quiniela_nocturna"
+    kind: "extracto_php"
+    path: "/extractosweb/quiniela/nocturna/extracto_QN_S.php"
+    params: {vdia: "{day:02d}", vmes: "{month:02d}", vano: "{year}"}
+    role: "timing"                 # aporta los horarios (P2) y es el control cruzado
+    parser_epochs: [{version: 1, valid_from: "2006-08-11"}]
+  - name: "extracto_pdf_quiniela_nocturna"
+    kind: "extracto_pdf"
+    path: "/extractosweb/{year}{month:02d}{day:02d}n.pdf"
+    valid_from: "2018-11-30"       # desde ahí MostrarExtracto() sirve el PDF
+    role: "backup"                 # solo bronce, no se parsea (owner, UY-003)
+
+numbers:
+  quiniela: {count: 20, digits: 3, order: "drawn", repeats: true}
+  tombola: {count: 20, digits: 2, order: "sorted", repeats: false, replacements_from: "quiniela"}

@@ -69,9 +69,9 @@ Son propuestas escritas durante la exploración. Ninguna está aprobada todavía
    Desde UY-007 uno de ellos es fixture (`resultados_2019-09-25.html`) y tiene su test.
 3. **Detector de huecos:** el "Próximo sorteo" del sorteo anterior (acierta en el 98,3%) con
    +3 días de tolerancia, más `calendar_events`, porque no hay número de sorteo antes de 2016 (C10, C11).
-4. **`game_rules` con vigencias**, sembrado desde [`drafts/game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv)
+4. **`game_rules` con vigencias**, sembrado desde [`drafts/game_rules_5_de_oro.csv`](../../src/sorteos/uy/reference/game_rules.csv)
    (el rango depende de la fecha), y **`calendar_events`** desde
-   [`drafts/calendar_events.csv`](drafts/calendar_events.csv).
+   [`drafts/calendar_events.csv`](../../src/sorteos/uy/reference/calendar_events.csv).
 5. **pdfplumber** para el PDF de pozos ([Q5](#biblioteca-de-pdf-pdfplumber-verificado)).
 6. **El runtime de destino** (C6), antes de escribir un parser: si es Glue 3.9, el guard de
    PR-050 se amplía al paquete nuevo.
@@ -726,7 +726,7 @@ El Pozo de Plata es 3% en todas las versiones desde 2014, y el Pozo Revancha 55%
   caso de feriados"** (texto vigente de la página del juego). Ya vimos en Q1 que en la práctica
   también hay lunes, martes y viernes.
 
-**Borrador:** [`drafts/game_rules_5_de_oro.csv`](drafts/game_rules_5_de_oro.csv) tiene 29 filas,
+**Borrador:** [`drafts/game_rules_5_de_oro.csv`](../../src/sorteos/uy/reference/game_rules.csv) tiene 29 filas,
 cada una con vigencia, resolución y URL.
 
 ### Antes de 2012: el decreto de 1989 y un hueco (verificado, UY-007)
@@ -772,7 +772,7 @@ de `ver_resultados` (juegos y horas) y el "Próximo sorteo" del último extracto
 ("Trasladar la realización del sorteo del 5 de Oro con Revancha del domingo 19 de julio de 2026
 para el lunes 20 de julio de 2026") y su documento (218 PDF, más algunos JPG).
 
-**Borrador:** [`drafts/calendar_events.csv`](drafts/calendar_events.csv) tiene 54 eventos, 30
+**Borrador:** [`drafts/calendar_events.csv`](../../src/sorteos/uy/reference/calendar_events.csv) tiene 54 eventos, 30
 suspensiones y 24 traslados:
 
 - 30 se extrajeron con un parser de los resúmenes.

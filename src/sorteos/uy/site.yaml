@@ -1,0 +1,29 @@
+# Lo común a Uruguay (docs/uruguay/DESIGN.md, «site.yaml»). Es configuración, no un dato: no
+# va a bronce ni a plata. La carga y valida sorteos/core/config.py al arrancar.
+# Los textos van SIEMPRE entre comillas: el cargador exige str, así un `no` nunca llega como
+# false ni una fecha como objeto date.
+country: "uy"
+operator: "dnlq"
+operator_name: "Dirección Nacional de Loterías y Quinielas"
+base_url: "https://www.loteria.gub.uy"
+timezone: "America/Montevideo"
+currency: "UYU"
+history_starts: "2006-08-11"   # primer sorteo publicado (FINDINGS, Q2)
+
+pages:
+  resultados:                  # una página por día con todos los juegos de ese día
+    path: "/ver_resultados.php"
+    # Sin ceros, como los arman los links del calendario del propio sitio.
+    params: {vdia: "{day}", vmes: "{month}", vano: "{year}"}
+    money_style: "us"          # 9,999,999.99 (D6)
+    parser_epochs:
+      - {version: 1, valid_from: "2006-08-11"}
+
+# Códigos de MostrarExtracto() de juegos que v1 no descarga: se registran cuando
+# ver_resultados los muestra, nada más. Un código fuera de esta lista y de los juegos queda
+# como unknown_<código>. El 19 (Quiniela V+N) cae dentro del rango de la Lotería, por eso
+# el rango se corta en dos.
+other_games:
+  kini: [2]                    # 2006-08-15 a 2013-12-27; diferido como UL2
+  quiniela_vn: [19]
+  loteria: [1, "6-18", "20-26"]
