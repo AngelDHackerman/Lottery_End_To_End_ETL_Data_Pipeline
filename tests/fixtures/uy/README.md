@@ -40,3 +40,7 @@ de 2026). That block is not the requested draw.
 | `resultados_2018-12-29.html` | `ver_resultados.php?vdia=29&vmes=12&vano=2018` | UY-022: Lotería code 27, one of the 27-38 that were unknown before. 2 privacy links removed |
 | `resultados_2023-09-29.html` | `ver_resultados.php?vdia=29&vmes=9&vano=2023` | UY-022: "Próximo Nocturno: 30 / 09 / 203" (text kept, no date) and a Quiniela with a repeated number. 4 privacy links removed |
 | `resultados_2025-02-09.html` | `ver_resultados.php?vdia=9&vmes=2&vano=2025` | UY-022: "12 / /02 / 2025" (a repeated separator, read) and 6 Plata coupons, counted. 1 privacy link removed, 6 coupons faked |
+| `extracto_5_de_oro_2006-08-20.html` | `…extracto_5_de_oro.php?vdia=20&vmes=08&vano=2006` | UY-023: pools `0,00` (null) and three empty winners cells, read by cell |
+| `extracto_5_de_oro_2025-02-09.html` | `…extracto_5_de_oro.php?vdia=09&vmes=02&vano=2025` | UY-023: pairs with `resultados_2025-02-09.html` for the cross-check (6 Plata coupons). 6 coupons faked |
+| `extracto_quiniela_vespertina_2006-08-31.html` | `…extracto_QV_S.php?vdia=31&vmes=08&vano=2006` | UY-023: empty times (`hrs.` alone) and no Tómbola, the same draw as `resultados_2006-08-31.html` |
+| `extracto_quiniela_nocturna_2009-08-01.html` | `…extracto_QN_S.php?vdia=01&vmes=08&vano=2009` | UY-023: times out of order (Inicio 21:00, Fin 15:24), kept as published |
