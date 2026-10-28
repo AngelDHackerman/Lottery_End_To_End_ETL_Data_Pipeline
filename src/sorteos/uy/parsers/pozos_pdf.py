@@ -37,6 +37,7 @@ from sorteos.uy.sources import CONFIG, ORO
 
 SOURCE = "pozos_5_de_oro"
 (_SPEC,) = (s for s in CONFIG.games[ORO].sources if s.name == SOURCE)
+FIRST_DAY = min(e.valid_from for e in _SPEC.parser_epochs)  # the first PDF linked: 2016-06-01
 
 _DATE = r"(\d{2})/(\d{2})/(\d{4})"
 _STAMP = r"(\d{2})/(\d{2})/(\d{4}) (\d{2}):(\d{2}):(\d{2})"
