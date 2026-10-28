@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from sorteos.core import bronze
+from sorteos.core import manifest as mf
 from sorteos.core.http_client import FetchError, FetchResult
 from sorteos.uy import backfill, sources
 
@@ -56,7 +57,7 @@ def july_2016() -> dict:
 
 @pytest.fixture
 def stores(tmp_path):
-    manifest = bronze.Manifest(tmp_path / "manifest.sqlite")
+    manifest = mf.SqliteManifest(tmp_path / "manifest.sqlite")
     yield bronze.BronzeStore(tmp_path, "uy"), manifest
     manifest.close()
 
@@ -135,6 +136,40 @@ def test_fetch_failures_and_bad_statuses_are_errors_and_retried(stores):
     job(client, stores, srcs="resultados").run(DAY, DAY)
     row = stores[1].get("resultados", DAY)
     assert (row["state"], row["detail"], row["attempts"]) == ("error", "HTTP 403", 2)
+
+
+def test_a_pozos_pdf_that_answers_the_same_403_three_times_is_not_asked_again(stores):
+    # The 34 pozos PDF of 2026-10-25 answer 403 with the same 146 bytes (DESIGN.md, D11).
+    pages = july_2016()
+    pages[POZOS] = (403, b"<html><body>403 Forbidden</body></html>")
+    client = FakeClient(pages)
+    for _ in range(3):
+        job(client, stores, srcs="resultados,pozos").run(DAY, DAY)
+    assert client.calls.count(POZOS) == 3
+    row = stores[1].get("pozos_5_de_oro", DAY)
+    assert row["state"] == "missing" and row["detail"].startswith("same failure 3 times")
+    stats = job(client, stores, srcs="resultados,pozos").run(DAY, DAY)
+    assert stats.requests == 0 and client.calls.count(POZOS) == 3
+
+
+def test_an_overridden_day_is_not_asked_again_and_the_report_says_why(tmp_path):
+    day = date(2016, 7, 5)
+    url = sources.RESULTADOS.url(day)
+    store = bronze.BronzeStore(tmp_path, "uy")
+    path = tmp_path / "manifest.sqlite"
+    plain = mf.SqliteManifest(path)
+    plain.record(mf.Record("resultados", day, url, "error", "2026-10-04T00:00:00+00:00"))
+    plain.close()
+
+    strike = mf.Override("resultados", day, "no_draw", day, "paro", "owner", date(2026, 10, 20))
+    manifest = mf.SqliteManifest(path, {("resultados", day): strike})
+    client = FakeClient({})  # any request fails the test
+    stats = job(client, (store, manifest), srcs="resultados").run(day, day)
+    assert stats.requests == 0 and stats.skipped == 1
+    report = backfill.format_report(manifest)
+    assert "resultados                       error                    1" in report
+    assert "override resultados 2016-07-05: error -> no_draw (paro)" in report
+    manifest.close()
 
 
 def test_pdfs_are_only_requested_from_their_first_day(stores):
@@ -252,7 +287,7 @@ def test_main_builds_its_client_through_the_privacy_module(
 
 def test_manifest_keeps_a_log_of_every_attempt(stores):
     _, manifest = stores
-    rec = bronze.Record("resultados", DAY, "u", "error", "2026-10-04T00:00:00+00:00")
+    rec = mf.Record("resultados", DAY, "u", "error", "2026-10-04T00:00:00+00:00")
     manifest.record(rec)
     manifest.record(rec)
     assert manifest._db.execute("SELECT COUNT(*) FROM fetch_log").fetchone()[0] == 2

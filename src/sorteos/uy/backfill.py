@@ -5,9 +5,12 @@
     python -m sorteos.uy.backfill --report
 
 Day by day, the results page first: it is the discovery layer, and the per-game sources are
-requested only for games it lists on that day. A day already in a final manifest state is
-never requested again (``--refresh`` overrides), so the run can be stopped and resumed at
-any point and a second pass over the same range costs only what the first one left open.
+requested only for games it lists on that day. A key whose effective state is final is never
+requested again (``--refresh`` overrides), so the run can be stopped and resumed at any
+point and a second pass over the same range costs only what the first one left open. The
+effective state is the manifest's, unless ``reference/manual_overrides.csv`` has a person's
+decision for that key (the 2019 AFAL strike days), and the same failure three times in a
+row closes a key as ``missing`` (docs/uruguay/DESIGN.md, D10–D12).
 
 At 1 request per second the full range is a few hours: ~7,400 results pages, plus one
 extract per game drawn. ``--max-requests`` caps a session.
@@ -25,6 +28,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sorteos.core import bronze
+from sorteos.core import manifest as mf
 from sorteos.core.http_client import FetchError, PoliteClient
 from sorteos.uy import classify, privacy
 from sorteos.uy.sources import ALL_SOURCES, COUNTRY, RESULTADOS, SOURCE_GROUPS, Source
@@ -33,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 URUGUAY = ZoneInfo("America/Montevideo")
 DEFAULT_ROOT = Path("data/uy")
+REFERENCE = Path(__file__).parent / "reference"
 # The earliest results page with data is 2006-08-11 (bisected 2026-10-04); start the
 # default a little before it so the manifest itself records where the history begins.
 DEFAULT_START = date(2006, 8, 1)
@@ -70,7 +75,7 @@ class Backfill:
         self,
         client: PoliteClient,
         store: bronze.BronzeStore,
-        manifest: bronze.Manifest,
+        manifest: mf.Manifest,
         *,
         sources: Iterable[Source],
         today: date,
@@ -104,8 +109,8 @@ class Backfill:
             url = self._url_for(source, day)
             if url is None:
                 continue
-            existing = self.manifest.get(source.name, day)
-            if existing and existing["state"] in bronze.FINAL_STATES and not self.refresh:
+            state = self.manifest.effective_state(source.name, day)
+            if state in mf.FINAL_STATES and not self.refresh:
                 self.stats.skipped += 1
                 continue
             self._fetch(source, day, url)
@@ -117,7 +122,11 @@ class Backfill:
         if not source.applies_to(day):
             return None
         results = self.manifest.get(RESULTADOS.name, day)
-        if not results or results["state"] != bronze.DRAW or source.game not in results["games"]:
+        if (
+            not results
+            or self.manifest.effective_state(RESULTADOS.name, day) != mf.DRAW
+            or source.game not in results["games"]
+        ):
             return None
         if source.kind == "pozos_pdf":
             return results["extra"].get("pozos_url")
@@ -131,17 +140,17 @@ class Backfill:
         try:
             result = self.client.get(url)
         except FetchError as exc:
-            self._record(bronze.Record(source.name, day, url, bronze.ERROR, now, detail=str(exc)))
+            self._record(mf.Record(source.name, day, url, mf.ERROR, now, detail=str(exc)))
             return
 
         verdict = self._classify(source, day, result.status, result.content)
         state = self._state_for(source, day, verdict)
         key = None
-        if state == bronze.DRAW:
+        if state == mf.DRAW:
             key = self.store.key(source.name, day, source.extension)
             self.store.write(key, result.content)
         self._record(
-            bronze.Record(
+            mf.Record(
                 source=source.name,
                 draw_date=day,
                 url=url,
@@ -172,25 +181,25 @@ class Backfill:
 
     def _state_for(self, source: Source, day: date, verdict) -> str:
         if verdict.outcome == classify.DRAW:
-            return bronze.DRAW
+            return mf.DRAW
         if verdict.outcome == classify.ERROR:
-            return bronze.ERROR
+            return mf.ERROR
         if (self.today - day).days < self.settle_days:
-            return bronze.NOT_YET_PUBLISHED
+            return mf.NOT_YET_PUBLISHED
         # Per-game sources are only requested when the results page lists the game, so an
         # empty one is a hole in that source, not a day off.
-        return bronze.NO_DRAW if source is RESULTADOS else bronze.MISSING
+        return mf.NO_DRAW if source is RESULTADOS else mf.MISSING
 
-    def _record(self, rec: bronze.Record) -> None:
-        self.manifest.record(rec)
-        self.stats.count(rec.state)
-        if rec.state in (bronze.ERROR, bronze.MISSING) or rec.warnings:
+    def _record(self, rec: mf.Record) -> None:
+        state = self.manifest.record(rec)
+        self.stats.count(state)
+        if state in (mf.ERROR, mf.MISSING) or rec.warnings:
             logger.warning(
                 "needs attention",
                 extra={
                     "source": rec.source,
                     "draw_date": rec.draw_date.isoformat(),
-                    "state": rec.state,
+                    "state": state,
                     "detail": rec.detail,
                     "warnings": list(rec.warnings),
                 },
@@ -216,7 +225,15 @@ def parse_day(value: str) -> date:
     return date.fromisoformat(value)
 
 
-def format_report(manifest: bronze.Manifest) -> str:
+def load_overrides() -> dict:
+    return mf.load_overrides(
+        REFERENCE / "manual_overrides.csv",
+        calendar_events=REFERENCE / "calendar_events.csv",
+        sources=ALL_SOURCES,
+    )
+
+
+def format_report(manifest: mf.Manifest) -> str:
     lines = [f"{'source':32} {'state':18} {'count':>7}"]
     for source, state, count in manifest.summary():
         lines.append(f"{source:32} {state:18} {count:>7}")
@@ -224,6 +241,14 @@ def format_report(manifest: bronze.Manifest) -> str:
         span = manifest.date_range(source)
         if span:
             lines.append(f"{source}: draws from {span[0]} to {span[1]}")
+    # The counts above are what the classifier saw; these keys are skipped for a person's reason.
+    for (source, day), override in sorted(manifest.overrides.items()):
+        row = manifest.get(source, day)
+        if row and row["state"] != override.state:
+            lines.append(
+                f"override {source} {day}: {row['state']} -> {override.state} "
+                f"({override.reason})"
+            )
     return "\n".join(lines)
 
 
@@ -253,7 +278,7 @@ def main(argv: list[str] | None = None, *, client: PoliteClient | None = None) -
     from loteria.common.logging_setup import configure_logging
 
     configure_logging("loteria-uy-backfill")
-    manifest = bronze.Manifest(args.root / "manifest.sqlite")
+    manifest = mf.SqliteManifest(args.root / "manifest.sqlite", load_overrides())
     try:
         if not args.report:
             today = today_in_uruguay()
