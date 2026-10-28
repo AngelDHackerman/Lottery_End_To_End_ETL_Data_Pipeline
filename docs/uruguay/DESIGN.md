@@ -142,7 +142,8 @@ src/sorteos/
 │   ├── config.py              # carga y valida site.yaml y games/*.yaml (P4)
 │   ├── money.py               # parse_amount(texto, estilo) -> Decimal | None (D6)
 │   ├── shapes.py              # valida los números de un sorteo contra el YAML
-│   └── silver.py              # esquemas pyarrow explícitos, escritura y cuarentena
+│   ├── silver.py              # esquemas pyarrow explícitos, escritura y cuarentena
+│   └── dq.py                  # lee plata, corre una suite de GX sobre la tabla entera y reporta (UY-026.1)
 └── uy/
     ├── site.yaml              # lo común a Uruguay: operador, URL base, zona horaria, moneda
     ├── games/
@@ -163,6 +164,10 @@ src/sorteos/
     │   ├── extracto_quiniela.py
     │   └── pozos_pdf.py       # número de sorteo (pdfplumber)
     ├── silver.py              # bronce → filas de plata por año: cuarentena, cross_source_check, P7, flags (UY-025.2)
+    ├── dq/                    # el gate de GX (UY-026.1)
+    │   ├── frames.py          # las tablas preparadas, la forma de cada sorteo y los flags desplegados
+    │   ├── suites.py          # las 5 suites; su JSON está en qa/uy/expectations/
+    │   └── runner.py          # make uy-dq: 0 en verde, 1 si falla una suite, 2 si falta una tabla
     └── backfill.py            # la CLI de hoy
 ```
 
@@ -797,7 +802,8 @@ La propuesta (P14) es construirlo como el layer de Lambda: un lock con hashes, w
 esos archivos y sin PyPI. Un zip por `--extra-py-files` alcanza solo para código Python puro, y GX
 1.20 requiere `numpy` y `scipy` (y `pydantic-core` si usa pydantic 2), que son extensiones
 compiladas: Python no las carga desde un zip, salvo que Glue 5.0 ya las traiga. **Hipótesis:** que instalar desde S3 sin
-resolver dependencias baje el arranque a segundos. UY-026 lo mide antes de cerrarlo.
+resolver dependencias baje el arranque a segundos. UY-026.2 arma los wheels; el job de Glue y la
+medición del arranque pasan a la Fase 5, sobre el job que se despliega (owner, UY-026 1a).
 
 Las lecciones de `master` que se repiten tal cual:
 
@@ -811,7 +817,8 @@ Las lecciones de `master` que se repiten tal cual:
 
 ### Las suites (UY-026)
 
-Cada expectativa cita su evidencia. Es la lista de partida; UY-026 la confirma contra los datos.
+Cada expectativa cita su evidencia. Es la lista de partida; UY-026.1 la confirmó contra la plata de
+todo el bronce (12.979 sorteos, 458.907 números, 6.231 premios): las 5 suites pasan en ~34 s.
 
 | Tabla | Expectativa | Evidencia |
 |---|---|---|
@@ -828,6 +835,26 @@ Cada expectativa cita su evidencia. Es la lista de partida; UY-026 la confirma c
 | `prizes` | `currency` es `UYU` y todo monto es nulo o mayor o igual que 0 | D6 |
 | `prizes` | `winning_coupons` es 0 si y solo si `winners_status` es `no_winners`, y nulo si y solo si es `unknown` | D7 |
 | todas | Toda clave de `draw_numbers` y `prizes` existe en `draws` | PR-049 |
+| `draws`, `draw_numbers`, `prizes` | Hay al menos una fila | `master`: un directorio vacío no puede dar verde (owner, UY-026 3a) |
+| `draws`, `draw_numbers`, `prizes` | Las 5 columnas de linaje nunca son nulas, `run_id` incluido | PR-045.1; sin condición de época, porque no hay plata anterior al linaje (owner, UY-026 3a) |
+
+Cómo quedaron en el código (UY-026.1):
+
+- **Cinco suites:** `uy_draws`, `uy_draw_numbers`, `uy_prizes`, `uy_draw_shapes` y `uy_dq_flags`.
+  GX valida una columna por vez, así que lo que es de un sorteo (cuántos números, posiciones 1..n,
+  orden, repetidos, el extra entre los 5 de Oro) se mide con pandas en una tabla con una fila por
+  sorteo y tipo de bolilla, y GX valida esa medición (owner, UY-026 2a). Un tipo de bolilla que
+  falta es una fila con `count` 0, así que no se pierde. Los `dq_flags` se despliegan, una fila por
+  flag, como `<tabla>.<flag>`.
+- **La Tómbola es de 20 números o de ninguno.** La aceptación pedía 20, pero sobre los datos falló
+  una vez: la Vespertina del 2006-08-31, publicada sin Tómbola, entra sin esas filas por decisión
+  del owner en UY-022. Una Tómbola incompleta sigue fallando.
+- **Armado al correr, nunca en el JSON:** los rangos del 5 de Oro, que salen de `game_rules.csv`, y
+  las claves de `draws` de esta corrida.
+- **Las fechas van como texto ISO.** Un `datetime` en la condición de una fila rompe la suite de
+  GX 1.20 al serializarla, y el texto ISO compara igual que la fecha.
+- **Cada expectativa se probó quitándola:** un test rompe lo que vigila cada una y exige que sea la
+  única en fallar.
 | `draw_gaps` | `status` está en {`explained`, `open`}, y `explained` si y solo si `calendar_event_date` no es nulo | D13, D15 |
 
 ## Pruebas y riesgos (UY-011)
@@ -876,7 +903,7 @@ Lo que este diseño da por bueno sin haberlo podido confirmar del todo:
 | **El sitio puede empezar a bloquear.** Hoy responde sin CDN ni WAF, también desde AWS (UY-005) | El incremental falla con 403 | Las firmas de falla (P8) separan un 403 nuevo de los 34 viejos, y la alarma de huecos (UY-045) avisa en 3 días |
 | **El sitio regenera las páginas** con la plantilla de hoy | Una página vieja pedida otra vez no es byte a byte la misma (48.072 contra 48.803 bytes el 2019-09-25) | Nunca se vuelve a pedir una página final (D12), y el hash de los datos va en el linaje (UY-025) |
 | **Un año entra en una Lambda de 15 minutos** (D18) | El `Map` de UY-042 corta por timeout | Se mide en UY-030 con 2016 |
-| **GX arranca rápido desde wheels en S3** (P14) | El job vuelve a gastar ~20 minutos de arranque | Se mide en UY-026 |
+| **GX arranca rápido desde wheels en S3** (P14) | El job vuelve a gastar ~20 minutos de arranque | Se mide en la Fase 5, sobre el job real (owner, UY-026 1a) |
 | **Los datos tipeados de 2006** comparten el error en las dos fuentes | La comparación entre fuentes no los corrige | Los flags los marcan y oro filtra por métrica (FINDINGS) |
 | **Huecos sin explicación:** 2006-08-27/30 y las reglas anteriores a 2012 | Quedan abiertos o sin fuente | Están documentados como huecos aceptados (G1) |
 | **Uruguay vuelve a tener horario de verano** | Las horas UTC de la Quiniela se corren una hora | Las horas se guardan locales y el UTC sale de `zoneinfo` (C5) |

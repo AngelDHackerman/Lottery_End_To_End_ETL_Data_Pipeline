@@ -1,0 +1,28 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "column": "flag",
+        "value_set": [
+          "draws.draw_number_inferred",
+          "draws.draw_number_out_of_sequence",
+          "draws.next_draw_implausible",
+          "draws.next_draw_unparsed",
+          "draws.timing_out_of_order",
+          "draws.tombola_not_from_quiniela",
+          "draws.tombola_repeated_number",
+          "prizes.amount_sources_differ",
+          "prizes.pozo_plata_equals_oro"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.20.0"
+  },
+  "name": "uy_dq_flags",
+  "notes": null
+}
