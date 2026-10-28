@@ -4,7 +4,7 @@ game,rule,value,valid_from,valid_to,source,source_url,evidence
 5_de_oro,rango_numeros,01-48,2014-03-19,,As. 176/2014 numeral 1,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,"verificado: el primer sorteo (2014-03-19) ya trae 45 y 48; máximo 48 en 1.293 sorteos"
 5_de_oro,dias_de_sorteo,miércoles y domingo; el miércoles puede correrse al jueves por feriado,,,Página del juego (texto vigente) y As. 176/2014 numeral 3,https://www.loteria.gub.uy/Juego_Quiniela.php?xjue=4&xpos=1,"observado: 12,6% de los sorteos cae fuera de mié./dom. (UY-002)"
 5_de_oro,precio_5_de_oro,$ 25,2012-02-01,2014-03-18,Resolución del 23/01/2012 (citada en As. 144/2012),https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,citada; la resolución original no está publicada
-5_de_oro,precio_revancha,$ 10,2009-02,2012-03-03,Citado en As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,citada
+5_de_oro,precio_revancha,$ 10,,2012-03-03,Citado en As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,"citada; vigente desde febrero de 2009, sin día (UY-025.1: la fecha queda nula, nunca se inventa el día)"
 5_de_oro,precio_revancha,$ 15,2012-03-04,2014-03-18,As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,leído
 5_de_oro,pozo_revancha_pct,45.47,2012-03-04,2014-03-18,As. 144/2012,https://www.loteria.gub.uy/Resoluciones/nuevo_valor_5_de_oro_revancha.pdf,leído
 5_de_oro,precio_5_de_oro,$ 20,2014-03-19,2019-01-06,As. 176/2014 numeral 8,https://www.loteria.gub.uy/Resoluciones/Modificacion_5_De_Oro_As_176_2014.pdf,leído

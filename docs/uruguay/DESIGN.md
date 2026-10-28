@@ -154,6 +154,7 @@ src/sorteos/
     │   ├── calendar_events.csv
     │   └── manual_overrides.csv  # D10, P9 (UY-021)
     ├── privacy.py             # el patrón DET_INVALIDAS (P5)
+    ├── dq_flags.py            # el catálogo cerrado de flags (D22); core/silver.py lo recibe (UY-025.1)
     ├── sources.py             # arma las URLs a partir de los YAML
     ├── classify.py            # el de hoy, sin cambios
     ├── parsers/
@@ -300,7 +301,11 @@ del sorteo, no se escribe en el YAML.
 ### Convenciones
 
 - **Ruta:** `silver/<tabla>/country=uy/game=<juego>/year=<aaaa>/`. `game_rules` y
-  `calendar_events` se parten solo por país.
+  `calendar_events` se parten solo por país, y `quarantine` por país y año (sin `game=`: una
+  página que no parsea se lleva todos los juegos del día). Las columnas de partición van **solo
+  en la ruta**, no dentro del archivo, como en la plata de `master` (UY-025.1): Athena las muestra
+  como columnas igual, y si estuvieran en los dos lugares `pandas.read_parquet` no podría leer la
+  carpeta (verificado con pyarrow 25).
 - **Tamaño:** unos 13.000 sorteos y ~460.000 números en toda la historia. No hace falta nada más fino:
   por el piso de 10 MiB de Athena, partir más no ahorra plata (ver la memoria de PR-043.1).
 - **Linaje** (como PR-045, más dos columnas): `ingested_at timestamp` (UTC), `run_id string`,
@@ -310,6 +315,10 @@ del sorteo, no se escribe en el YAML.
   donde el catálogo dice `int`. Una columna que viene toda en `None` se escribe con su tipo, nunca
   como `Null`. Son las dos trampas de la memoria sobre tipos de Parquet. En la nube, las tablas se
   declaran en Terraform y no las crea un crawler (la lección de PR-045.2).
+- **El escritor comprueba lo que pyarrow no** (UY-025.1, verificado): pyarrow descarta sin aviso
+  una columna que no está en el esquema y no hace cumplir `nullable=False`. Por eso cada fila debe
+  traer exactamente las columnas de su tabla, la clave llena y única, y solo flags del catálogo
+  para esa tabla. Si una fila falla, no se escribe nada.
 - **Datos sucios** (propuesta 1 de FINDINGS): se guarda el valor publicado y se marca en
   `dq_flags array<string>`. El vacío es nulo. Solo va a cuarentena lo que no se puede interpretar.
 - **Cuarentena:** un sorteo que no parsea va **entero** a `silver/quarantine/` (fuente, fecha,
@@ -369,7 +378,17 @@ Salen de `src/sorteos/uy/reference/*.csv`, con las mismas columnas que los borra
 ([`game_rules_5_de_oro.csv`](../../src/sorteos/uy/reference/game_rules.csv) y
 [`calendar_events.csv`](../../src/sorteos/uy/reference/calendar_events.csv)), más `country` y `operator`. Son datos de
 referencia con su fuente y su vigencia, y se versionan en git porque cada cambio es una decisión
-revisada. El escritor de plata los pasa a Parquet sin transformarlos.
+revisada. El escritor de plata los pasa a Parquet sin transformarlos: las fechas se tipan como
+`date` y la celda vacía es nula, nada más. Una celda de fecha que no es una fecha completa hace
+fallar la escritura. Al tiparlas aparecieron tres (owner, UY-025.1, 1a):
+
+- `precio_revancha` de $ 10 decía `valid_from = 2009-02`: la resolución da el mes, no el día. La
+  fecha queda **nula** y el mes pasa a `evidence`; nunca se inventa un día.
+- Los días 2019-09-25 y 2019-09-26 del paro decían `moved_to = 2019-09-26 (5 de Oro)` y
+  `2019-09-27 (5 de Oro)`: el traslado valía solo para el 5 de Oro y las Quinielas se
+  suspendieron. Cada día son ahora **dos filas**, el 5 de Oro como `traslado` con su `moved_to`
+  (como la del 2019-08-07) y las dos Quinielas como `suspension`. `calendar_events` pasa de 57 a
+  59 filas, y las correcciones manuales que citan esas fechas siguen encontrándolas.
 
 ---
 
@@ -751,8 +770,10 @@ Cada flag sale de un caso que se vio en los datos. Las cifras son de hoy, sobre 
   diría lo mismo dos veces.
 - **Tampoco llevan flag** los sorteos sin "Próximo" (117, casi todos de 2006): un nulo en
   `next_draw_text` ya lo dice.
-- **Sumar un flag** es cambiar este documento, el catálogo del código y su test, en el mismo PR.
-  El escritor de plata falla ante un nombre que no conoce.
+- **Sumar un flag** es cambiar este documento, el catálogo del código
+  ([`uy/dq_flags.py`](../../src/sorteos/uy/dq_flags.py)) y su test, en el mismo PR: el test lee la
+  tabla de arriba y la compara con el código. El escritor de plata falla ante un nombre que no
+  conoce, o ante un flag puesto en una tabla que no es la suya.
 
 ### Dónde corre GX (D20, P14)
 
