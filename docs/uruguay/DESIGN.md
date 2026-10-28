@@ -137,7 +137,8 @@ La Quiniela y la Tómbola no publican montos en estas fuentes.
 src/sorteos/
 ├── core/                      # no sabe de ningún país
 │   ├── http_client.py         # el de UY-001: token bucket, backoff, caché, blocklist recibida por parámetro
-│   ├── bronze.py              # almacén y manifiesto; el país entra como parámetro
+│   ├── bronze.py              # almacén de bronce; el país entra como parámetro
+│   ├── manifest.py            # el Protocol Manifest, SQLite, las 3 fallas y manual_overrides (UY-021)
 │   ├── config.py              # carga y valida site.yaml y games/*.yaml (P4)
 │   ├── money.py               # parse_amount(texto, estilo) -> Decimal | None (D6)
 │   ├── shapes.py              # valida los números de un sorteo contra el YAML
@@ -150,7 +151,8 @@ src/sorteos/
     │   └── quiniela_nocturna.yaml
     ├── reference/
     │   ├── game_rules.csv     # hoy en docs/uruguay/drafts/
-    │   └── calendar_events.csv
+    │   ├── calendar_events.csv
+    │   └── manual_overrides.csv  # D10, P9 (UY-021)
     ├── privacy.py             # el patrón DET_INVALIDAS (P5)
     ├── sources.py             # arma las URLs a partir de los YAML
     ├── classify.py            # el de hoy, sin cambios

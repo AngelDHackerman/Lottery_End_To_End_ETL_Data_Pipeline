@@ -14,7 +14,7 @@ Three properties, each enforced here so no caller can forget them:
    identifiable User-Agent, exponential backoff with jitter on 429/5xx and on transport
    errors, ``Retry-After`` honoured.
 3. **No caching here.** What has already been fetched is the manifest's business
-   (bronze.Manifest) — a ``no_draw`` day is never stored in bronze but must not be fetched
+   (manifest.Manifest) — a ``no_draw`` day is never stored in bronze but must not be fetched
    again either, so the cache cannot be the raw store (roadmap-uruguay.md, C3).
 
 The User-Agent names the caller's ``agent`` (a ``product/version`` token each country picks,

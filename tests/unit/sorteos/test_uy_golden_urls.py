@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from sorteos.core import bronze
+from sorteos.core import manifest as mf
 
 REPO = Path(__file__).parents[3]
 SAMPLE = json.loads((REPO / "tests" / "fixtures" / "uy" / "golden_urls.json").read_text("utf-8"))
@@ -85,10 +85,10 @@ def test_the_pozos_pdf_is_skipped_because_its_url_is_a_link(golden):
 
 def _manifest(tmp_path, extra=()):
     path = tmp_path / "manifest.sqlite"
-    manifest = bronze.Manifest(path)
+    manifest = mf.SqliteManifest(path)
     for source, day, url in [*rows(SAMPLE[:3]), *extra]:
         manifest.record(
-            bronze.Record(source, date.fromisoformat(day), url, "draw", "2026-10-26T00:00:00+00:00")
+            mf.Record(source, date.fromisoformat(day), url, "draw", "2026-10-26T00:00:00+00:00")
         )
     manifest.close()
     return path
