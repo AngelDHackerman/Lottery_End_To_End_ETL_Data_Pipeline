@@ -14,8 +14,8 @@ from sorteos.core import manifest as mf
 from sorteos.core.bronze import BronzeStore
 from sorteos.uy import dq_flags as dq
 from sorteos.uy import silver
-from sorteos.uy.parsers import resultados
-from sorteos.uy.parsers.common import Ball, ParsedDraw, Prize
+from sorteos.uy.parsers import pozos_pdf, resultados
+from sorteos.uy.parsers.common import Ball, BlockError, ParsedDraw, Prize
 from sorteos.uy.sources import ORO, QN, QV
 
 UY = Path(__file__).parents[2] / "fixtures" / "uy"
@@ -29,19 +29,43 @@ class Lake:
         self.bronze = BronzeStore(root, "uy")
         self.manifest = mf.SqliteManifest(root / "manifest.sqlite")
 
-    def put(self, source: str, day: date, content: bytes, state: str = mf.DRAW) -> str:
-        key = self.bronze.key(source, day, "html")
+    def put(
+        self,
+        source: str,
+        day: date,
+        content: bytes,
+        state: str = mf.DRAW,
+        games: tuple[str, ...] = (),
+        extension: str = "html",
+    ) -> str:
+        key = self.bronze.key(source, day, extension)
         self.bronze.write(key, content)
-        self.manifest.record(
-            mf.Record(source, day, "u", state, "2026-10-28", content=content, bronze_key=key)
+        record = mf.Record(
+            source, day, "u", state, "2026-10-28", games=games, content=content, bronze_key=key
         )
+        self.manifest.record(record)
         return key
 
     def fixture(self, source: str, day: date, state: str = mf.DRAW) -> str:
-        return self.put(source, day, (UY / f"{source}_{day}.html").read_bytes(), state)
+        content = (UY / f"{source}_{day}.html").read_bytes()
+        return self.put(source, day, content, state, _games(source, content, day))
+
+    def pozos(self, day: date, content: bytes, state: str = mf.DRAW) -> str:
+        return self.put(pozos_pdf.SOURCE, day, content, state, extension="pdf")
 
     def year(self, year: int) -> silver.YearRows:
         return silver.build_year(year, self.manifest, self.bronze, RUN)
+
+
+def _games(source: str, content: bytes, day: date) -> tuple[str, ...]:
+    """The games of a results page, as the backfill's classifier stores them."""
+    if source != "resultados":
+        return ()
+    try:
+        page = resultados.parse(content, day)
+    except resultados.PageError:
+        return ()
+    return tuple(d.game for d in page.draws) + tuple(f.game for f in page.failed)
 
 
 @pytest.fixture
@@ -67,7 +91,7 @@ def test_a_5_de_oro_with_its_extract(lake):
     (draw,) = rows.draws
     assert draw["game"] == ORO and draw["draw_date"] == day
     assert draw["cross_source_check"] == silver.MATCH
-    assert draw["draw_number"] is None  # UY-025.3
+    assert draw["draw_number"] is None  # no pozos PDF read anywhere in this lake
     assert draw["started_local"] is None  # timing is only the Quiniela's (P2)
     assert draw["timezone"] == "America/Montevideo"
     assert draw["dq_flags"] == []
@@ -210,6 +234,139 @@ def test_a_bronze_file_that_is_not_what_was_fetched_stops_the_run(lake):
     lake.bronze.write(key, b"changed after the fetch")
     with pytest.raises(silver.BronzeMismatch, match=key):
         lake.year(2025)
+
+
+# --- the draw number (UY-025.3) -----------------------------------------------------------
+
+
+@pytest.fixture
+def fake_pozos(monkeypatch):
+    """A pozos PDF whose bytes are its draw number, or b"broken"."""
+
+    def parse(content, day):
+        if content == b"broken":
+            raise BlockError("not a readable PDF (PDFSyntaxError)")
+        return pozos_pdf.ParsedPozos(day, int(content), datetime(2020, 1, 1, 21, 0), ())
+
+    monkeypatch.setattr(pozos_pdf, "parse", parse)
+
+
+def oro_days(lake, *days):
+    for day in days:  # the series reads the manifest's games, never these bytes
+        lake.put("resultados", day, f"page {day}".encode(), games=(ORO,))
+
+
+def numbers(series):
+    return {day: (n.number, n.flags) for day, n in series.items()}
+
+
+D = [date(2020, 1, 5 + 3 * i) for i in range(6)]
+INFERRED = (dq.DRAW_NUMBER_INFERRED,)
+
+
+def test_the_series_keeps_what_was_published_and_infers_the_rest(lake, fake_pozos):
+    oro_days(lake, *D)
+    lake.put("resultados", date(2020, 1, 6), b"x", games=(QN,))  # no 5 de Oro: does not count
+    lake.pozos(D[0], b"100")
+    lake.pozos(D[2], b"102")
+    lake.pozos(D[3], b"104")  # 103 was expected
+    lake.pozos(D[4], b"", state=mf.ERROR)
+    lake.pozos(D[5], b"106")  # counted from 104, the last published
+    series = silver.number_series(lake.manifest, lake.bronze)
+    assert numbers(series) == {
+        D[0]: (100, ()),
+        D[1]: (101, INFERRED),  # no PDF linked that day
+        D[2]: (102, ()),
+        D[3]: (104, (dq.DRAW_NUMBER_OUT_OF_SEQUENCE,)),
+        D[4]: (105, INFERRED),  # the PDF is an error
+        D[5]: (106, ()),
+    }
+    assert (series[D[0]].version, series[D[1]].version) == (1, None)
+
+
+def test_the_first_draws_without_a_pdf_count_back_from_the_next(lake, fake_pozos):
+    oro_days(lake, *D[:3])
+    lake.pozos(D[2], b"50")
+    assert numbers(silver.number_series(lake.manifest, lake.bronze)) == {
+        D[0]: (48, INFERRED),
+        D[1]: (49, INFERRED),
+        D[2]: (50, ()),
+    }
+
+
+def test_the_series_starts_with_the_first_pozos_pdf(lake, fake_pozos):
+    oro_days(lake, date(2016, 5, 29), date(2016, 6, 1))
+    lake.pozos(date(2016, 6, 1), b"1847")
+    assert list(silver.number_series(lake.manifest, lake.bronze)) == [pozos_pdf.FIRST_DAY]
+
+
+def test_without_any_pdf_read_the_number_stays_null_and_unflagged(lake):
+    oro_days(lake, D[0])
+    assert numbers(silver.number_series(lake.manifest, lake.bronze)) == {D[0]: (None, ())}
+    empty = Lake(lake.bronze.root / "empty")
+    assert silver.number_series(empty.manifest, empty.bronze) == {}
+    empty.manifest.close()
+
+
+def test_the_real_first_pozos_pdf_gives_1847(lake):
+    day = date(2016, 6, 1)
+    oro_days(lake, day)
+    lake.pozos(day, (UY / "pozos_5_de_oro_2016-06-01.pdf").read_bytes())
+    (number,) = silver.number_series(lake.manifest, lake.bronze).values()
+    assert (number.number, number.flags, number.version) == (1847, (), 1)
+
+
+def test_the_draw_takes_its_number_and_the_pozos_lineage(lake, fake_pozos):
+    day = date(2025, 2, 9)
+    lake.fixture("resultados", day)
+    lake.fixture("extracto_5_de_oro", day)
+    lake.pozos(day, b"2780")
+    (draw,) = lake.year(2025).draws
+    assert (draw["draw_number"], draw["dq_flags"]) == (2780, [])
+    assert draw["parser_version"] == "resultados:1;extracto_5_de_oro:1;pozos_5_de_oro:1"
+
+
+def test_an_inferred_number_is_flagged_and_has_no_pozos_lineage(lake, fake_pozos):
+    day = date(2025, 2, 9)
+    lake.fixture("resultados", day)
+    oro_days(lake, date(2024, 12, 29))  # in another year: the series crosses it
+    lake.pozos(date(2024, 12, 29), b"2770")
+    (draw,) = lake.year(2025).draws
+    assert (draw["draw_number"], draw["dq_flags"]) == (2771, [dq.DRAW_NUMBER_INFERRED])
+    assert draw["parser_version"] == "resultados:1"
+
+
+def test_a_pdf_that_does_not_parse_quarantines_its_draw_and_still_counts(lake, fake_pozos):
+    day = date(2025, 2, 9)
+    lake.fixture("resultados", day)
+    oro_days(lake, date(2024, 12, 29), date(2026, 1, 4))
+    lake.pozos(date(2024, 12, 29), b"10")
+    key = lake.pozos(day, b"broken")
+    lake.pozos(date(2026, 1, 4), b"12")
+    series = silver.number_series(lake.manifest, lake.bronze)
+    assert series[date(2026, 1, 4)].flags == ()  # 10 + the two draws since, the broken one too
+
+    rows = silver.build_year(2025, lake.manifest, lake.bronze, RUN, series)
+    assert rows.draws == []
+    (quarantined,) = rows.quarantine
+    assert (quarantined["source"], quarantined["game"]) == (pozos_pdf.SOURCE, ORO)
+    assert quarantined["source_key"] == key
+    assert quarantined["reason"] == "not a readable PDF (PDFSyntaxError)"
+    assert quarantined["parser_version"] == "resultados:1;pozos_5_de_oro:1"
+
+
+def test_a_5_de_oro_the_manifest_does_not_list_stops_the_run(lake):
+    day = date(2025, 2, 9)
+    lake.put("resultados", day, (UY / f"resultados_{day}.html").read_bytes(), games=(QN,))
+    with pytest.raises(silver.SeriesMismatch, match="2025-02-09"):
+        lake.year(2025)
+
+
+def test_a_series_given_is_used_as_it_is(lake):
+    day = date(2025, 2, 9)
+    lake.fixture("resultados", day)
+    rows = silver.build_year(2025, lake.manifest, lake.bronze, RUN, {day: silver.DrawNumber(7)})
+    assert rows.draws[0]["draw_number"] == 7
 
 
 # --- the rules of one draw, on parsed draws ------------------------------------------------

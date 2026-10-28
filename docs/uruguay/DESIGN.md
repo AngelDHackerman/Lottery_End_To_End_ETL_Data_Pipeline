@@ -332,7 +332,7 @@ del sorteo, no se escribe en el YAML.
 |---|---|---|
 | `country`, `operator`, `game` | string | D1. Por ejemplo `uy`, `dnlq`, `quiniela_nocturna` |
 | `draw_date` | date | Clave natural junto con las tres de arriba |
-| `draw_number` | int | Solo el 5 de Oro, y solo desde 2016 (PDF de pozos, C11). Nulo antes |
+| `draw_number` | int | Solo el 5 de Oro, y solo desde 2016 (PDF de pozos, C11). Nulo antes. Sin PDF se infiere del último publicado más los sorteos del 5 de Oro desde entonces, o hacia atrás desde el siguiente si no hay uno antes (`draw_number_inferred`). La serie cruza años y se arma una vez por corrida desde los `games` del manifiesto (UY-025.3) |
 | `next_draw_text` | string | El "Próximo sorteo" tal como se publicó |
 | `next_draw_date` | date | El mismo, interpretado. Nulo si no parsea (por ejemplo `30 / 09 / 203`), con su `dq_flag` |
 | `started_local`, `first_ball_local`, `ended_local` | timestamp | Solo la Quiniela (P2). La hora **de reloj de Montevideo**, tal como se publica y sin zona, porque la puntualidad se mide contra la hora local (las 21:00). Nulos si el extracto los trae vacíos (2006) |
@@ -731,8 +731,8 @@ volver a correr da exactamente el mismo resultado.
 
 **Medido en UY-025.2** (local, sin peticiones): toda la historia, de 2006 a 2026, se parsea y
 escribe en ~255 s, unos 12 s por año, contando `ver_resultados` y el extracto de cada sorteo. La
-plata completa ocupa 5,1 MB (63 particiones por tabla de sorteos y números). Faltan los PDF de
-pozos de UY-025.3, que suman 9 s en total.
+plata completa ocupa 5,1 MB (63 particiones por tabla de sorteos y números). Con la serie del
+número de sorteo (UY-025.3: los 1.025 PDF de pozos, ~10 s una vez por corrida) son ~280 s.
 
 ### El backfill (D18, D19)
 
@@ -771,11 +771,11 @@ Cada flag sale de un caso que se vio en los datos. Las cifras son de hoy, sobre 
 | `amount_sources_differ` | `prizes` | `ver_resultados` y el extracto dan montos distintos (D6). Plata guarda el de `ver_resultados` | 0 en los 2.072 sorteos comparados del 5 de Oro | Igual que el anterior |
 | `next_draw_unparsed` | `draws` | Hay texto de "Próximo", pero no es una fecha (`30 / 09 / 203`). `next_draw_date` queda nulo | 2 | El detector usa el calendario |
 | `next_draw_implausible` | `draws` | La fecha anunciada cae fuera de (sorteo, sorteo + 14 días] | 17 | El detector usa el calendario |
-| `draw_number_inferred` | `draws` | El número de sorteo sale de los vecinos porque falta el PDF de pozos (owner, 2026-10-21) | 49 desde el 2016-06-01: los 35 PDF de pozos con `error` y 14 días en que `ver_resultados` no enlaza el PDF (medido en UY-024) | Los análisis del número pueden excluirlo |
+| `draw_number_inferred` | `draws` | El número de sorteo sale de los vecinos porque falta el PDF de pozos (owner, 2026-10-21) | 49 desde el 2016-06-01: los 35 PDF de pozos con `error` y 14 días en que `ver_resultados` no enlaza el PDF (medido en UY-024; confirmado en UY-025.3, y en los 49 contar hacia adelante o hacia atrás da el mismo número) | Los análisis del número pueden excluirlo |
 | `tombola_repeated_number` | `draws` | La Tómbola trae un número repetido | 31, todos de 2006 | Las frecuencias de la Tómbola lo excluyen |
 | `tombola_not_from_quiniela` | `draws` | No se cumple P7: la Tómbola no es las terminaciones de la Quiniela más sus reposiciones | 31, todos de 2006, y son los mismos 31 de `tombola_repeated_number`: con un número repetido no caben las terminaciones más sus reposiciones (UY-025.2) | `is_replacement` queda nulo en ese sorteo |
 | `timing_out_of_order` | `draws` | Los horarios de la Quiniela no van en orden (inicio ≤ primera bolilla ≤ fin). **Sumado por el owner en UY-023** | 1 (Nocturna 2009-08-01: inicio 21:00, fin 15:24; los 10.901 extractos con horario medidos) | La puntualidad lo excluye, en vez de leer un sorteo de −6 horas |
-| `draw_number_out_of_sequence` | `draws` | El número de sorteo publicado no es el del sorteo numerado anterior más los sorteos del 5 de Oro que hubo entre medio. Se guarda el publicado. **Sumado por el owner en UY-024** | 2: 2017-07-30 (1967, se esperaba 1966) y 2017-08-16 (1971, se esperaba 1972; repite el del 2017-08-13) | La continuidad del número y la unicidad de GX lo excluyen |
+| `draw_number_out_of_sequence` | `draws` | El número de sorteo publicado no es el del sorteo numerado anterior más los sorteos del 5 de Oro que hubo entre medio. Se guarda el publicado. **Sumado por el owner en UY-024** | 2: 2017-07-30 (1967, se esperaba 1966) y 2017-08-16 (1971, se esperaba 1972; repite el del 2017-08-13). Confirmado en UY-025.3: sin esas dos filas, el número es único | La continuidad del número y la unicidad de GX lo excluyen |
 
 - **El monto vacío no lleva flag.** Por D6 ya es nulo, y nulo quiere decir eso. Un flag más
   diría lo mismo dos veces.
