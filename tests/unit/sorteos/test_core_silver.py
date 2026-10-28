@@ -276,7 +276,7 @@ def test_the_reference_csvs_go_to_parquet_untransformed(tmp_path):
     assert events[0]["source_url"] is None  # an empty cell is null, never ""
     # UY-025.1 (owner, 1a): a day the source does not give stays null, never invented, and
     # the 2019 strike moved only the 5 de Oro, so each of those days is two rows.
-    (revancha_2009,) = [r for r in rules if r["value"] == "$ 10" and r["valid_from"] is None]
+    (revancha_2009,) = (r for r in rules if r["value"] == "$ 10" and r["valid_from"] is None)
     assert revancha_2009["valid_to"] == date(2012, 3, 3)
     strike = [(r["games"], r["moved_to"]) for r in events if r["event_date"] == date(2019, 9, 25)]
     assert strike == [
