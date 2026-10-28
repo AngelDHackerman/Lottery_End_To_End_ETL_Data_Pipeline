@@ -318,6 +318,12 @@ Las 25 celdas vacías (6 en los dos primeros sorteos de 2006 y el resto repartid
 están vacías también en el extracto. Hipótesis: el dato no se cargó. En plata deben quedar como
 "desconocido", no como "Sin Aciertos" ni como "con ganadores".
 
+> **Corregido en UY-022 (verificado con el parser sobre las 2.077 páginas del 5 de Oro):** las
+> vacías de verdad son **11** (Oro 4, Plata 4, Revancha 3: 2006-08-16, 2006-08-20, 2006-10-29,
+> 2007-01-17, 2014-06-08, 2023-05-21 y 2023-11-12). Las otras 14 sí dicen algo y el script de Q1
+> no las reconoció: 12 grafías de "Sin Aciertos" (`Sin Acierrtos`, `Sin Aiciertos`,
+> `SinAciertos`, `si aciertos`…) y 2 "Vacante" (2014-05-11, Oro y Revancha).
+
 ## Pendiente de Q1
 
 - ~~Sumar los traslados de fecha a `calendar_events` con su resolución (UY-004).~~ Hecho en

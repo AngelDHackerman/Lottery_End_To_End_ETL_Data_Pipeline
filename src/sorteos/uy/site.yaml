@@ -26,4 +26,4 @@ pages:
 other_games:
   kini: [2]                    # 2006-08-15 a 2013-12-27; diferido como UL2
   quiniela_vn: [19]
-  loteria: [1, "6-18", "20-26"]
+  loteria: [1, "6-18", "20-38"]   # 27-38: los sorteos desde 2018-12, mapeados en UY-006

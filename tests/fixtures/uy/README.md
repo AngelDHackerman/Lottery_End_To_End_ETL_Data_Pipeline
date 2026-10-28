@@ -34,3 +34,9 @@ de 2026). That block is not the requested draw.
 | `extracto_quiniela_vespertina_2007-01-02.html` | `extractosweb/quiniela/vespertina/extracto_QV_S.php?vdia=02&vmes=01&vano=2007` | Quiniela extract with Inicio / Primero / Fin |
 | `extracto_quiniela_vespertina_2006-08-10.html` | `extractosweb/quiniela/vespertina/extracto_QV_S.php?vdia=10&vmes=08&vano=2006` | Empty Quiniela template (fetched 2026-10-14): only the `extracto_sin_info.gif` image, no `//` |
 | `extracto_quiniela_nocturna_2006-08-10.html` | `extractosweb/quiniela/nocturna/extracto_QN_S.php?vdia=10&vmes=08&vano=2006` | Same for the Nocturna; byte-identical to the not-yet-published page of 2026-10-14 at 18:46 |
+| `resultados_2006-08-20.html` | `ver_resultados.php?vdia=20&vmes=8&vano=2006` | UY-022: the 5 de Oro with every pool a bare `$` and every winners cell empty (null, never 0) |
+| `resultados_2006-08-31.html` | `ver_resultados.php?vdia=31&vmes=8&vano=2006` | UY-022: the one Quiniela published without its Tómbola (Vespertina), and a Nocturna Tómbola with a repeated number |
+| `resultados_2006-12-06.html` | `ver_resultados.php?vdia=6&vmes=12&vano=2006` | UY-022: Pozo de Plata equal to Pozo de Oro, kept as published; Kini block skipped. 2 coupons faked |
+| `resultados_2018-12-29.html` | `ver_resultados.php?vdia=29&vmes=12&vano=2018` | UY-022: Lotería code 27, one of the 27-38 that were unknown before. 2 privacy links removed |
+| `resultados_2023-09-29.html` | `ver_resultados.php?vdia=29&vmes=9&vano=2023` | UY-022: "Próximo Nocturno: 30 / 09 / 203" (text kept, no date) and a Quiniela with a repeated number. 4 privacy links removed |
+| `resultados_2025-02-09.html` | `ver_resultados.php?vdia=9&vmes=2&vano=2025` | UY-022: "12 / /02 / 2025" (a repeated separator, read) and 6 Plata coupons, counted. 1 privacy link removed, 6 coupons faked |

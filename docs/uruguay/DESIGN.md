@@ -356,7 +356,7 @@ Clave: (`country`, `operator`, `game`, `draw_date`, `ball_type`, `position`).
 | `prize` | string | `oro`, `plata` o `revancha` |
 | `pool_amount` | decimal(18,2) | D6. Nulo si está vacío |
 | `currency` | string | `UYU`, sale de `site.yaml` |
-| `winners_status` | string | `winners`, `no_winners` ("Sin Aciertos") o `unknown` (celda vacía, las 25 de Q1) |
+| `winners_status` | string | `winners`, `no_winners` ("Sin Aciertos") o `unknown` (celda vacía: 11 en `ver_resultados`). Las grafías de "Sin Aciertos" mal tipeadas (`Sin Acierrtos`, `SinAciertos`, `si aciertos`…, 12) y "Vacante" (2) son `no_winners` (owner, UY-022) |
 | `winning_coupons` | int | D7. Cuántos cupones ganaron: `0` con "Sin Aciertos" y nulo con `unknown`. Los números se cuentan en memoria y nunca se escriben |
 | `dq_flags` | array\<string\> | Por ejemplo, Pozo de Plata igual al de Oro (2006-12-06) |
 | linaje | | |
@@ -388,6 +388,11 @@ Reglas comunes:
 
 - **Parsear es una función pura** de los bytes de bronce a filas. No toca la red ni el reloj: el
   bloque "Sorteos para el día de hoy" se ignora porque trae la fecha de la descarga (Q1).
+  En el incremental esa fecha es la del día pedido, así que se excluye por estructura (no tiene
+  encabezado ni `MostrarExtracto`), nunca por fecha (UY-022).
+- **Una Quiniela publicada sin Tómbola** (una vez, la Vespertina del 2006-08-31) entra a plata con
+  sus 20 números y sin filas de Tómbola: se puede interpretar, así que no va a cuarentena (owner,
+  UY-022). Una Tómbola incompleta sí va.
 - **Cada parser declara la forma que espera.** Si falta un marcador o sobra un bloque, levanta un
   error con el motivo y el sorteo va a cuarentena. Nunca se rellena con un valor "probable".
 - **Los cupones** se leen solo para contarlos (D7) y para comparar el conteo entre fuentes. No
@@ -572,7 +577,9 @@ fecha de hoy, que llega como argumento.
    (`12 / /02 / 2025`), el formato compacto `ddmmaaaa` y el año en 2 o 4 dígitos. **Nunca se
    corrige un dígito**: `30 / 09 / 203` y `30 / 07 / 25007` no se leen como fecha, así que
    `next_draw_date` queda nulo con `next_draw_unparsed`, en vez de convertirse en 2023 o 2007
-   (owner, 2026-10-21).
+   (owner, 2026-10-21). **También se lee la fecha larga** de los encabezados
+   (`Domingo 3 de Setiembre de 2006`, una vez en el 5 de Oro del 2006-08-23): es inequívoca y no
+   corrige ningún dígito (owner, UY-022).
 
 ### Medido sobre el bronce (verificado, 2026-10-25)
 

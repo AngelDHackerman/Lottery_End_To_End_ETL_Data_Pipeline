@@ -161,7 +161,9 @@ def test_pdf_outcomes(status, body, outcome):
         (6, "loteria"),
         (19, "quiniela_vn"),
         (26, "loteria"),
-        (27, "unknown_27"),
+        (27, "loteria"),
+        (38, "loteria"),
+        (39, "unknown_39"),
     ],
 )
 def test_game_codes(code, game):
