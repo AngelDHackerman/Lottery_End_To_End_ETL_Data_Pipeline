@@ -61,6 +61,9 @@ def test_the_uruguayan_configuration_loads(uy):
 _CODES_BEFORE_UY_020 = {2: "kini", 3: "quiniela_vespertina", 4: "quiniela_nocturna"}
 _CODES_BEFORE_UY_020 |= {5: "5_de_oro", 19: "quiniela_vn", 1: "loteria"}
 _CODES_BEFORE_UY_020 |= {c: "loteria" for c in range(6, 27) if c != 19}
+# UY-022: the Lotería codes of the draws since 2018-12 (mapped in UY-006). Unknown until then,
+# they sent 15 days to quarantine whole once ver_resultados was parsed.
+_CODES_BEFORE_UY_020 |= {c: "loteria" for c in range(27, 39)}
 
 
 @pytest.mark.parametrize("code", range(0, 60))
@@ -309,7 +312,7 @@ def test_parser_epochs_may_not_overlap_nor_leave_a_gap(tmp_path, second, match):
 def test_a_site_code_cannot_belong_to_two_games(tmp_path):
     # The trap the Lotería range sets: "6-26" would swallow Quiniela V+N's 19.
     fails(
-        tmp_path, "site.yaml", '[1, "6-18", "20-26"]', '[1, "6-26"]', "site code 19 belongs to both"
+        tmp_path, "site.yaml", '[1, "6-18", "20-38"]', '[1, "6-26"]', "site code 19 belongs to both"
     )
 
 
