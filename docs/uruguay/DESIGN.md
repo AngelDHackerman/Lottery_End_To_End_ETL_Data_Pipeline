@@ -162,6 +162,7 @@ src/sorteos/
     │   ├── extracto_5_de_oro.py
     │   ├── extracto_quiniela.py
     │   └── pozos_pdf.py       # número de sorteo (pdfplumber)
+    ├── silver.py              # bronce → filas de plata por año: cuarentena, cross_source_check, P7, flags (UY-025.2)
     └── backfill.py            # la CLI de hoy
 ```
 
@@ -728,6 +729,11 @@ Un año son unos 650 sorteos (640 en 2016 y 651 en 2025, contando 5 de Oro, Vesp
 unos 63 MB de bronce, así que reescribirlo cuesta segundos. A cambio, no hay lógica de *upsert*:
 volver a correr da exactamente el mismo resultado.
 
+**Medido en UY-025.2** (local, sin peticiones): toda la historia, de 2006 a 2026, se parsea y
+escribe en ~255 s, unos 12 s por año, contando `ver_resultados` y el extracto de cada sorteo. La
+plata completa ocupa 5,1 MB (63 particiones por tabla de sorteos y números). Faltan los PDF de
+pozos de UY-025.3, que suman 9 s en total.
+
 ### El backfill (D18, D19)
 
 - **En local (Fase 4).** UY-030 parsea 2016 como piloto, porque cruza el cambio de layout, y UY-031
@@ -735,7 +741,8 @@ volver a correr da exactamente el mismo resultado.
   peticiones.
 - **En la nube (UY-042).** Se sube el bronce local y un `Map` de Step Functions parsea un año por
   ítem (21 años, 2006–2026). Que un año entre en los 15 minutos de una Lambda es una **hipótesis**
-  hasta medir el tiempo de parseo en UY-030.
+  hasta medir el tiempo de parseo en UY-030. En local, un año tarda ~12 s (UY-025.2), así que el
+  margen es amplio, pero la Lambda tiene otra CPU y lee de S3.
 - **Lo que no se baja.** Los PDF de extracto históricos (D19): el respaldo empieza con la ingesta
   diaria. Las páginas finales tampoco se vuelven a pedir (D12).
 
@@ -746,6 +753,10 @@ Dos capas, cada una con su tarea (D21):
 - **El transform**, fila por fila. Lo que se puede interpretar entra a plata **con el valor
   publicado** y, si algo no cuadra, con un `dq_flag`. Lo que no se puede interpretar (un número
   fuera de rango, 19 bolillas, una fecha que no coincide) va a cuarentena, como en PR-044.
+  La cantidad y las cifras las comprueban los parsers; el resto de la forma del YAML (el rango
+  de `game_rules` según la fecha, sin repetidos, `not_in` y el orden publicado) lo comprueba
+  `core/shapes.py` (UY-025.2). Sobre todo el bronce no manda nada a cuarentena: la única
+  violación son los 31 repetidos de la Tómbola de 2006, y esos tienen su flag.
 - **GX**, sobre la tabla entera, después de escribir plata. Es el gate: si una suite falla, oro no
   se reconstruye y el aviso nombra la suite, la expectativa y la columna, como `NotifyDQFailure`
   en `master`.
@@ -756,13 +767,13 @@ Cada flag sale de un caso que se vio en los datos. Las cifras son de hoy, sobre 
 
 | Flag | Tabla | Cuándo se pone | Filas hoy | En oro |
 |---|---|---|---|---|
-| `pozo_plata_equals_oro` | `prizes` | El Pozo de Plata es igual al de Oro en el mismo sorteo | 1 (2006-12-06, [FINDINGS](FINDINGS.md#calidad-de-los-datos-de-2006-verificado)) | La dinámica de pozos lo excluye |
+| `pozo_plata_equals_oro` | `prizes` | El Pozo de Plata es igual al de Oro en el mismo sorteo. Va en la fila de `plata` | 1 (2006-12-06, [FINDINGS](FINDINGS.md#calidad-de-los-datos-de-2006-verificado)) | La dinámica de pozos lo excluye |
 | `amount_sources_differ` | `prizes` | `ver_resultados` y el extracto dan montos distintos (D6). Plata guarda el de `ver_resultados` | 0 en los 2.072 sorteos comparados del 5 de Oro | Igual que el anterior |
 | `next_draw_unparsed` | `draws` | Hay texto de "Próximo", pero no es una fecha (`30 / 09 / 203`). `next_draw_date` queda nulo | 2 | El detector usa el calendario |
 | `next_draw_implausible` | `draws` | La fecha anunciada cae fuera de (sorteo, sorteo + 14 días] | 17 | El detector usa el calendario |
 | `draw_number_inferred` | `draws` | El número de sorteo sale de los vecinos porque falta el PDF de pozos (owner, 2026-10-21) | 49 desde el 2016-06-01: los 35 PDF de pozos con `error` y 14 días en que `ver_resultados` no enlaza el PDF (medido en UY-024) | Los análisis del número pueden excluirlo |
 | `tombola_repeated_number` | `draws` | La Tómbola trae un número repetido | 31, todos de 2006 | Las frecuencias de la Tómbola lo excluyen |
-| `tombola_not_from_quiniela` | `draws` | No se cumple P7: la Tómbola no es las terminaciones de la Quiniela más sus reposiciones | 30 a 31, todos de 2006 | `is_replacement` queda nulo en ese sorteo |
+| `tombola_not_from_quiniela` | `draws` | No se cumple P7: la Tómbola no es las terminaciones de la Quiniela más sus reposiciones | 31, todos de 2006, y son los mismos 31 de `tombola_repeated_number`: con un número repetido no caben las terminaciones más sus reposiciones (UY-025.2) | `is_replacement` queda nulo en ese sorteo |
 | `timing_out_of_order` | `draws` | Los horarios de la Quiniela no van en orden (inicio ≤ primera bolilla ≤ fin). **Sumado por el owner en UY-023** | 1 (Nocturna 2009-08-01: inicio 21:00, fin 15:24; los 10.901 extractos con horario medidos) | La puntualidad lo excluye, en vez de leer un sorteo de −6 horas |
 | `draw_number_out_of_sequence` | `draws` | El número de sorteo publicado no es el del sorteo numerado anterior más los sorteos del 5 de Oro que hubo entre medio. Se guarda el publicado. **Sumado por el owner en UY-024** | 2: 2017-07-30 (1967, se esperaba 1966) y 2017-08-16 (1971, se esperaba 1972; repite el del 2017-08-13) | La continuidad del número y la unicidad de GX lo excluyen |
 
