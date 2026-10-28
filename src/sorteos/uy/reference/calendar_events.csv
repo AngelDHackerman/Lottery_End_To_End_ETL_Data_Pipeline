@@ -14,8 +14,10 @@ event_date,games,event_type,moved_to,cause,source_url,check_manifest,origin
 2019-06-25,"quiniela_nocturna,quiniela_vespertina",suspension,,,https://www.loteria.gub.uy/Resoluciones/OIS_2027_2019.jpg,coincide,noticias.php (automático)
 2019-08-04,5_de_oro,traslado,2019-08-05,,https://www.loteria.gub.uy/Resoluciones/OIS_2030_2019.pdf,coincide,noticias.php (automático)
 2019-08-07,5_de_oro,traslado,2019-08-08,,https://www.loteria.gub.uy/Resoluciones/OIS_2030_2019.pdf,coincide,noticias.php (automático)
-2019-09-25,"5_de_oro,quiniela_nocturna,quiniela_vespertina",suspension,2019-09-26 (5 de Oro),paro parcial de AFAL (13:30 a 23:59),https://www.loteria.gub.uy/Comunicados/2019/OIS_2036_%5B25_09_2019%5D.pdf,coincide,noticias.php (manual)
-2019-09-26,"5_de_oro,quiniela_nocturna,quiniela_vespertina",suspension,2019-09-27 (5 de Oro),paro parcial de AFAL (14:00 a 23:59),https://www.loteria.gub.uy/Comunicados/2019/OIS_2037_%5B26_09_2019%5D.jpg,coincide,noticias.php (manual)
+2019-09-25,5_de_oro,traslado,2019-09-26,paro parcial de AFAL (13:30 a 23:59),https://www.loteria.gub.uy/Comunicados/2019/OIS_2036_%5B25_09_2019%5D.pdf,coincide,noticias.php (manual)
+2019-09-25,"quiniela_nocturna,quiniela_vespertina",suspension,,paro parcial de AFAL (13:30 a 23:59),https://www.loteria.gub.uy/Comunicados/2019/OIS_2036_%5B25_09_2019%5D.pdf,coincide,noticias.php (manual)
+2019-09-26,5_de_oro,traslado,2019-09-27,paro parcial de AFAL (14:00 a 23:59),https://www.loteria.gub.uy/Comunicados/2019/OIS_2037_%5B26_09_2019%5D.jpg,coincide,noticias.php (manual)
+2019-09-26,"quiniela_nocturna,quiniela_vespertina",suspension,,paro parcial de AFAL (14:00 a 23:59),https://www.loteria.gub.uy/Comunicados/2019/OIS_2037_%5B26_09_2019%5D.jpg,coincide,noticias.php (manual)
 2019-09-27,"5_de_oro,quiniela_nocturna,quiniela_vespertina",suspension,,paro de AFAL (continúa),https://www.loteria.gub.uy/Comunicados/2019/OIS_2038_%5B27_09_2019%5D.jpg,coincide,"noticias.php (manual); OIS 2038 no leído, contenido según su título"
 2019-09-30,"quiniela_nocturna,quiniela_vespertina",suspension,,paro de AFAL (continúa),https://www.loteria.gub.uy/Comunicados/2019/OIS%202039_%5B30_09_2019%5D.jpg,coincide,"noticias.php (manual, UY-011); OIS 2039 no leído, contenido según su título; la causa, según FocusGN 2019-10-03"
 2019-10-01,quiniela_vespertina,suspension,,,https://www.loteria.gub.uy/Comunicados/2019/OIS%202040_%5B01_10_2019%5D.jpg,coincide,"noticias.php (manual, UY-011); OIS 2040 no leído, contenido según su título"
