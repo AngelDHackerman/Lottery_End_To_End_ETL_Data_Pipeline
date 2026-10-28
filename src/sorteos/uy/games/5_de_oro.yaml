@@ -23,7 +23,11 @@ sources:
     valid_from: "2018-11-30"       # desde ahí MostrarExtracto() sirve el PDF
     role: "backup"                 # solo bronce, no se parsea (owner, UY-003)
   # La URL sale del link de ver_resultados: su carpeta mezcla formatos de fecha (UY-001).
-  - {name: "pozos_5_de_oro", kind: "pozos_pdf", role: "draw_number"}
+  - name: "pozos_5_de_oro"
+    kind: "pozos_pdf"
+    money_style: "uy"              # $ 44.756.498,51, como el extracto (UY-024)
+    role: "draw_number"
+    parser_epochs: [{version: 1, valid_from: "2016-06-01"}]   # el primer PDF enlazado
 
 numbers:
   # El rango (01-44 o 01-48) depende de la fecha: lo resuelve game_rules.csv, no este archivo.

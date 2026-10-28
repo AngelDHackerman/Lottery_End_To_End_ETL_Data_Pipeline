@@ -239,8 +239,8 @@ def test_the_site_file_is_checked_field_by_field(tmp_path, relative, old, new, m
             "is not one of",
         ),
         (
-            '{name: "pozos_5_de_oro", kind: "pozos_pdf", role: "draw_number"}',
-            '{name: "pozos_5_de_oro", kind: "pozos_pdf", role: "draw_number", path: "/x.pdf"}',
+            'kind: "pozos_pdf"\n',
+            'kind: "pozos_pdf"\n    path: "/x.pdf"\n',
             "no path",
         ),
         (
@@ -257,8 +257,8 @@ def test_the_site_file_is_checked_field_by_field(tmp_path, relative, old, new, m
             "missing 'parser_epochs'",
         ),
         (
-            '{name: "pozos_5_de_oro", kind: "pozos_pdf", role: "draw_number"}',
-            '{name: "extracto_5_de_oro", kind: "pozos_pdf", role: "draw_number"}',
+            '- name: "pozos_5_de_oro"',
+            '- name: "extracto_5_de_oro"',
             "source name is repeated",
         ),
         ("prizes:", "prices:", r"unknown key\(s\) \['prices'\]"),
