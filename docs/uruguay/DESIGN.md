@@ -56,7 +56,7 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P10 | **El tope para creer un anuncio pasa de 7 a 14 días.** **Aprobada por el owner el 2026-10-25.** | Con 7 días se descartan 4 anuncios **correctos** (Semana de Turismo 2020 y fin de año 2022, anunciados con 8 a 13 días) y el detector reporta huecos que la DNLQ había anunciado. Con 14, los 17 descartes que quedan son todos errores de tipeo. Ver [Detector de huecos](#cuánto-creerle-a-un-anuncio-p10). |
 | P11 | **El incremental mira los últimos 7 días más toda clave no final del manifiesto.** **Aprobada por el owner el 2026-10-25.** | 7 = el *settle* de 3 días, más la ventana de 3 del detector, más uno. Las claves no finales de cualquier fecha (hoy, 39 `error`) se incluyen para que la regla de las 3 fallas (D11) termine de cerrarlas: si no, los 35 PDF de pozos de 2016–2026 solo se volverían a pedir con un backfill manual. |
 | P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
-| P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
+| P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`; el owner sumó `timing_out_of_order` en UY-023, así que son 8), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
 | P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. |
 
 ---
@@ -327,7 +327,7 @@ del sorteo, no se escribe en el YAML.
 | `next_draw_date` | date | El mismo, interpretado. Nulo si no parsea (por ejemplo `30 / 09 / 203`), con su `dq_flag` |
 | `started_local`, `first_ball_local`, `ended_local` | timestamp | Solo la Quiniela (P2). La hora **de reloj de Montevideo**, tal como se publica y sin zona, porque la puntualidad se mide contra la hora local (las 21:00). Nulos si el extracto los trae vacíos (2006) |
 | `timezone` | string | `America/Montevideo`, de `site.yaml`. El instante UTC se deriva con `zoneinfo` y nunca con un -03:00 fijo, porque Uruguay tuvo horario de verano hasta 2015 (C5) |
-| `cross_source_check` | string | `match`, `mismatch` o `not_checked` (extracto ausente) |
+| `cross_source_check` | string | `match`, `mismatch` o `not_checked` (extracto ausente). Sale de `parsers/cross_check.compare()` (UY-023): una diferencia de monto es `amount_sources_differ` en `prizes`, cualquier otra es `mismatch` |
 | `dq_flags` | array\<string\> | |
 | linaje | | ver convenciones |
 
@@ -383,6 +383,8 @@ revisada. El escritor de plata los pasa a Parquet sin transformarlos.
 | `extracto_5_de_oro.py` | El extracto PHP | Nada propio: es el control cruzado de `draws`, `draw_numbers` y `prizes` |
 | `extracto_quiniela.py` | El extracto PHP de cada turno | Los horarios de `draws` (P2), y el control cruzado de los números |
 | `pozos_pdf.py` | El PDF de pozos (pdfplumber) | `draws.draw_number` |
+| `common.py` | — | Lo que comparten (UY-023): las filas (`ParsedDraw`, `Ball`, `Prize`), la celda de ganadores, el "Próximo", la forma de los números y la época del YAML |
+| `cross_check.py` | Dos `ParsedDraw` del mismo sorteo | Las diferencias campo por campo (UY-023). Sobre el bronce completo: **cero** en los 12.979 pares |
 
 Reglas comunes:
 
@@ -742,6 +744,7 @@ Cada flag sale de un caso que se vio en los datos. Las cifras son de hoy, sobre 
 | `draw_number_inferred` | `draws` | El número de sorteo sale de los vecinos porque falta el PDF de pozos (owner, 2026-10-21) | Hasta 35 (los PDF de pozos con `error`) | Los análisis del número pueden excluirlo |
 | `tombola_repeated_number` | `draws` | La Tómbola trae un número repetido | 31, todos de 2006 | Las frecuencias de la Tómbola lo excluyen |
 | `tombola_not_from_quiniela` | `draws` | No se cumple P7: la Tómbola no es las terminaciones de la Quiniela más sus reposiciones | 30 a 31, todos de 2006 | `is_replacement` queda nulo en ese sorteo |
+| `timing_out_of_order` | `draws` | Los horarios de la Quiniela no van en orden (inicio ≤ primera bolilla ≤ fin). **Sumado por el owner en UY-023** | 1 (Nocturna 2009-08-01: inicio 21:00, fin 15:24; los 10.901 extractos con horario medidos) | La puntualidad lo excluye, en vez de leer un sorteo de −6 horas |
 
 - **El monto vacío no lleva flag.** Por D6 ya es nulo, y nulo quiere decir eso. Un flag más
   diría lo mismo dos veces.

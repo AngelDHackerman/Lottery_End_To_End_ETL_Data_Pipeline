@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from sorteos.uy.parsers import common
 from sorteos.uy.parsers import resultados as r
 
 UY = Path(__file__).parents[2] / "fixtures" / "uy"
@@ -236,7 +237,7 @@ def test_a_block_is_found_through_nested_tables_and_an_empty_one_fails():
 
 def test_a_number_with_the_wrong_digits_fails():
     with pytest.raises(r.BlockError, match="tombola number '4' is not 2 digits"):
-        r._balls("tombola", ["4"] * 20, "quiniela_nocturna")
+        common.balls("tombola", ["4"] * 20, "quiniela_nocturna")
 
 
 def test_a_quiniela_published_without_its_tombola_is_still_a_draw():
@@ -249,18 +250,16 @@ def test_a_quiniela_published_without_its_tombola_is_still_a_draw():
 
 def test_a_partial_tombola_still_fails():
     with pytest.raises(r.BlockError, match="19 tombola numbers, expected 20"):
-        r._quiniela(
-            "quiniela_nocturna", [(f"{i:03d}", i) for i in range(1, 21)] + [("01", None)] * 19
-        )
+        common.quiniela("quiniela_nocturna", [(i, f"{i:03d}") for i in range(1, 21)], ["01"] * 19)
 
 
 def test_a_proximo_written_like_a_block_header_is_read():
     # The 5 de Oro of 2006-08-23 announces "Domingo 3 de Setiembre de 2006" (owner, UY-022).
-    assert r._next_draw(
+    assert common.next_draw(
         "Próximo 5 de Oro y Rev.: Domingo 3 de Setiembre de 2006",
-        r.CONFIG.games["5_de_oro"].calendar.next_draw_label,
+        common.CONFIG.games["5_de_oro"].calendar.next_draw_label,
     ) == ("Domingo 3 de Setiembre de 2006", date(2006, 9, 3))
-    assert r._long_date("Domingo 31 de Setiembre de 2006") is None
+    assert common.long_date("Domingo 31 de Setiembre de 2006") is None
 
 
 def test_the_pool_labels_must_be_in_page_order():
