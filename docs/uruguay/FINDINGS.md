@@ -631,6 +631,24 @@ hora.
   4 sorteos de julio de 2016 que hay en bronce, consecutivos.
 - Sus tres montos son iguales a los pozos del extracto en los 4 casos.
 
+> **Medido en UY-024 sobre los 1.025 PDF del bronce (2016-06-01 a 2026-10-18, verificado):**
+>
+> - **Una sola forma:** una página, las mismas siete líneas de texto, la fecha del sorteo pedida
+>   en los 1.025, emitidos el mismo día entre las 13:09 y las 21:39. Los montos están en estilo
+>   uruguayo (`$ 44.756.498,51`), como el extracto.
+> - **El número es un contador de sorteos:** de 1847 a 2920, y en 1.072 de los 1.074 sorteos del
+>   5 de Oro desde el 2016-06-01 avanza exactamente uno por sorteo. A 49 sorteos les falta el
+>   número: los 35 PDF con `error` y **14 días en que `ver_resultados` no enlaza el PDF** (2016-11-27,
+>   2016-12-26, 2017-01-05, 01-08, 01-11, 01-15, 2017-10-01, 2019-03-03, 2019-10-01, 2020-10-04,
+>   2021-06-07, 2021-10-03, 2021-10-06 y 2022-10-02).
+> - **Una racha fuera de secuencia en 2017:** del 2017-07-30 al 2017-08-13 los números van uno más
+>   arriba (1967 a 1971, falta el 1966), y el 2017-08-16 repite el **1971**. Dos sorteos distintos
+>   comparten número. Se guarda lo publicado con `draw_number_out_of_sequence` (owner, UY-024).
+> - **Los pozos anunciados** coinciden con `ver_resultados` en 3.071 de 3.075 montos. Los otros 4
+>   difieren por centavos (2016-06-29 Oro, 2017-06-14 Plata, 2021-06-02 Oro, 2024-06-23 Plata).
+>   Hipótesis: el PDF se emite antes del sorteo y el monto se ajusta después. Plata no toma los
+>   montos del PDF.
+
 ### Biblioteca de PDF: pdfplumber (verificado)
 
 | | pdfplumber 0.11 | pypdf 6.20 |
