@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-dq uy-dq-sync
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -154,3 +154,14 @@ uy-dq: ## Validate local UY silver against its Great Expectations suites (UY-026
 
 uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
+
+# UY-026.2: the DQ job's dependencies for AWS Glue 5.0 (Python 3.11), as one zip of wheels.
+# The lock is resolved for Glue's target, not for the Python running it, so any 3.12 works.
+uy-dq-lock: ## Recompile requirements/uy-dq.lock + uy-dq-glue-base.lock, keeping current pins (UY-026.2)
+	python scripts/uy_dq_lock.py
+
+uy-dq-lock-upgrade: ## Same as uy-dq-lock, but let the pins move forward (UY-026.2)
+	python scripts/uy_dq_lock.py --upgrade
+
+uy-dq-build: ## Build dist/uy/uy_dq.gluewheels.zip from the lock + the sorteos wheel (UY-026.2; no AWS)
+	bash scripts/build_uy_dq_package.sh

@@ -57,7 +57,7 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P11 | **El incremental mira los últimos 7 días más toda clave no final del manifiesto.** **Aprobada por el owner el 2026-10-25.** | 7 = el *settle* de 3 días, más la ventana de 3 del detector, más uno. Las claves no finales de cualquier fecha (hoy, 39 `error`) se incluyen para que la regla de las 3 fallas (D11) termine de cerrarlas: si no, los 35 PDF de pozos de 2016–2026 solo se volverían a pedir con un backfill manual. |
 | P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
 | P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`; el owner sumó `timing_out_of_order` en UY-023 y `draw_number_out_of_sequence` en UY-024, así que son 9), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
-| P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. |
+| P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. **Corregida en UY-026.2 (owner, 1a y 2a):** un solo `.gluewheels.zip` en lugar de wheels sueltos, y solo con lo que Glue 5.0 no trae; ver [Dónde corre GX](#dónde-corre-gx-d20-p14). |
 
 ---
 
@@ -797,12 +797,33 @@ En un job de Glue 5.0 propio, separado del de Santa Lucía. La diferencia con `m
 arranque: allí el job instala GX desde PyPI en cada corrida, y eso llegó a gastar ~21 minutos antes
 de la primera línea del script (PR-033.2). Aquí GX llega ya empaquetado.
 
-La propuesta (P14) es construirlo como el layer de Lambda: un lock con hashes, wheels para
-`manylinux` y Python 3.11, subidos a S3, e instalados con `--additional-python-modules` apuntando a
-esos archivos y sin PyPI. Un zip por `--extra-py-files` alcanza solo para código Python puro, y GX
-1.20 requiere `numpy` y `scipy` (y `pydantic-core` si usa pydantic 2), que son extensiones
-compiladas: Python no las carga desde un zip, salvo que Glue 5.0 ya las traiga. **Hipótesis:** que instalar desde S3 sin
-resolver dependencias baje el arranque a segundos. UY-026.2 arma los wheels; el job de Glue y la
+Se construye como el layer de Lambda (P14, corregida en UY-026.2): un lock con hashes para
+Python 3.11 y `manylinux`, y un build que sale igual byte a byte. Lo que cambió al leer la
+documentación de Glue del 2026-10-28:
+
+- **Un solo `dist/uy/uy_dq.gluewheels.zip`** (`make uy-dq-build`, ~49 MB, 25 wheels), instalado con
+  `--additional-python-modules s3://…/uy_dq.gluewheels.zip` y
+  `--python-modules-installer-option --no-index`. Glue 5.0 lo admite así: pip resuelve desde el zip
+  y nunca va a PyPI (owner, UY-026 1a).
+- **Solo lo que Glue 5.0 no trae** (owner, UY-026 2a). Glue 5.0 trae `numpy` 1.26.4, `pandas`
+  2.2.2 y `pyarrow` 17.0.0, pero no `scipy`, `pydantic` ni `PyYAML`.
+  [`requirements/glue-5.0-base.txt`](../../requirements/glue-5.0-base.txt) copia esa lista y el
+  lock la usa como restricción: lo que Glue ya tiene queda en su versión y fuera del zip, así que
+  una corrida nunca reinstala `pandas`. El costo es que el lock queda atado a Glue 5.0: cambiar de
+  versión es cambiar ese archivo y correr `make uy-dq-lock`.
+- **El código `sorteos` va como wheel dentro del mismo zip**, no por `--extra-py-files`.
+  `core/config.py` lee sus YAML y CSV con `open()`, que no puede leer dentro de un zip importado;
+  instalado por pip, el paquete queda en disco.
+- **pip resuelve para Glue desde cualquier Python.** `pip install --dry-run --report` con
+  `--python-version 3.11` y `--platform` elige los mismos wheels que Glue, con su SHA-256
+  ([`scripts/uy_dq_lock.py`](../../scripts/uy_dq_lock.py)). Como `pip-compile` sin `--upgrade`,
+  conserva los pins que todavía cumplen la entrada.
+- **El CI lo prueba sin AWS** (job `uy-dq-glue`): el lock coincide con su entrada, el zip sale
+  igual en dos builds, y los tests del gate pasan en Python 3.11 con solo el zip y los módulos base
+  de Glue, instalados con `--no-index`. En local, con esas versiones de `pandas`, `numpy` y
+  `pyarrow`, el gate sobre toda la plata pasa en ~12 s (~34 s con `pandas` 3).
+
+**Hipótesis:** que instalar desde el zip sin PyPI baje el arranque a segundos. El job de Glue y la
 medición del arranque pasan a la Fase 5, sobre el job que se despliega (owner, UY-026 1a).
 
 Las lecciones de `master` que se repiten tal cual:
