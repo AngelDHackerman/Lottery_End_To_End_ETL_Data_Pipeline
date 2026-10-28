@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-dq uy-dq-sync
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -146,3 +146,11 @@ uy-report: ## Manifest summary: states per source and the date span of each
 
 uy-golden-urls: ## Every URL in the manifest must come out of the YAML again (UY-020; read-only)
 	PYTHONPATH=src python scripts/uy_golden_urls.py $(UY_MANIFEST)
+
+UY_SILVER ?= data/uy/silver
+
+uy-dq: ## Validate local UY silver against its Great Expectations suites (UY-026; read-only)
+	PYTHONPATH=src python -m sorteos.uy.dq.runner --silver $(UY_SILVER)
+
+uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
+	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
