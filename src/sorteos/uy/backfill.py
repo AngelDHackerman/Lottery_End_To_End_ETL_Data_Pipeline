@@ -8,6 +8,8 @@ Day by day, the results page first: it is the discovery layer, and the per-game 
 requested only for games it lists on that day. A key whose effective state is final is never
 requested again (``--refresh`` overrides), so the run can be stopped and resumed at any
 point and a second pass over the same range costs only what the first one left open. The
+one exception is a results page younger than the settle days: it can still list a game
+drawn later that day, so it is asked again even in ``draw``. The
 effective state is the manifest's, unless ``reference/manual_overrides.csv`` has a person's
 decision for that key (the 2019 AFAL strike days), and the same failure three times in a
 row closes a key as ``missing`` (docs/uruguay/DESIGN.md, D10–D12).
@@ -125,10 +127,18 @@ class Backfill:
         if url is None:
             return
         state = self.manifest.effective_state(source.name, day)
-        if state in mf.FINAL_STATES and not self.refresh:
+        if state in mf.FINAL_STATES and not self.refresh and not self._may_grow(source, day, state):
             self.stats.skipped += 1
             return
         self._fetch(source, day, url)
+
+    def _may_grow(self, source: Source, day: date, state: str) -> bool:
+        """A recent results page in ``draw`` is asked again until it settles: fetched at 16:22,
+        it lists the Vespertina only, and the Nocturna (out after 21:20) would never be found
+        (UY-027.1, 2026-10-29). The same content again is not a change."""
+        return (
+            source is RESULTADOS and state == mf.DRAW and (self.today - day).days < self.settle_days
+        )
 
     def _url_for(self, source: Source, day: date) -> str | None:
         """The URL to request, or None when this source has nothing to say for ``day``."""

@@ -168,9 +168,10 @@ def test_a_run_with_nothing_new_leaves_silver_alone(tmp_path, capsys):
     capsys.readouterr()
     first = len(client.calls)
     assert run_main(tmp_path, client) == 0
-    # Back come the 2 empty days not settled yet (not_yet_published), the 3 extracts and the
-    # pozos PDF in error; the draw day and the settled empty days are final.
-    assert len(client.calls) - first == 2 + 3 + 1
+    # Back come the 2 empty days not settled yet (not_yet_published), the draw day (still
+    # within the settle days, so it may grow), the 3 extracts and the pozos PDF in error.
+    # The settled empty days are final; the same pages again are no change.
+    assert len(client.calls) - first == 2 + 1 + 3 + 1
     assert "silver: nothing changed" in capsys.readouterr().err
 
 
