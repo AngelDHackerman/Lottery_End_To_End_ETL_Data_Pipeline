@@ -1,0 +1,14 @@
+# Input of the UY DQ job's lock (UY-026.2, D20, P14). `make uy-dq-lock` resolves it for
+# Python 3.11 on manylinux, the Glue 5.0 runtime, into two files:
+#   uy-dq.lock            what Glue lacks: it goes into the .gluewheels.zip
+#   uy-dq-glue-base.lock  what Glue already has, at Glue's version: CI installs it to stand
+#                         in for Glue and never ships it
+-c glue-5.0-base.txt
+
+great-expectations==1.20.0
+# sorteos.core.config reads the YAML; Glue 5.0 does not ship PyYAML.
+pyyaml==6.0.2
+# Used by sorteos.core.silver and sorteos.core.dq; Glue provides both, so they stay at its
+# versions and out of the zip.
+pandas
+pyarrow

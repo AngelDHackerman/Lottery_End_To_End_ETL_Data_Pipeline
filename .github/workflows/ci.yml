@@ -158,6 +158,65 @@ jobs:
             || { echo "::error::lambda_layer.zip changes with the pip that builds it"; exit 1; }
 
   # -------------------------------------------------------------------------------------
+  # UY-026.2 (D20, P14). The UY DQ job's zip of wheels, checked without AWS: the lock matches
+  # its input, the zip is byte-identical across builds, and the gate's tests pass on Python
+  # 3.11 with ONLY the zip plus what Glue 5.0 already ships (its pandas 2.2.2, numpy 1.26.4,
+  # pyarrow 17), installed with --no-index exactly as Glue will. Everything else in CI runs
+  # pandas 3 on 3.12, which is not what the job will have.
+  uy-dq-glue:
+    name: uy dq (zip of wheels on Glue 5.0's Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Both: 3.12 (the default, last) runs the repo's scripts; 3.11 stands in for Glue 5.0.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: |
+            3.11
+            ${{ env.PYTHON_VERSION }}
+
+      # Keeps every pin that still satisfies the input, like `make lock`: a no-op unless
+      # requirements/uy-dq.txt or glue-5.0-base.txt changed without `make uy-dq-lock`.
+      - name: lock is in sync with its input
+        run: |
+          make uy-dq-lock
+          git diff --exit-code -- requirements/uy-dq.lock requirements/uy-dq-glue-base.lock \
+            || { echo "::error::the UY DQ lock is stale — run 'make uy-dq-lock' and commit it"; exit 1; }
+
+      - name: zip of wheels is byte-identical across runs
+        run: |
+          bash scripts/build_uy_dq_package.sh
+          first=$(sha256sum dist/uy/uy_dq.gluewheels.zip | cut -d' ' -f1)
+          bash scripts/build_uy_dq_package.sh
+          second=$(sha256sum dist/uy/uy_dq.gluewheels.zip | cut -d' ' -f1)
+          echo "run 1: $first"
+          echo "run 2: $second"
+          test "$first" = "$second" \
+            || { echo "::error::uy_dq.gluewheels.zip is not reproducible"; exit 1; }
+
+      - name: install like Glue 5.0 (base modules, then the zip with --no-index)
+        run: |
+          python3.11 -m venv "$RUNNER_TEMP/glue"
+          glue="$RUNNER_TEMP/glue/bin"
+          "$glue/pip" install --disable-pip-version-check --require-hashes --no-deps \
+            --only-binary=:all: -r requirements/uy-dq-glue-base.lock
+          mkdir "$RUNNER_TEMP/zip"
+          python -m zipfile -e dist/uy/uy_dq.gluewheels.zip "$RUNNER_TEMP/zip"
+          "$glue/pip" install --disable-pip-version-check --no-index \
+            --find-links "$RUNNER_TEMP/zip/wheels" -r "$RUNNER_TEMP/zip/wheels/requirements.txt"
+          "$glue/pip" check
+          "$glue/python" -c "import sorteos, sys; assert 'site-packages' in sorteos.__file__, sorteos.__file__"
+
+      # pytest is the only thing from PyPI, and only after the --no-index install above. No
+      # coverage options and no pythonpath=src: `sorteos` must come from the installed wheel.
+      - name: the gate's tests on the Glue environment
+        run: |
+          "$RUNNER_TEMP/glue/bin/pip" install --disable-pip-version-check pytest==9.1.1
+          "$RUNNER_TEMP/glue/bin/python" -m pytest tests/unit/sorteos/test_uy_dq.py \
+            -o addopts=-ra -o pythonpath= -p no:cacheprovider
+
+  # -------------------------------------------------------------------------------------
   tf-validate:
     name: terraform validate
     runs-on: ubuntu-latest
