@@ -61,6 +61,8 @@ class RunStats:
     requests: int = 0
     skipped: int = 0
     by_state: dict = field(default_factory=dict)
+    # Keys whose effective state or content moved in this run: what silver has to rewrite.
+    changed: set[tuple[str, date]] = field(default_factory=set)
 
     def count(self, state: str) -> None:
         self.by_state[state] = self.by_state.get(state, 0) + 1
@@ -104,16 +106,29 @@ class Backfill:
             logger.info("request budget reached", extra={"max_requests": self.max_requests})
         return self.stats
 
+    def run_keys(self, keys: Iterable[tuple[str, date]]) -> RunStats:
+        """Only these keys, not their whole day: an old open key must not pull in sources
+        that were never fetched for its day (the historical extract PDFs, D19)."""
+        try:
+            for name, day in keys:
+                self.run_key(ALL_SOURCES[name], day)
+        except BudgetExhausted:
+            logger.info("request budget reached", extra={"max_requests": self.max_requests})
+        return self.stats
+
     def run_day(self, day: date) -> None:
         for source in self.sources:
-            url = self._url_for(source, day)
-            if url is None:
-                continue
-            state = self.manifest.effective_state(source.name, day)
-            if state in mf.FINAL_STATES and not self.refresh:
-                self.stats.skipped += 1
-                continue
-            self._fetch(source, day, url)
+            self.run_key(source, day)
+
+    def run_key(self, source: Source, day: date) -> None:
+        url = self._url_for(source, day)
+        if url is None:
+            return
+        state = self.manifest.effective_state(source.name, day)
+        if state in mf.FINAL_STATES and not self.refresh:
+            self.stats.skipped += 1
+            return
+        self._fetch(source, day, url)
 
     def _url_for(self, source: Source, day: date) -> str | None:
         """The URL to request, or None when this source has nothing to say for ``day``."""
@@ -191,8 +206,11 @@ class Backfill:
         return mf.NO_DRAW if source is RESULTADOS else mf.MISSING
 
     def _record(self, rec: mf.Record) -> None:
+        before = self._snapshot(rec.source, rec.draw_date)
         state = self.manifest.record(rec)
         self.stats.count(state)
+        if self._snapshot(rec.source, rec.draw_date) != before:
+            self.stats.changed.add((rec.source, rec.draw_date))
         if state in (mf.ERROR, mf.MISSING) or rec.warnings:
             logger.warning(
                 "needs attention",
@@ -204,6 +222,10 @@ class Backfill:
                     "warnings": list(rec.warnings),
                 },
             )
+
+    def _snapshot(self, source: str, day: date) -> tuple[str | None, str | None]:
+        row = self.manifest.get(source, day)
+        return self.manifest.effective_state(source, day), row and row["content_sha256"]
 
 
 def resolve_sources(spec: str) -> list[Source]:

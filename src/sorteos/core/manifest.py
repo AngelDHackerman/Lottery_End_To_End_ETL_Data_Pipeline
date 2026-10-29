@@ -140,6 +140,10 @@ class Manifest(Protocol):
 
     def date_range(self, source: str) -> tuple[str, str] | None: ...
 
+    def open_keys(self) -> list[tuple[str, date]]:
+        """Every key whose effective state is not final, oldest first."""
+        ...
+
     def close(self) -> None: ...
 
 
@@ -288,6 +292,21 @@ class SqliteManifest:
             (source, DRAW),
         ).fetchone()
         return (row[0], row[1]) if row and row[0] else None
+
+    def open_keys(self) -> list[tuple[str, date]]:
+        final = sorted(FINAL_STATES)
+        rows = self._db.execute(
+            f"SELECT source, draw_date, state FROM manifest "
+            f"WHERE state NOT IN ({', '.join('?' * len(final))}) ORDER BY draw_date, source",
+            final,
+        )
+        keys = [(source, date.fromisoformat(day), state) for source, day, state in rows]
+        # An override closes a key the classifier left open (the 2019 strike days).
+        return [
+            (source, day)
+            for source, day, state in keys
+            if effective_state(self.overrides, source, day, state) not in FINAL_STATES
+        ]
 
 
 class OverrideError(ValueError):
