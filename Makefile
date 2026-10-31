@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-incremental uy-silver uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -146,6 +146,9 @@ uy-report: ## Manifest summary: states per source and the date span of each
 
 uy-golden-urls: ## Every URL in the manifest must come out of the YAML again (UY-020; read-only)
 	PYTHONPATH=src python scripts/uy_golden_urls.py $(UY_MANIFEST)
+
+uy-properties: ## Every rule over the whole local bronze, in memory; fails only on quarantine (UY-027.2; no requests)
+	PYTHONPATH=src python -m sorteos.uy.properties
 
 UY_SILVER ?= data/uy/silver
 UY_YEARS ?=
