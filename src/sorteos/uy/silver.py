@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 from bisect import bisect_left
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -201,18 +202,88 @@ def write_reference(root: Path, run: Run) -> list[Path]:
     """``game_rules`` and ``calendar_events``, as their CSVs say."""
     written = []
     for table in (silver.GAME_RULES, silver.CALENDAR_EVENTS):
-        path = REFERENCE / f"{table.name}.csv"
-        rows = silver.read_reference(
-            path,
-            table,
-            country=COUNTRY,
-            operator=CONFIG.site.operator,
-            ingested_at=run.ingested_at,
-            run_id=run.run_id,
-            source_key=f"src/sorteos/uy/reference/{path.name}",
-        )
-        written += silver.write(root, table, rows, country=COUNTRY)
+        written += silver.write(root, table, reference_rows(table, run), country=COUNTRY)
     return written
+
+
+def reference_rows(table: silver.Table, run: Run) -> list[dict]:
+    path = REFERENCE / f"{table.name}.csv"
+    return silver.read_reference(
+        path,
+        table,
+        country=COUNTRY,
+        operator=CONFIG.site.operator,
+        ingested_at=run.ingested_at,
+        run_id=run.run_id,
+        source_key=f"src/sorteos/uy/reference/{path.name}",
+    )
+
+
+#: The columns of ``draws`` the gap detector needs: its input and the lineage it passes on.
+GAP_INPUTS = (
+    "game",
+    "draw_date",
+    "next_draw_date",
+    "source_key",
+    "source_sha256",
+    "parser_version",
+)
+
+
+def gap_rows(
+    draws: Iterable[Mapping], events: Iterable[Mapping], run: Run, today: date
+) -> list[dict]:
+    """The rows of ``draw_gaps`` (D13), from every year of ``draws`` (at least
+    ``GAP_INPUTS``) and the rows of ``calendar_events``. A gap's lineage is the draw whose
+    expectation failed: its announcement, or its silence, set the expected date."""
+    by_game: dict[str, list[Mapping]] = {}
+    for row in sorted(draws, key=lambda r: (r["game"], r["draw_date"])):
+        by_game.setdefault(row["game"], []).append(row)
+    events = list(events)
+    rows = []
+    for game, members in sorted(by_game.items()):
+        found = gaps.expected_draws(
+            [gaps.Draw(r["draw_date"], r["next_draw_date"]) for r in members],
+            CONFIG.games[game].calendar.weekdays,
+            [e["event_date"] for e in events if game in _games_of(e)],
+            today,
+        )
+        previous = {r["draw_date"]: r for r in members}
+        for gap in found:
+            draw = previous[gap.previous_draw_date]
+            rows.append(
+                {
+                    "country": COUNTRY,
+                    "operator": CONFIG.site.operator,
+                    "game": game,
+                    "previous_draw_date": gap.previous_draw_date,
+                    "expected_date": gap.expected_date,
+                    "expected_from": gap.expected_from,
+                    "window_end": gap.window_end,
+                    "next_draw_date": gap.next_draw_date,
+                    "status": gap.status,
+                    "calendar_event_date": gap.calendar_event_date,
+                    "ingested_at": run.ingested_at,
+                    "run_id": run.run_id,
+                    "source_key": draw["source_key"],
+                    "source_sha256": draw["source_sha256"],
+                    "parser_version": draw["parser_version"],
+                }
+            )
+    return rows
+
+
+def _games_of(event: Mapping) -> set[str]:
+    return {game.strip() for game in event["games"].split(",")}
+
+
+def write_gaps(root: Path, run: Run, today: date) -> list[dict]:
+    """Rewrite ``draw_gaps`` whole from the silver under ``root`` and return its rows."""
+    draws = silver.read(root, silver.DRAWS, GAP_INPUTS)
+    events = silver.read(root, silver.CALENDAR_EVENTS, ("event_date", "games"))
+    rows = gap_rows(draws, events, run, today)
+    silver.write(root, silver.DRAW_GAPS, rows, country=COUNTRY)
+    return rows
 
 
 def _page(manifest: mf.Manifest, bronze: BronzeStore, source: str, day: date) -> _Page | None:

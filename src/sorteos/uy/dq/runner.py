@@ -37,11 +37,14 @@ def run(root: Path) -> core.Report:
         core.load(root, silver.DRAWS),
         core.load(root, silver.DRAW_NUMBERS),
         core.load(root, silver.PRIZES),
+        core.load(root, silver.DRAW_GAPS),
     )
 
 
-def check(draws: pd.DataFrame, numbers: pd.DataFrame, prizes: pd.DataFrame) -> core.Report:
-    """Validate three silver tables, as :func:`sorteos.core.dq.load` returns them."""
+def check(
+    draws: pd.DataFrame, numbers: pd.DataFrame, prizes: pd.DataFrame, draw_gaps: pd.DataFrame
+) -> core.Report:
+    """Validate four silver tables, as :func:`sorteos.core.dq.load` returns them."""
     draws = frames.draws(draws)
     numbers = frames.draw_numbers(numbers)
     prizes = frames.prizes(prizes)
@@ -51,6 +54,7 @@ def check(draws: pd.DataFrame, numbers: pd.DataFrame, prizes: pd.DataFrame) -> c
         suites.DRAW_SHAPES: frames.shapes(draws, numbers),
         suites.PRIZES: prizes,
         suites.DQ_FLAGS: frames.flags(draws, prizes),
+        suites.DRAW_GAPS: frames.draw_gaps(draw_gaps),
     }
     extra = suites.run_time(frames.draw_key(draws))
     return core.Report(

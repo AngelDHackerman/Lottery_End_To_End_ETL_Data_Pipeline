@@ -97,6 +97,31 @@ def flags(draws: pd.DataFrame, prizes: pd.DataFrame) -> pd.DataFrame:
     return out[[*KEY, "flag"]]
 
 
+_GAP_DATES = (
+    "previous_draw_date",
+    "expected_date",
+    "window_end",
+    "next_draw_date",
+    "calendar_event_date",
+)
+
+
+def draw_gaps(frame: pd.DataFrame) -> pd.DataFrame:
+    """``draw_gaps`` plus what its dates must say about each other (D14): ``window_days`` from
+    the expected date to the end of its window, whether the expected date is after the draw
+    that set it, and whether the draw that finally came is after the window (or none came)."""
+    out = frame.copy()
+    dates = {c: pd.to_datetime(out[c]) for c in _GAP_DATES}
+    out["window_days"] = (dates["window_end"] - dates["expected_date"]).dt.days
+    out["expected_after_previous"] = dates["expected_date"] > dates["previous_draw_date"]
+    out["next_after_window"] = dates["next_draw_date"].isna() | (
+        dates["next_draw_date"] > dates["window_end"]
+    )
+    for column in _GAP_DATES:
+        out[column] = dates[column].dt.strftime("%Y-%m-%d")
+    return out
+
+
 def _dated(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
     out["draw_date"] = pd.to_datetime(out["draw_date"]).dt.strftime("%Y-%m-%d")

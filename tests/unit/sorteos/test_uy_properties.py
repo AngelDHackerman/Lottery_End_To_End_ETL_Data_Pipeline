@@ -30,9 +30,17 @@ def test_real_pages_give_the_counts_of_their_draws(lake):
     lake.fixture("resultados", date(2006, 8, 31))
     lake.fixture("resultados", date(2006, 12, 6))
     lake.fixture("resultados", date(2016, 7, 6))
-    report = properties.collect(lake.manifest, lake.bronze)
+    report = properties.collect(lake.manifest, lake.bronze, today=date(2016, 7, 7))
 
     assert report.draws == {QV: 3, QN: 3, ORO: 2}
+    # Days years apart are gaps to the detector. The ones up to 2016 cross calendar_events
+    # rows and are explained; the Quinielas' from 2006-08-31 to 2006-12-06 cross none. The
+    # draws of 2016-07-06 are still within their window on the 7th.
+    assert report.gaps == {"explained": 3, "open": 2}
+    assert report.open_gaps[0] == (
+        "open quiniela_nocturna expected 2006-09-01 (calendar), window closed 2006-09-04, "
+        "next draw 2006-12-06"
+    )
     assert report.tombola_sizes == {0: 1, 20: 5}
     assert report.flags["pozo_plata_equals_oro"] == 1
     assert report.cross_source_check == {"not_checked": 8}  # no extracts in this lake
@@ -41,7 +49,8 @@ def test_real_pages_give_the_counts_of_their_draws(lake):
     text = properties.format_report(report)
     assert "draws: 8 (3 N, 3 V, 2 5 de Oro)" in text
     assert "tombola sizes: 1 with 0, 5 with 20" in text
-    assert text.endswith("result: ok")
+    assert "draw_gaps: 5 (3 explained, 2 open)" in text
+    assert text.endswith("result: ok")  # a gap is a count, not a failure
 
 
 def test_quarantine_fails_the_run_and_says_why(lake, tmp_path, capsys):

@@ -124,10 +124,21 @@ def test_a_last_draw_whose_window_closed_is_an_open_gap_with_no_next_draw():
     assert (e.outcome, e.status, e.next_draw_date) == (gaps.GAP, gaps.OPEN, None)
 
 
-def test_an_event_until_today_explains_a_gap_still_running():
-    e = one([Draw(WED, SUN)], [SUN], today=d("2026-10-29"))
-    assert (e.status, e.calendar_event_date) == (gaps.EXPLAINED, SUN)
-    assert one([Draw(WED, SUN)], [d("2026-10-29")], today=d("2026-10-29")).status == gaps.OPEN
+@pytest.mark.parametrize(
+    ("event", "status"),
+    [
+        (SUN, gaps.EXPLAINED),  # the expected date
+        (d("2026-10-28"), gaps.EXPLAINED),  # window_end
+        (d("2026-10-24"), gaps.OPEN),  # before the expected date
+        # After the window: a suspension a week later does not say why Sunday is missing,
+        # however far today is (UY-028.2; a bound at today let it hide the gap).
+        (d("2026-11-05"), gaps.OPEN),
+    ],
+)
+def test_a_gap_still_running_is_explained_only_by_an_event_in_its_window(event, status):
+    e = one([Draw(WED, SUN)], [event], today=LATER)
+    assert (e.next_draw_date, e.status) == (None, status)
+    assert e.calendar_event_date == (event if status == gaps.EXPLAINED else None)
 
 
 def test_one_expectation_per_draw_in_order_and_expected_draws_keeps_the_gaps():

@@ -32,6 +32,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 
 FILE_NAME = "part-0.parquet"
@@ -192,7 +193,35 @@ CALENDAR_EVENTS = Table(
     partition=("country",),
     year_of=None,
 )
-TABLES = {t.name: t for t in (DRAWS, DRAW_NUMBERS, PRIZES, QUARANTINE, GAME_RULES, CALENDAR_EVENTS)}
+# The gap detector's output (D13): one row per expected draw that did not come. Not by year:
+# it is rewritten whole every run, from every year of ``draws`` (owner, UY-028 2a), because a
+# gap can start in December and end in January. Its lineage is the draw whose expectation
+# failed.
+DRAW_GAPS = Table(
+    "draw_gaps",
+    pa.schema(
+        [
+            pa.field("country", pa.string(), nullable=False),
+            pa.field("operator", pa.string(), nullable=False),
+            pa.field("game", pa.string(), nullable=False),
+            pa.field("previous_draw_date", pa.date32(), nullable=False),
+            pa.field("expected_date", pa.date32(), nullable=False),
+            pa.field("expected_from", pa.string(), nullable=False),
+            pa.field("window_end", pa.date32(), nullable=False),
+            pa.field("next_draw_date", pa.date32()),
+            pa.field("status", pa.string(), nullable=False),
+            pa.field("calendar_event_date", pa.date32()),
+            *LINEAGE,
+        ]
+    ),
+    key=("country", "operator", "game", "previous_draw_date"),
+    partition=("country",),
+    year_of=None,
+)
+TABLES = {
+    t.name: t
+    for t in (DRAWS, DRAW_NUMBERS, PRIZES, QUARANTINE, GAME_RULES, CALENDAR_EVENTS, DRAW_GAPS)
+}
 _LINEAGE_NAMES = frozenset(f.name for f in LINEAGE)
 
 
@@ -306,6 +335,24 @@ def write(
         if stale / FILE_NAME not in written:
             shutil.rmtree(stale)
     return written
+
+
+def read(root: Path, table: Table, columns: Sequence[str] | None = None) -> list[dict]:
+    """Every row of ``table`` under ``root``, the path columns typed as the schema says (left
+    to pyarrow they come back as dictionaries). No files at all is no rows."""
+    path = root / table.name
+    if not path.is_dir() or not any(path.rglob(FILE_NAME)):
+        return []
+    fields = [table.schema.field(name) for name in table.partition]
+    if table.year_of:
+        fields.append(pa.field("year", pa.int32()))
+    dataset = pads.dataset(
+        path, format="parquet", partitioning=pads.partitioning(pa.schema(fields), flavor="hive")
+    )
+    rows = dataset.to_table(columns=list(columns) if columns else None).to_pylist()
+    for row in rows:
+        row.pop("year", None)
+    return rows
 
 
 def _partitions(root: Path, table: Table, country: str, year: int | None) -> list[Path]:
