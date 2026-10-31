@@ -42,8 +42,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from sorteos.core import gaps, shapes, silver
 from sorteos.core import manifest as mf
-from sorteos.core import shapes, silver
 from sorteos.core.bronze import BronzeStore
 from sorteos.core.money import AmountError
 from sorteos.uy import dq_flags as dq
@@ -60,8 +60,6 @@ from sorteos.uy.sources import CONFIG, COUNTRY, ORO
 MATCH = "match"
 MISMATCH = "mismatch"
 NOT_CHECKED = "not_checked"
-# P10: an announcement is believed up to 14 days after the draw that made it.
-ANNOUNCEMENT_CAP = timedelta(days=14)
 REFERENCE = Path(__file__).parent / "reference"
 # The ranges of the YAML's range_rule, read from game_rules when the module loads (PR-049).
 RANGES = shapes.load_ranges(
@@ -385,8 +383,8 @@ def _draw_flags(draw: ParsedDraw, timing: ParsedDraw | None) -> list[str]:
     flags = []
     if draw.next_draw_text is not None and draw.next_draw_date is None:
         flags.append(dq.NEXT_DRAW_UNPARSED)
-    announced = draw.next_draw_date
-    if announced and not draw.draw_date < announced <= draw.draw_date + ANNOUNCEMENT_CAP:
+    # P10, with the gap detector's own rule, so the flag and the detector never disagree.
+    if draw.next_draw_date and not gaps.believed(draw.draw_date, draw.next_draw_date):
         flags.append(dq.NEXT_DRAW_IMPLAUSIBLE)
     if timing:
         published = (timing.started_local, timing.first_ball_local, timing.ended_local)

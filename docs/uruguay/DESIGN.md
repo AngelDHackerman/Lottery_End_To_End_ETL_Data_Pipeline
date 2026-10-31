@@ -634,6 +634,16 @@ Los adelantos (2012-06-20 y 2022-12-24) no cuentan como desacierto por el punto 
 huecos conocidos (las 13 Semanas de Turismo y casi todos los fines de año) **no aparecen**: el
 sorteo anterior ya anunciaba la fecha correcta, después del feriado, así que no faltó nada.
 
+**Corrección (UY-028.1, 2026-10-31): el 2006-08-27 no es un hueco.** El 5 de Oro del 2006-08-23
+anuncia `Domingo 3 de Setiembre de 2006`, una fecha larga que se lee desde UY-022 (punto 6), es
+decir, después de esta medición. Con ese anuncio se espera el 2006-09-03 y se acierta: la DNLQ
+avisó que se saltaba el domingo 27 y el miércoles 30, así que no faltó nada. También corrige a
+[FINDINGS](FINDINGS.md#miércoles-o-domingos-sin-5-de-oro-y-sin-reemplazo-34-fechas-verificado),
+que dice que esos sorteos no anuncian el próximo. `expected_draws()` sobre la plata, con los mismos
+cortes, da para el 5 de Oro **2.073 aciertos (99,86 %), 1 adelanto y 2 huecos**, y para las
+Quinielas exactamente lo de arriba. **Los 4 huecos de la historia quedan explicados y ninguno
+abierto.**
+
 ### Cuánto creerle a un anuncio (P10)
 
 El tope existe para descartar los errores de tipeo. Con el tope original de 7 días se descartan 21
@@ -672,9 +682,9 @@ Un hueco se recalcula entero en cada corrida, como el resto de plata por año. S
 la fila de `calendar_events` que lo explica, la próxima corrida lo pasa a `explained` sin tocar
 nada más.
 
-**El 2006-08-27 queda abierto para siempre**, salvo que aparezca una fuente. No alarma: la alarma
-solo mira ventanas que cerraron desde la corrida anterior, y el reporte lo muestra como un hueco
-documentado.
+~~**El 2006-08-27 queda abierto para siempre**~~: no es un hueco, porque el sorteo anterior
+anunció el siguiente (corrección de UY-028.1, más arriba). Un hueco abierto viejo no alarma: la
+alarma solo mira ventanas que cerraron desde la corrida anterior.
 
 ## Backfill e incremental (UY-011)
 
