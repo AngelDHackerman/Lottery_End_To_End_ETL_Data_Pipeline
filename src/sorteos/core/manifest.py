@@ -294,13 +294,16 @@ class SqliteManifest:
         return (row[0], row[1]) if row and row[0] else None
 
     def open_keys(self) -> list[tuple[str, date]]:
-        final = sorted(FINAL_STATES)
+        # A static query filtered here, not a built `NOT IN (?, ?, …)`: bandit's B608 flags any
+        # SQL assembled from strings, and the manifest is ~21k rows read once per run.
         rows = self._db.execute(
-            f"SELECT source, draw_date, state FROM manifest "
-            f"WHERE state NOT IN ({', '.join('?' * len(final))}) ORDER BY draw_date, source",
-            final,
+            "SELECT source, draw_date, state FROM manifest ORDER BY draw_date, source"
         )
-        keys = [(source, date.fromisoformat(day), state) for source, day, state in rows]
+        keys = [
+            (source, date.fromisoformat(day), state)
+            for source, day, state in rows
+            if state not in FINAL_STATES
+        ]
         # An override closes a key the classifier left open (the 2019 strike days).
         return [
             (source, day)
