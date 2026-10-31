@@ -32,8 +32,6 @@ from sorteos.uy import dq_flags as dq
 from sorteos.uy.parsers import pozos_pdf
 from sorteos.uy.sources import COUNTRY, ORO, QN, QV
 
-TOMBOLA_SIZE = 20
-
 
 @dataclass
 class Report:

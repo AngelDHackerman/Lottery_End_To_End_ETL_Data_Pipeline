@@ -20,8 +20,15 @@ def lake(tmp_path):
 
 
 def test_real_pages_give_the_counts_of_their_draws(lake):
-    lake.fixture("resultados", date(2006, 8, 31))  # the Vespertina without a Tómbola
-    lake.fixture("resultados", date(2006, 12, 6))  # pozo_plata_equals_oro
+    # Three real days, each picked for a count it moves. All three have a Vespertina and a
+    # Nocturna (3 + 3); the two Wednesdays also have a 5 de Oro (2).
+    # - 2006-08-31: the site published that Vespertina without its Tómbola, and it is kept
+    #   that way (owner, UY-022), so it is the one Tómbola of size 0.
+    # - 2006-12-06: the only 5 de Oro in the catalog with pozo_plata_equals_oro.
+    # - 2016-07-06: a clean day after the first pozos PDF (2016-06-01). This lake has no PDF,
+    #   so its 5 de Oro is the one draw number left null.
+    lake.fixture("resultados", date(2006, 8, 31))
+    lake.fixture("resultados", date(2006, 12, 6))
     lake.fixture("resultados", date(2016, 7, 6))
     report = properties.collect(lake.manifest, lake.bronze)
 
