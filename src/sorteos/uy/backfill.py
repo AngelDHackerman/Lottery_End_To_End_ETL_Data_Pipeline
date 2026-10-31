@@ -8,6 +8,8 @@ Day by day, the results page first: it is the discovery layer, and the per-game 
 requested only for games it lists on that day. A key whose effective state is final is never
 requested again (``--refresh`` overrides), so the run can be stopped and resumed at any
 point and a second pass over the same range costs only what the first one left open. The
+one exception is a results page younger than the settle days: it can still list a game
+drawn later that day, so it is asked again even in ``draw``. The
 effective state is the manifest's, unless ``reference/manual_overrides.csv`` has a person's
 decision for that key (the 2019 AFAL strike days), and the same failure three times in a
 row closes a key as ``missing`` (docs/uruguay/DESIGN.md, D10–D12).
@@ -61,6 +63,8 @@ class RunStats:
     requests: int = 0
     skipped: int = 0
     by_state: dict = field(default_factory=dict)
+    # Keys whose effective state or content moved in this run: what silver has to rewrite.
+    changed: set[tuple[str, date]] = field(default_factory=set)
 
     def count(self, state: str) -> None:
         self.by_state[state] = self.by_state.get(state, 0) + 1
@@ -104,16 +108,37 @@ class Backfill:
             logger.info("request budget reached", extra={"max_requests": self.max_requests})
         return self.stats
 
+    def run_keys(self, keys: Iterable[tuple[str, date]]) -> RunStats:
+        """Only these keys, not their whole day: an old open key must not pull in sources
+        that were never fetched for its day (the historical extract PDFs, D19)."""
+        try:
+            for name, day in keys:
+                self.run_key(ALL_SOURCES[name], day)
+        except BudgetExhausted:
+            logger.info("request budget reached", extra={"max_requests": self.max_requests})
+        return self.stats
+
     def run_day(self, day: date) -> None:
         for source in self.sources:
-            url = self._url_for(source, day)
-            if url is None:
-                continue
-            state = self.manifest.effective_state(source.name, day)
-            if state in mf.FINAL_STATES and not self.refresh:
-                self.stats.skipped += 1
-                continue
-            self._fetch(source, day, url)
+            self.run_key(source, day)
+
+    def run_key(self, source: Source, day: date) -> None:
+        url = self._url_for(source, day)
+        if url is None:
+            return
+        state = self.manifest.effective_state(source.name, day)
+        if state in mf.FINAL_STATES and not self.refresh and not self._may_grow(source, day, state):
+            self.stats.skipped += 1
+            return
+        self._fetch(source, day, url)
+
+    def _may_grow(self, source: Source, day: date, state: str) -> bool:
+        """A recent results page in ``draw`` is asked again until it settles: fetched at 16:22,
+        it lists the Vespertina only, and the Nocturna (out after 21:20) would never be found
+        (UY-027.1, 2026-10-29). The same content again is not a change."""
+        return (
+            source is RESULTADOS and state == mf.DRAW and (self.today - day).days < self.settle_days
+        )
 
     def _url_for(self, source: Source, day: date) -> str | None:
         """The URL to request, or None when this source has nothing to say for ``day``."""
@@ -191,8 +216,11 @@ class Backfill:
         return mf.NO_DRAW if source is RESULTADOS else mf.MISSING
 
     def _record(self, rec: mf.Record) -> None:
+        before = self._snapshot(rec.source, rec.draw_date)
         state = self.manifest.record(rec)
         self.stats.count(state)
+        if self._snapshot(rec.source, rec.draw_date) != before:
+            self.stats.changed.add((rec.source, rec.draw_date))
         if state in (mf.ERROR, mf.MISSING) or rec.warnings:
             logger.warning(
                 "needs attention",
@@ -204,6 +232,10 @@ class Backfill:
                     "warnings": list(rec.warnings),
                 },
             )
+
+    def _snapshot(self, source: str, day: date) -> tuple[str | None, str | None]:
+        row = self.manifest.get(source, day)
+        return self.manifest.effective_state(source, day), row and row["content_sha256"]
 
 
 def resolve_sources(spec: str) -> list[Source]:

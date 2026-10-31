@@ -108,6 +108,25 @@ def test_refresh_fetches_again_and_counts_attempts(stores):
     assert stores[1].get("resultados", DAY)["attempts"] == 2
 
 
+def test_a_recent_results_page_is_asked_again_until_it_settles(stores):
+    # 2026-10-29: fetched at 16:22 it listed the Vespertina only; final as draw, the Nocturna
+    # would never have been found. Within the settle days the page is asked again.
+    url = sources.RESULTADOS.url(DAY)
+    page = (UY / "resultados_2016-07-06.html").read_bytes()
+    client = FakeClient({url: (200, page)})
+    job(client, stores, today=DAY, srcs="resultados").run(DAY, DAY)
+    same = job(client, stores, today=date(2016, 7, 8), srcs="resultados").run(DAY, DAY)
+    assert client.calls == [url, url]
+    assert same.changed == set() and same.skipped == 0
+
+    client.pages[url] = (200, page + b"\n")  # the page grew
+    grown = job(client, stores, today=date(2016, 7, 8), srcs="resultados").run(DAY, DAY)
+    assert grown.changed == {("resultados", DAY)}
+
+    settled = job(client, stores, today=date(2016, 7, 9), srcs="resultados").run(DAY, DAY)
+    assert settled.requests == 0 and settled.skipped == 1 and len(client.calls) == 3
+
+
 def test_a_recent_empty_page_is_not_yet_published_and_is_retried(stores):
     today = date(2026, 10, 4)
     url = sources.RESULTADOS.url(today)

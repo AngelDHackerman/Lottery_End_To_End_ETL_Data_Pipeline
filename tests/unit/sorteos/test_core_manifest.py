@@ -135,6 +135,24 @@ def test_an_override_applies_before_the_key_is_ever_fetched(tmp_path):
     m.close()
 
 
+def test_open_keys_are_the_ones_not_final_once_overrides_apply(tmp_path):
+    # P11: the incremental asks again for these, whatever their date.
+    m = mf.SqliteManifest(tmp_path / "m.sqlite", {("resultados", DAY): override()})
+    later = date(2026, 10, 20)
+    m.record(mf.Record("resultados", DAY, "u", mf.ERROR, NOW))  # closed by the override
+    m.record(failure(day=later))
+    m.record(failure())
+    m.record(mf.Record("resultados", later, "u", mf.NOT_YET_PUBLISHED, NOW))
+    m.record(mf.Record("resultados", date(2016, 7, 6), "u", mf.DRAW, NOW))
+    m.record(mf.Record("resultados", date(2016, 7, 7), "u", mf.NO_DRAW, NOW))
+    assert m.open_keys() == [
+        ("pozos_5_de_oro", DAY),
+        ("pozos_5_de_oro", later),
+        ("resultados", later),
+    ]
+    m.close()
+
+
 def test_a_manifest_with_the_uy001_schema_is_read_without_migrating(tmp_path):
     path = tmp_path / "manifest.sqlite"
     db = sqlite3.connect(path)
