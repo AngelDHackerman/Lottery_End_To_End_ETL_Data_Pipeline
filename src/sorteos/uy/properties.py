@@ -27,9 +27,9 @@ from pathlib import Path
 
 from sorteos.core import manifest as mf
 from sorteos.core.bronze import BronzeStore
-from sorteos.uy import backfill, silver
+from sorteos.uy import backfill, build_silver, silver
 from sorteos.uy import dq_flags as dq
-from sorteos.uy.parsers import pozos_pdf, resultados
+from sorteos.uy.parsers import pozos_pdf
 from sorteos.uy.sources import COUNTRY, ORO, QN, QV
 
 TOMBOLA_SIZE = 20
@@ -90,12 +90,12 @@ class Report:
 
 def collect(manifest: mf.Manifest, bronze: BronzeStore) -> Report:
     report = Report()
-    span = manifest.date_range(resultados.SOURCE)
-    if span is None:
+    years = build_silver.all_years(manifest)
+    if not years:
         return report
     run = silver.Run(datetime(1970, 1, 1))  # nothing is written: the lineage is not kept
     series = silver.number_series(manifest, bronze)
-    for year in range(int(span[0][:4]), int(span[1][:4]) + 1):
+    for year in years:
         report.add(silver.build_year(year, manifest, bronze, run, series))
     return report
 
