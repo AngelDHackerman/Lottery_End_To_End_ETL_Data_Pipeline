@@ -1,0 +1,156 @@
+"""Rewrite local UY silver from bronze, one year at a time (UY-027.1). No requests.
+
+    python -m sorteos.uy.build_silver                     # every year the manifest has
+    python -m sorteos.uy.build_silver --years 2016        # the pilot (UY-030)
+    python -m sorteos.uy.build_silver --years 2014-2016,2026
+
+Each year is rewritten whole, in the four tables, and the reference tables with it (D17), so a
+second run gives the same rows. The draw-number series is built once per run across every year
+(UY-025.3): rewriting a single year still reads all the pozos PDF (~10 s). The incremental
+(``sorteos.uy.incremental``) calls ``rebuild()`` with the years it touched.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from sorteos.core import manifest as mf
+from sorteos.core import silver as core_silver
+from sorteos.core.bronze import BronzeStore
+from sorteos.uy import backfill, silver
+from sorteos.uy.parsers import resultados
+from sorteos.uy.sources import COUNTRY
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_SILVER = Path("data/uy/silver")
+
+
+@dataclass
+class YearCount:
+    year: int
+    draws: int = 0
+    numbers: int = 0
+    prizes: int = 0
+    quarantine: int = 0
+    flags: Counter = field(default_factory=Counter)
+
+    @classmethod
+    def of(cls, year: int, rows: silver.YearRows) -> YearCount:
+        flags = Counter(
+            flag
+            for row in (*rows.draws, *rows.draw_numbers, *rows.prizes)
+            for flag in row.get("dq_flags", ())
+        )
+        return cls(
+            year,
+            len(rows.draws),
+            len(rows.draw_numbers),
+            len(rows.prizes),
+            len(rows.quarantine),
+            flags,
+        )
+
+
+def new_run(kind: str) -> silver.Run:
+    """One ``run_id`` per command, readable in the lineage: ``uy-silver-20261029T031500Z``."""
+    now = core_silver.utc_now()
+    return silver.Run(now, f"uy-{kind}-{now:%Y%m%dT%H%M%SZ}")
+
+
+def all_years(manifest: mf.Manifest) -> list[int]:
+    span = manifest.date_range(resultados.SOURCE)
+    if span is None:
+        return []
+    return list(range(int(span[0][:4]), int(span[1][:4]) + 1))
+
+
+def rebuild(
+    manifest: mf.Manifest,
+    bronze: BronzeStore,
+    out: Path,
+    years: Iterable[int],
+    run: silver.Run,
+) -> list[YearCount]:
+    series = silver.number_series(manifest, bronze)
+    counts = []
+    for year in years:
+        rows = silver.build_year(year, manifest, bronze, run, series)
+        silver.write_year(out, year, rows)
+        count = YearCount.of(year, rows)
+        counts.append(count)
+        logger.info(
+            "silver year written",
+            extra={"year": year, "draws": count.draws, "quarantine": count.quarantine},
+        )
+    silver.write_reference(out, run)
+    return counts
+
+
+def format_counts(counts: list[YearCount]) -> str:
+    lines = [f"{'year':>4} {'draws':>7} {'numbers':>8} {'prizes':>7} {'quarantine':>10}"]
+    total = YearCount(0)
+    for c in counts:
+        lines.append(f"{c.year:>4} {c.draws:>7} {c.numbers:>8} {c.prizes:>7} {c.quarantine:>10}")
+        total.draws += c.draws
+        total.numbers += c.numbers
+        total.prizes += c.prizes
+        total.quarantine += c.quarantine
+        total.flags += c.flags
+    lines.append(
+        f"{'all':>4} {total.draws:>7} {total.numbers:>8} {total.prizes:>7} {total.quarantine:>10}"
+    )
+    lines += [f"flag {name}: {n}" for name, n in sorted(total.flags.items())]
+    return "\n".join(lines)
+
+
+def parse_years(spec: str) -> list[int]:
+    """``2016``, ``2014-2016`` or a comma list of both."""
+    years: set[int] = set()
+    for token in (t.strip() for t in spec.split(",") if t.strip()):
+        first, _, last = token.partition("-")
+        try:
+            years.update(range(int(first), int(last or first) + 1))
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"not a year or a range of years: {token!r}") from None
+    if not years:
+        raise argparse.ArgumentTypeError("no years given")
+    return sorted(years)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m sorteos.uy.build_silver",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--root", type=Path, default=backfill.DEFAULT_ROOT)
+    p.add_argument("--silver", type=Path, default=DEFAULT_SILVER)
+    p.add_argument("--years", type=parse_years, default=None, help="default: every year")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    from loteria.common.logging_setup import configure_logging
+
+    configure_logging("loteria-uy-silver")
+    manifest = mf.SqliteManifest(args.root / "manifest.sqlite", backfill.load_overrides())
+    try:
+        years = args.years or all_years(manifest)
+        bronze = BronzeStore(args.root, COUNTRY)
+        counts = rebuild(manifest, bronze, args.silver, years, new_run("silver"))
+        print(format_counts(counts), file=sys.stderr)
+    finally:
+        manifest.close()
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
