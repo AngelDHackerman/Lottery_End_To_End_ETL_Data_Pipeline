@@ -22,10 +22,12 @@ import json
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
+from sorteos.core import gaps
 from sorteos.core import manifest as mf
+from sorteos.core import silver as core_silver
 from sorteos.core.bronze import BronzeStore
 from sorteos.uy import backfill, build_silver, silver
 from sorteos.uy import dq_flags as dq
@@ -47,6 +49,8 @@ class Report:
     tombola_p7_draws: int = 0
     without_next_draw: int = 0
     draw_numbers: Counter = field(default_factory=Counter)  # read / inferred / null, since PDF
+    gaps: Counter = field(default_factory=Counter)  # explained / open (D13)
+    open_gaps: list[str] = field(default_factory=list)
 
     @property
     def failed(self) -> bool:
@@ -86,15 +90,24 @@ class Report:
             self.quarantine[f"{row['source']}: {row['reason']}"] += 1
 
 
-def collect(manifest: mf.Manifest, bronze: BronzeStore) -> Report:
+def collect(manifest: mf.Manifest, bronze: BronzeStore, today: date | None = None) -> Report:
+    """Every year in memory, then the gap detector over all of them, as silver would run it."""
     report = Report()
     years = build_silver.all_years(manifest)
     if not years:
         return report
     run = silver.Run(datetime(1970, 1, 1))  # nothing is written: the lineage is not kept
     series = silver.number_series(manifest, bronze)
+    draws = []
     for year in years:
-        report.add(silver.build_year(year, manifest, bronze, run, series))
+        rows = silver.build_year(year, manifest, bronze, run, series)
+        report.add(rows)
+        draws += rows.draws
+    events = silver.reference_rows(core_silver.CALENDAR_EVENTS, run)
+    for row in silver.gap_rows(draws, events, run, today or backfill.today_in_uruguay()):
+        report.gaps[row["status"]] += 1
+        if row["status"] == gaps.OPEN:
+            report.open_gaps.append(build_silver.describe_open(row))
     return report
 
 
@@ -124,6 +137,9 @@ def format_report(report: Report) -> str:
         f"without a next draw: {report.without_next_draw}",
         "5 de Oro draw number since the first pozos PDF: "
         + ", ".join(f"{n} {k}" for k, n in sorted(report.draw_numbers.items())),
+        f"draw_gaps: {sum(report.gaps.values())} "
+        f"({report.gaps[gaps.EXPLAINED]} explained, {report.gaps[gaps.OPEN]} open)",
+        *report.open_gaps,
         f"result: {'FAILED (quarantine)' if report.failed else 'ok'}",
     ]
     return "\n".join(lines)

@@ -8,6 +8,10 @@ Each year is rewritten whole, in the four tables, and the reference tables with 
 second run gives the same rows. The draw-number series is built once per run across every year
 (UY-025.3): rewriting a single year still reads all the pozos PDF (~10 s). The incremental
 (``sorteos.uy.incremental``) calls ``rebuild()`` with the years it touched.
+
+Then ``draw_gaps`` is rewritten whole, from every year of silver (D13), unless silver has
+anything in quarantine: a draw in quarantine is missing from ``draws`` and would read as a
+gap, so the table keeps its last version and the run exits 1 (owner, UY-028 3a).
 """
 
 from __future__ import annotations
@@ -18,8 +22,10 @@ import sys
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
+from sorteos.core import gaps
 from sorteos.core import manifest as mf
 from sorteos.core import silver as core_silver
 from sorteos.core.bronze import BronzeStore
@@ -93,6 +99,45 @@ def rebuild(
     return counts
 
 
+@dataclass
+class GapReport:
+    rows: list[dict] | None  # None: not rewritten, because of the quarantine
+    quarantine: int = 0
+
+
+def detect_gaps(out: Path, run: silver.Run, today: date) -> GapReport:
+    """Rewrite ``draw_gaps`` from the silver under ``out``, unless it has quarantine rows."""
+    quarantine = len(core_silver.read(out, core_silver.QUARANTINE, ["reason"]))
+    if quarantine:
+        logger.warning("draw_gaps not rewritten", extra={"quarantine": quarantine})
+        return GapReport(None, quarantine)
+    rows = silver.write_gaps(out, run, today)
+    logger.info(
+        "draw_gaps written",
+        extra={"gaps": len(rows), "open": sum(r["status"] == gaps.OPEN for r in rows)},
+    )
+    return GapReport(rows)
+
+
+def format_gaps(report: GapReport) -> str:
+    if report.rows is None:
+        return f"draw_gaps: not rewritten, silver has {report.quarantine} rows in quarantine"
+    status = Counter(r["status"] for r in report.rows)
+    lines = [
+        f"draw_gaps: {len(report.rows)} "
+        f"({status[gaps.EXPLAINED]} explained, {status[gaps.OPEN]} open)"
+    ]
+    lines += [describe_open(r) for r in report.rows if r["status"] == gaps.OPEN]
+    return "\n".join(lines)
+
+
+def describe_open(row: dict) -> str:
+    return (
+        f"open {row['game']} expected {row['expected_date']} ({row['expected_from']}), "
+        f"window closed {row['window_end']}, next draw {row['next_draw_date'] or 'none yet'}"
+    )
+
+
 def format_counts(counts: list[YearCount]) -> str:
     lines = [f"{'year':>4} {'draws':>7} {'numbers':>8} {'prizes':>7} {'quarantine':>10}"]
     total = YearCount(0)
@@ -145,11 +190,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         years = args.years or all_years(manifest)
         bronze = BronzeStore(args.root, COUNTRY)
-        counts = rebuild(manifest, bronze, args.silver, years, new_run("silver"))
-        print(format_counts(counts), file=sys.stderr)
+        run = new_run("silver")
+        counts = rebuild(manifest, bronze, args.silver, years, run)
+        report = detect_gaps(args.silver, run, backfill.today_in_uruguay())
+        print(format_counts(counts), format_gaps(report), sep="\n", file=sys.stderr)
     finally:
         manifest.close()
-    return 0
+    return 0 if report.rows is not None else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

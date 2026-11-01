@@ -686,6 +686,31 @@ nada más.
 anunció el siguiente (corrección de UY-028.1, más arriba). Un hueco abierto viejo no alarma: la
 alarma solo mira ventanas que cerraron desde la corrida anterior.
 
+Cómo quedó en el código (UY-028.2):
+
+- **Un solo archivo por país**, `draw_gaps/country=uy/`, recalculado entero en cada corrida desde
+  todos los años de `draws` (owner, 2a): un hueco puede empezar en diciembre y terminar en enero.
+  Su clave es (`country`, `operator`, `game`, `previous_draw_date`): una expectativa por sorteo.
+- **El linaje es el del sorteo cuya expectativa falló** (`source_key`, `source_sha256` y
+  `parser_version` del sorteo anterior): su anuncio, o su silencio, fijó la fecha esperada.
+- **Un hueco en curso** (sin sorteo desde entonces) solo se explica con un evento dentro de su
+  ventana (de la fecha esperada a `window_end`). La regla de arriba habla del "sorteo que finalmente
+  ocurrió", que todavía no existe; si el límite fuera hoy, una suspensión de la semana siguiente
+  taparía una caída real. Los huecos cerrados siguen la regla de arriba.
+- **Si plata tiene algo en cuarentena, `draw_gaps` no se reescribe** y la corrida sale con 1 (owner,
+  3a): un sorteo en cuarentena falta en `draws` y se vería como un hueco. Se mira toda la plata y no
+  solo los años de la corrida, porque un incremental sin cambios no debe reescribir la tabla sobre
+  la cuarentena que dejó una corrida anterior.
+- **El detector corre en cada incremental, aunque no haya cambiado nada**: un sitio que deja de
+  publicar no cambia nada, y ese es justamente el hueco que hay que ver.
+- **Una sexta suite, `uy_draw_gaps`**: la regla de la tabla de arriba (`status` en {`explained`,
+  `open`} y `explained` si y solo si `calendar_event_date` no es nulo), la clave, el juego, de dónde
+  salió la fecha, la ventana de 3 días, la fecha esperada después del sorteo anterior, el sorteo
+  siguiente después de la ventana (o ninguno) y el linaje. No pide "al menos una fila": un país
+  podría no tener huecos.
+- **Sobre todo el bronce** (2026-10-31): 4 huecos, los 4 `explained` (fin de año 2015 y el paro de
+  2019 en los tres juegos), ninguno abierto, y las 6 suites en verde.
+
 ## Backfill e incremental (UY-011)
 
 Los dos son la misma máquina, `Backfill` (UY-001): recorren un rango de fechas y, para cada día,

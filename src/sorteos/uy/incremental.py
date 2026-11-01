@@ -16,8 +16,11 @@ What it asks for (docs/uruguay/DESIGN.md, D16, P11, P12):
 Then every year with a key that changed is rewritten in silver (D17). Those years are written
 to ``silver_pending.json`` before silver starts and removed when it ends, so a run cut in
 between still rewrites them next time, when the manifest no longer changes. Build silver once
-with ``make uy-silver`` first: the incremental only rewrites the years it touches. The gap
-detector (step 2 in DESIGN) joins in UY-028.
+with ``make uy-silver`` first: the incremental only rewrites the years it touches.
+
+Last, the gap detector rewrites ``draw_gaps`` (step 2 in DESIGN), on every run, even when
+nothing changed: a site that stops publishing changes nothing, and that is the gap to see.
+It skips when silver has quarantine and the run exits 1 (owner, UY-028 3a).
 """
 
 from __future__ import annotations
@@ -112,19 +115,20 @@ def main(argv: list[str] | None = None, *, client: PoliteClient | None = None) -
             f"requests {stats.requests}, skipped {stats.skipped}, changed {len(stats.changed)}",
             *(f"changed {source} {day}" for source, day in sorted(stats.changed)),
         ]
+        run = build_silver.new_run("incremental")
         if years:
             write_pending(pending_path, years)
-            counts = build_silver.rebuild(
-                manifest, store, args.silver, sorted(years), build_silver.new_run("incremental")
-            )
+            counts = build_silver.rebuild(manifest, store, args.silver, sorted(years), run)
             pending_path.unlink()
             lines.append(build_silver.format_counts(counts))
         else:
             lines.append("silver: nothing changed")
+        report = build_silver.detect_gaps(args.silver, run, today)
+        lines.append(build_silver.format_gaps(report))
         print("\n".join(lines), file=sys.stderr)
     finally:
         manifest.close()
-    return 0
+    return 0 if report.rows is not None else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

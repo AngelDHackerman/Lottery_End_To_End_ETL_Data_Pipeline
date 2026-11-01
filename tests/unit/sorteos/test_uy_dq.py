@@ -7,7 +7,7 @@ fails: an expectation that never goes red protects nothing (verify a check by re
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -83,6 +83,36 @@ def prize(name, status="no_winners", coupons=0, amount="44756498.51"):
     }
 
 
+def gap(game, previous, expected, next_draw, status, event, expected_from="announcement"):
+    return {
+        "country": "uy",
+        "operator": "dnlq",
+        "game": game,
+        "previous_draw_date": previous,
+        "expected_date": expected,
+        "expected_from": expected_from,
+        "window_end": expected + timedelta(days=3),
+        "next_draw_date": next_draw,
+        "status": status,
+        "calendar_event_date": event,
+        **LINEAGE,
+    }
+
+
+#: The 2019 strike, explained, and a Nocturna that has not come back, open.
+GAPS = [
+    gap(
+        "5_de_oro",
+        date(2019, 9, 22),
+        date(2019, 9, 25),
+        date(2019, 10, 1),
+        "explained",
+        date(2019, 9, 25),
+    ),
+    gap("quiniela_nocturna", SAT, date(2016, 6, 6), None, "open", None, "calendar"),
+]
+
+
 def clean_silver(root: Path) -> Path:
     """A small silver every suite passes: the three games, written by the real writer."""
     times = {
@@ -106,6 +136,7 @@ def clean_silver(root: Path) -> Path:
         (silver.PRIZES, prizes),
     ):
         silver.write(root, table, rows, country="uy", year=2016, flags=dq.CATALOG)
+    silver.write(root, silver.DRAW_GAPS, GAPS, country="uy")
     return root
 
 
@@ -116,11 +147,12 @@ def root(tmp_path_factory):
 
 @pytest.fixture
 def tables(root):
-    return {t.name: core.load(root, t) for t in (silver.DRAWS, silver.DRAW_NUMBERS, silver.PRIZES)}
+    tables = (silver.DRAWS, silver.DRAW_NUMBERS, silver.PRIZES, silver.DRAW_GAPS)
+    return {t.name: core.load(root, t) for t in tables}
 
 
 def failed(tables) -> set[tuple[str, str, str | None]]:
-    report = runner.check(tables["draws"], tables["draw_numbers"], tables["prizes"])
+    report = runner.check(*(tables[n] for n in ("draws", "draw_numbers", "prizes", "draw_gaps")))
     return {(r.suite, o.expectation, o.column) for r in report.results for o in r.failures}
 
 
@@ -176,7 +208,7 @@ def _twice(frame, **match):
 
 V, N, G5 = "quiniela_vespertina", "quiniela_nocturna", "5_de_oro"
 D, DN, P = suites.DRAWS, suites.DRAW_NUMBERS, suites.PRIZES
-S, F = suites.DRAW_SHAPES, suites.DQ_FLAGS
+S, F, GG = suites.DRAW_SHAPES, suites.DQ_FLAGS, suites.DRAW_GAPS
 BETWEEN, IN_SET, NULL = (
     "expect_column_values_to_be_between",
     "expect_column_values_to_be_in_set",
@@ -196,6 +228,56 @@ def _moved(t, game, day):
 
 
 CASES = {
+    "duplicated gap": (
+        lambda t: t | {"draw_gaps": _twice(t["draw_gaps"], game=G5)},
+        {(GG, "expect_compound_columns_to_be_unique", "country,operator,game,previous_draw_date")},
+    ),
+    "a gap of a game outside v1": (
+        lambda t: t | {"draw_gaps": _set(t["draw_gaps"], "game", "kini", game=N)},
+        {(GG, IN_SET, "game")},
+    ),
+    "a gap neither explained nor open": (
+        lambda t: t | {"draw_gaps": _set(t["draw_gaps"], "status", "pending", game=N)},
+        {(GG, IN_SET, "status")},
+    ),
+    "an explained gap without its event": (
+        lambda t: t | {"draw_gaps": _set(t["draw_gaps"], "calendar_event_date", None, game=G5)},
+        {(GG, NOT_NULL, "calendar_event_date")},
+    ),
+    "an open gap with an event": (
+        lambda t: t
+        | {"draw_gaps": _set(t["draw_gaps"], "calendar_event_date", date(2016, 6, 6), game=N)},
+        {(GG, NULL, "calendar_event_date")},
+    ),
+    "an expected date from nowhere": (
+        lambda t: t | {"draw_gaps": _set(t["draw_gaps"], "expected_from", "guess", game=N)},
+        {(GG, IN_SET, "expected_from")},
+    ),
+    "a window of 4 days": (
+        lambda t: t | {"draw_gaps": _set(t["draw_gaps"], "window_end", date(2016, 6, 10), game=N)},
+        {(GG, IN_SET, "window_days")},
+    ),
+    "a gap expected before the draw that set it": (
+        lambda t: t
+        | {
+            "draw_gaps": _set(
+                _set(t["draw_gaps"], "expected_date", date(2016, 6, 3), game=N),
+                "window_end",
+                date(2016, 6, 6),
+                game=N,
+            )
+        },
+        {(GG, IN_SET, "expected_after_previous")},
+    ),
+    "a gap whose draw came inside the window": (
+        lambda t: t
+        | {"draw_gaps": _set(t["draw_gaps"], "next_draw_date", date(2019, 9, 27), game=G5)},
+        {(GG, IN_SET, "next_after_window")},
+    ),
+    "a gap without run_id": (
+        lambda t: t | {"draw_gaps": _set(t["draw_gaps"], "run_id", None, game=G5)},
+        {(GG, NOT_NULL, "run_id")},
+    ),
     "duplicated draw": (
         lambda t: t | {"draws": _twice(t["draws"], game=V)},
         {(D, "expect_compound_columns_to_be_unique", "country,operator,game,draw_date")},
@@ -518,7 +600,7 @@ def test_an_empty_report_is_not_a_success():
 
 def test_the_report_names_suite_expectation_column_and_sample(tables):
     t = tables | {"prizes": _set(tables["prizes"], "currency", "USD", prize="oro")}
-    report = runner.check(t["draws"], t["draw_numbers"], t["prizes"])
+    report = runner.check(t["draws"], t["draw_numbers"], t["prizes"], t["draw_gaps"])
     assert "  - expect_column_values_to_be_in_set on currency: 1 unexpected, e.g. ['USD']" in (
         report.text()
     )

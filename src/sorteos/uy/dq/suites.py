@@ -22,7 +22,7 @@ from great_expectations import expectations as gxe
 from great_expectations.core import ExpectationSuite
 from great_expectations.expectations.row_conditions import Column
 
-from sorteos.core import shapes
+from sorteos.core import gaps, shapes
 from sorteos.core.silver import LINEAGE
 from sorteos.uy import dq_flags as dq
 from sorteos.uy.dq.frames import (
@@ -38,6 +38,7 @@ DRAW_NUMBERS = "uy_draw_numbers"
 DRAW_SHAPES = "uy_draw_shapes"
 PRIZES = "uy_prizes"
 DQ_FLAGS = "uy_dq_flags"
+DRAW_GAPS = "uy_draw_gaps"
 
 GAME_RULES = Path(__file__).parents[1] / "reference" / "game_rules.csv"
 #: The 5 de Oro's range_rule in its YAML. Every ball type of the game shares it.
@@ -202,6 +203,35 @@ def build_dq_flags() -> ExpectationSuite:
     return gx.ExpectationSuite(name=DQ_FLAGS, expectations=expectations)
 
 
+def build_draw_gaps() -> ExpectationSuite:
+    explained = _is("status", gaps.EXPLAINED)
+    expectations = [
+        # No row count: a country could have no gaps. Uruguay has 4, all explained (UY-028.1),
+        # and a missing table still fails, as TableEmpty.
+        # One expectation per draw: two rows for the same draw would count one gap twice.
+        gxe.ExpectCompoundColumnsToBeUnique(
+            column_list=["country", "operator", "game", "previous_draw_date"]
+        ),
+        gxe.ExpectColumnValuesToBeInSet(column="game", value_set=list(BALL_TYPES)),
+        # D13, D15: explained if and only if a calendar_events row says why.
+        gxe.ExpectColumnValuesToBeInSet(column="status", value_set=[gaps.EXPLAINED, gaps.OPEN]),
+        gxe.ExpectColumnValuesToNotBeNull(column="calendar_event_date", row_condition=explained),
+        gxe.ExpectColumnValuesToBeNull(
+            column="calendar_event_date", row_condition=_is("status", gaps.OPEN)
+        ),
+        gxe.ExpectColumnValuesToBeInSet(
+            column="expected_from", value_set=[gaps.ANNOUNCEMENT, gaps.CALENDAR]
+        ),
+        # D14: the window is the expected date plus 3 days, and a gap is a draw that came
+        # after it, or has not come yet.
+        gxe.ExpectColumnValuesToBeInSet(column="window_days", value_set=[3]),
+        gxe.ExpectColumnValuesToBeInSet(column="expected_after_previous", value_set=[True]),
+        gxe.ExpectColumnValuesToBeInSet(column="next_after_window", value_set=[True]),
+        *_lineage(),
+    ]
+    return gx.ExpectationSuite(name=DRAW_GAPS, expectations=expectations)
+
+
 #: Suite -> builder: what is validated, synced to JSON and drift-tested.
 BUILDERS = {
     DRAWS: build_draws,
@@ -209,6 +239,7 @@ BUILDERS = {
     DRAW_SHAPES: build_draw_shapes,
     PRIZES: build_prizes,
     DQ_FLAGS: build_dq_flags,
+    DRAW_GAPS: build_draw_gaps,
 }
 
 

@@ -16,7 +16,9 @@ For each draw it expects the next one (D14):
    falls between the expected date and the draw that finally happened (D15), ``open`` if not.
 
 The last draw's expectation counts only once its window has closed (``window_end`` before
-today): until then the draw can still come.
+today): until then the draw can still come. While no draw has come since, only an event in
+the window itself explains the gap: a suspension a week later says nothing about why the
+expected draw is missing, and must not hide it (UY-028.2).
 """
 
 from __future__ import annotations
@@ -102,8 +104,10 @@ def expectations(
             outcome = GAP
         status = event = None
         if outcome == GAP:
-            until = happened or today
-            event = next((e for e in events if expected <= e < until), None)
+            if happened is not None:
+                event = next((e for e in events if expected <= e < happened), None)
+            else:
+                event = next((e for e in events if expected <= e <= window_end), None)
             status = EXPLAINED if event else OPEN
         out.append(
             Expectation(
