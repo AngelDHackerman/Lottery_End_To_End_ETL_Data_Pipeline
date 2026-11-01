@@ -236,3 +236,42 @@ def test_calendar_weekdays_that_do_not_add_up_are_a_problem(missing):
     assert report.problems == [
         f"5_de_oro: 1 calendar weekdays accounted for, {1 + missing} counted from the dates"
     ]
+
+
+# --- ver_estadisticas (UY-030.2) -----------------------------------------------------------
+
+
+def stats_problems(report):
+    return [p for p in report.problems if p.startswith("ver_estadisticas")]
+
+
+def test_without_answers_in_bronze_the_report_says_how_to_get_them(tmp_path):
+    report = reconcile.collect(tmp_path, TODAY, bronze=tmp_path / "root")
+    assert report.stats is None
+    assert "No answers in bronze: `make uy-estadisticas`" in reconcile.format_report(report)
+
+
+def test_the_site_counts_join_the_report_with_their_known_difference(tmp_path):
+    from test_uy_estadisticas import keep, oro_page, write_silver
+
+    write_silver(tmp_path)
+    keep(tmp_path, oro_page())
+    report = reconcile.collect(tmp_path, TODAY, bronze=tmp_path / "root")
+    assert stats_problems(report) == []
+    text = reconcile.format_report(report)
+    assert "Asked on 2026-11-01. The Quiniela and Tómbola of the form are the Vespertina." in text
+    assert "| 5_de_oro | 2006-01-01 | 2010-11-07 | all | 5 / 5 | 25 | ok |" in text
+    assert "- 2010-10-07 revancha 06 08 13 40 44: FINDINGS Q10:" in text
+    assert "Differences in" not in text
+
+
+def test_a_site_count_silver_does_not_match_fails_the_report(tmp_path):
+    from test_uy_estadisticas import keep, oro_page, write_silver
+
+    write_silver(tmp_path)
+    keep(tmp_path, oro_page(**{"05": 2}))
+    report = reconcile.collect(tmp_path, TODAY, bronze=tmp_path / "root")
+    assert stats_problems(report) == ["ver_estadisticas 5_de_oro: differs from silver"]
+    text = reconcile.format_report(report)
+    assert "| 5 / 5 | 26 | DIFFERS |" in text
+    assert "Differences in 5_de_oro:\n\n- oro 05: site 2, silver 1" in text

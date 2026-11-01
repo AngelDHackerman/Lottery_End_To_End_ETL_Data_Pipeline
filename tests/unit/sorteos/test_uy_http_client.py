@@ -42,6 +42,8 @@ class FakeSession:
         self.calls: list[str] = []
         self.headers: dict = {}
 
+        self.posted: list[tuple[str, dict]] = []  # (url, form) of every POST
+
     def get(self, url, timeout, allow_redirects):
         assert allow_redirects is False, "redirects must be followed by hand"
         self.calls.append(url)
@@ -49,6 +51,10 @@ class FakeSession:
         if isinstance(item, Exception):
             raise item
         return item
+
+    def post(self, url, data, timeout, allow_redirects):
+        self.posted.append((url, data))
+        return self.get(url, timeout, allow_redirects)
 
 
 def client(session, **kwargs) -> PoliteClient:
@@ -271,3 +277,58 @@ def test_the_agent_must_be_a_product_version_token(bad):
 def test_the_uruguayan_agent_cannot_be_swapped_on_the_way_in():
     with pytest.raises(TypeError):
         privacy.polite_client(agent="other/1.0", session=FakeSession({}))
+
+
+# --- POST (UY-030.2: the ver_estadisticas form) -------------------------------------------
+
+FORM_URL = "https://www.loteria.gub.uy/ver_estadisticas.php?xjue=4&xpos=1"
+FORM = {"xdia": "1", "xmes": "01", "xano": "2006"}
+
+
+def test_a_post_sends_its_form_and_returns_the_page():
+    session = FakeSession({FORM_URL: [response(200, b"counts")]})
+    result = client(session).post(FORM_URL, FORM)
+    assert (result.status, result.content, result.url) == (200, b"counts", FORM_URL)
+    assert session.posted == [(FORM_URL, FORM)]
+
+
+def test_a_post_is_retried_like_a_get_with_the_same_form():
+    session = FakeSession({FORM_URL: [response(503), response(200, b"counts")]})
+    assert client(session).post(FORM_URL, FORM).content == b"counts"
+    assert session.posted == [(FORM_URL, FORM), (FORM_URL, FORM)]
+
+
+def test_a_blocked_url_is_never_posted_to():
+    session = FakeSession({})
+    with pytest.raises(BlockedURLError):
+        client(session).post(EXCLUDED[0], FORM)
+    assert session.posted == []
+
+
+@pytest.mark.parametrize(("status", "posts"), [(303, 1), (302, 1), (307, 2), (308, 2)])
+def test_after_a_redirect_a_post_goes_on_as_get_unless_307_or_308(status, posts):
+    after = "https://www.loteria.gub.uy/resultado.php"
+    session = FakeSession(
+        {
+            FORM_URL: [response(status, b"", {"Location": "/resultado.php"})],
+            after: [response(200, b"counts")],
+        }
+    )
+    result = client(session).post(FORM_URL, FORM)
+    assert result.final_url == after
+    assert [url for url, _ in session.posted] == [FORM_URL, after][:posts]
+    assert session.calls == [FORM_URL, after]
+
+
+def test_a_post_redirected_into_a_blocked_file_is_refused():
+    session = FakeSession({FORM_URL: [response(303, b"", {"Location": EXCLUDED[1]})]})
+    with pytest.raises(BlockedURLError):
+        client(session).post(FORM_URL, FORM)
+    assert session.calls == [FORM_URL]
+
+
+def test_the_form_is_copied_so_a_caller_cannot_change_it_between_retries():
+    form = dict(FORM)
+    session = FakeSession({FORM_URL: [response(200)]})
+    client(session).post(FORM_URL, form)
+    assert session.posted[0][1] == FORM and session.posted[0][1] is not form
