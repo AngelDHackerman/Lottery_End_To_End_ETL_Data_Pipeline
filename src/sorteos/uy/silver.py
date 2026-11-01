@@ -245,7 +245,7 @@ def gap_rows(
         found = gaps.expected_draws(
             [gaps.Draw(r["draw_date"], r["next_draw_date"]) for r in members],
             CONFIG.games[game].calendar.weekdays,
-            [e["event_date"] for e in events if game in _games_of(e)],
+            [e["event_date"] for e in events if game in games_of(e)],
             today,
         )
         previous = {r["draw_date"]: r for r in members}
@@ -273,7 +273,7 @@ def gap_rows(
     return rows
 
 
-def _games_of(event: Mapping) -> set[str]:
+def games_of(event: Mapping) -> set[str]:
     return {game.strip() for game in event["games"].split(",")}
 
 

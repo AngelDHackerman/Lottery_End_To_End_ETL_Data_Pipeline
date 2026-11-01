@@ -227,9 +227,12 @@ def test_rebuild_writes_each_year_and_counts_its_rows_and_flags(tmp_path):
     assert counts[1].draws == 3 and counts[1].quarantine == 0
     assert counts[0].flags["pozo_plata_equals_oro"] == 1
     assert (tmp_path / "s" / "game_rules").exists()  # the reference tables come with it
+    assert all(c.seconds > 0 for c in counts)  # D18: a year must fit in a 15-minute Lambda
     text = build_silver.format_counts(counts)
     assert "flag pozo_plata_equals_oro: 1" in text
-    assert text.splitlines()[-2].split()[0] == "all"
+    *_, total, slowest, _ = text.splitlines()
+    assert total.split()[0] == "all"
+    assert slowest.startswith("slowest year: ")
 
 
 def test_a_year_without_draws_loses_its_partition(tmp_path):

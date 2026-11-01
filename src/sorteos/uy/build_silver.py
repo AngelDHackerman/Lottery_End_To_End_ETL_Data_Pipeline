@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -46,9 +47,10 @@ class YearCount:
     prizes: int = 0
     quarantine: int = 0
     flags: Counter = field(default_factory=Counter)
+    seconds: float = 0.0  # build + write of the year: one item of UY-042's Map (D18)
 
     @classmethod
-    def of(cls, year: int, rows: silver.YearRows) -> YearCount:
+    def of(cls, year: int, rows: silver.YearRows, seconds: float = 0.0) -> YearCount:
         flags = Counter(
             flag
             for row in (*rows.draws, *rows.draw_numbers, *rows.prizes)
@@ -61,6 +63,7 @@ class YearCount:
             len(rows.prizes),
             len(rows.quarantine),
             flags,
+            seconds,
         )
 
 
@@ -87,13 +90,19 @@ def rebuild(
     series = silver.number_series(manifest, bronze)
     counts = []
     for year in years:
+        started = time.perf_counter()
         rows = silver.build_year(year, manifest, bronze, run, series)
         silver.write_year(out, year, rows)
-        count = YearCount.of(year, rows)
+        count = YearCount.of(year, rows, time.perf_counter() - started)
         counts.append(count)
         logger.info(
             "silver year written",
-            extra={"year": year, "draws": count.draws, "quarantine": count.quarantine},
+            extra={
+                "year": year,
+                "draws": count.draws,
+                "quarantine": count.quarantine,
+                "seconds": round(count.seconds, 1),
+            },
         )
     silver.write_reference(out, run)
     return counts
@@ -139,18 +148,28 @@ def describe_open(row: dict) -> str:
 
 
 def format_counts(counts: list[YearCount]) -> str:
-    lines = [f"{'year':>4} {'draws':>7} {'numbers':>8} {'prizes':>7} {'quarantine':>10}"]
+    lines = [
+        f"{'year':>4} {'draws':>7} {'numbers':>8} {'prizes':>7} {'quarantine':>10} {'seconds':>8}"
+    ]
     total = YearCount(0)
     for c in counts:
-        lines.append(f"{c.year:>4} {c.draws:>7} {c.numbers:>8} {c.prizes:>7} {c.quarantine:>10}")
+        lines.append(
+            f"{c.year:>4} {c.draws:>7} {c.numbers:>8} {c.prizes:>7} {c.quarantine:>10} "
+            f"{c.seconds:>8.1f}"
+        )
         total.draws += c.draws
         total.numbers += c.numbers
         total.prizes += c.prizes
         total.quarantine += c.quarantine
         total.flags += c.flags
+        total.seconds += c.seconds
     lines.append(
-        f"{'all':>4} {total.draws:>7} {total.numbers:>8} {total.prizes:>7} {total.quarantine:>10}"
+        f"{'all':>4} {total.draws:>7} {total.numbers:>8} {total.prizes:>7} {total.quarantine:>10} "
+        f"{total.seconds:>8.1f}"
     )
+    if counts:
+        slowest = max(counts, key=lambda c: c.seconds)
+        lines.append(f"slowest year: {slowest.year}, {slowest.seconds:.1f} s")
     lines += [f"flag {name}: {n}" for name, n in sorted(total.flags.items())]
     return "\n".join(lines)
 
