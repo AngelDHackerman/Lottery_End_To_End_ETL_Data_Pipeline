@@ -780,9 +780,13 @@ número de sorteo (UY-025.3: los 1.025 PDF de pozos, ~10 s una vez por corrida) 
   parsea toda la historia. Todo sale del bronce que ya está en disco: el backfill de plata no hace
   peticiones.
 - **En la nube (UY-042).** Se sube el bronce local y un `Map` de Step Functions parsea un año por
-  ítem (21 años, 2006–2026). Que un año entre en los 15 minutos de una Lambda es una **hipótesis**
-  hasta medir el tiempo de parseo en UY-030. En local, un año tarda ~12 s (UY-025.2), así que el
-  margen es amplio, pero la Lambda tiene otra CPU y lee de S3.
+  ítem (21 años, 2006–2026). Que un año entre en los 15 minutos de una Lambda era una hipótesis;
+  **UY-030.1 la midió en local** (`uy-silver` ahora da los segundos de cada año, construir y
+  escribir): el más lento es 2011 con 14,9 s, 2016 tarda 12,7 s, y toda la historia ~281 s,
+  ~10 de ellos para la serie del número de sorteo. Son unas 60 veces de margen. Falta medirlo en
+  la Lambda, que tiene otra CPU y lee de S3. **Ojo para UY-042:** la serie del número de sorteo
+  se arma una vez por corrida y lee los ~1.025 PDF de pozos de todos los años (UY-025.3), así
+  que un ítem por año la necesita armada antes del `Map` o la vuelve a leer en cada ítem.
 - **Lo que no se baja.** Los PDF de extracto históricos (D19): el respaldo empieza con la ingesta
   diaria. Las páginas finales tampoco se vuelven a pedir (D12).
 
@@ -958,7 +962,7 @@ Lo que este diseño da por bueno sin haberlo podido confirmar del todo:
 | **El bronce está en un solo disco.** Hasta UY-042 vive en `data/uy/`, más una copia en `~/backups/loteria-uy-2026-10-25/` | Volver a bajarlo lleva ~6 horas a 1 req/s. El 2026-10-25 se borró del disco por un `git switch` y se recuperó de la copia que #103 había subido a `master` por error; esa copia quedó congelada en el 2026-10-21 (PR-049.1) | Subirlo a S3 es lo primero de la Fase 5 (UY-042). Hasta entonces, el respaldo se rehace después de cada backfill |
 | **El sitio puede empezar a bloquear.** Hoy responde sin CDN ni WAF, también desde AWS (UY-005) | El incremental falla con 403 | Las firmas de falla (P8) separan un 403 nuevo de los 34 viejos, y la alarma de huecos (UY-045) avisa en 3 días |
 | **El sitio regenera las páginas** con la plantilla de hoy | Una página vieja pedida otra vez no es byte a byte la misma (48.072 contra 48.803 bytes el 2019-09-25) | Nunca se vuelve a pedir una página final (D12), y el hash de los datos va en el linaje (UY-025) |
-| **Un año entra en una Lambda de 15 minutos** (D18) | El `Map` de UY-042 corta por timeout | Se mide en UY-030 con 2016 |
+| **Un año entra en una Lambda de 15 minutos** (D18) | El `Map` de UY-042 corta por timeout | Medido en local en UY-030.1: 14,9 s el año más lento (2011). Falta medirlo en la Lambda (UY-042) |
 | **GX arranca rápido desde wheels en S3** (P14) | El job vuelve a gastar ~20 minutos de arranque | Se mide en la Fase 5, sobre el job real (owner, UY-026 1a) |
 | **Los datos tipeados de 2006** comparten el error en las dos fuentes | La comparación entre fuentes no los corrige | Los flags los marcan y oro filtra por métrica (FINDINGS) |
 | **Huecos sin explicación:** 2006-08-27/30 y las reglas anteriores a 2012 | Quedan abiertos o sin fuente | Están documentados como huecos aceptados (G1) |

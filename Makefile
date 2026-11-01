@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -158,6 +158,9 @@ uy-incremental: ## Daily run: last 7 days + every open key, all four sources, th
 
 uy-silver: ## Rewrite local UY silver from bronze: every year, or UY_YEARS=2016 / 2014-2016,2026 (UY-027.1; no requests)
 	PYTHONPATH=src python -m sorteos.uy.build_silver --silver $(UY_SILVER) $(if $(UY_YEARS),--years $(UY_YEARS))
+
+uy-reconcile: ## Reconcile local UY silver: calendar, draw_gaps, draw number, quarantine (UY-030; read-only)
+	PYTHONPATH=src python -m sorteos.uy.reconcile --silver $(UY_SILVER)
 
 uy-dq: ## Validate local UY silver against its Great Expectations suites (UY-026; read-only)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --silver $(UY_SILVER)
