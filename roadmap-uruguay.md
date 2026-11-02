@@ -2,7 +2,7 @@
 **Owner:** Angel Hernandez
 **Brief de origen:** [`docs/uruguay/BRIEF.md`](./docs/uruguay/BRIEF.md)
 **Rama base:** `loteria-uruguaya-test` (hace de `master` para esta extensión hasta la fase de merge)
-**Última actualización:** 2026-11-02 (UY-030 merged: Fase 4 sigue con UY-032 y UY-033)
+**Última actualización:** 2026-11-02 (UY-033 descartada, G3 cumplido: sigue la Fase 5 con UY-040)
 
 > Plan de ejecución de la extensión a Uruguay (DNLQ, `www.loteria.gub.uy`). El roadmap principal
 > ([`roadmap.md`](./roadmap.md)) sigue siendo el de Santa Lucía; este archivo **no** lo reemplaza
@@ -312,11 +312,13 @@ UY-005 y solo si no bloquea nada.
 > la plata y no hace peticiones (1a), más el tiempo por año en `uy-silver` (3a) · **UY-030.2**
 > `ver_estadisticas`: un `post()` en el cliente cortés y unas 12 consultas con los valores que
 > ofrece el formulario (6a), guardadas en bronce y sumadas al reporte.
-| UY-032 | **Oro local** (SQL portable a Athena/Trino, ejecutado con DuckDB o pandas) | Chi-cuadrado por dígito y por posición, tasa de repetidos frente al ~17% esperado, reemplazos de la Tómbola frente a ~1,8, frecuencias del 5 de Oro por versión de reglas, dinámica de los pozos, puntualidad. Cada métrica dice qué esperaba y qué observó. |
-| UY-033 | **Incremental en local durante ~2 semanas** | Cubre transiciones `not_yet_published` → `draw`, al menos un feriado y ambos turnos. Cero peticiones duplicadas según el manifiesto. |
+| UY-032 | **Oro local** (SQL portable a Athena/Trino, ejecutado con DuckDB o pandas). **Se hace con UY-044** (owner, 2026-11-02): el SQL se escribe una sola vez para Athena y se prueba en local con DuckDB | Chi-cuadrado por dígito y por posición, tasa de repetidos frente al ~17% esperado, reemplazos de la Tómbola frente a ~1,8, frecuencias del 5 de Oro por versión de reglas, dinámica de los pozos, puntualidad. Cada métrica dice qué esperaba y qué observó. |
+| ~~UY-033~~ | Descartada (owner, 2026-11-02) | La laptop no está prendida todas las noches a las 23:30, así que el ensayo local mediría las corridas de ponerse al día y no la nocturna. Sus criterios pasan a G4, que ya pedía dos semanas de incremental en la nube. La lógica de estados ya se probó con las corridas #1–#3 de UY-027.1 (el bug de la página de mediodía, `6ccf5c47`). |
 
 > 🚦 **Gate G3:** los datos locales son confiables (la reconciliación está limpia o cada
-> diferencia está explicada) y el owner decide pasar a la nube.
+> diferencia está explicada) y el owner decide pasar a la nube. **Cumplido el 2026-11-02:** UY-030
+> dejó la reconciliación limpia (0 huecos abiertos, 0 en cuarentena, las 12 consultas de
+> `ver_estadisticas` coinciden) y el owner pasa a la nube sin UY-033.
 
 ---
 
@@ -332,10 +334,13 @@ owner.
 | UY-041 | Almacenamiento, IAM y Lake Formation | LF: grants por tabla además de por base, los permisos explícitos (nunca `ALL`), y `lakeformation:GetDataAccess`. El deny del bucket y el versionado afectan cómo se purga oro. |
 | UY-042 | **Subir el bronce local a S3** (no se vuelve a scrapear) y correr el transform en la nube | Reconciliar la plata de la nube con la local, fila por fila, por hash. |
 | UY-043 | Orquestación incremental (EventBridge + Step Functions) | El polling del crawler usa `LastCrawl` y no solo `State==READY`. Validar el ASL renderizado. Los grupos de logs se declaran antes de que alguien escriba en ellos. |
-| UY-044 | Oro en Athena con publicación atómica | El patrón de PR-042 (construir al lado y hacer swap) con TableInput como allowlist. |
+| UY-044 | Oro en Athena con publicación atómica, con las métricas de UY-032 | El patrón de PR-042 (construir al lado y hacer swap) con TableInput como allowlist. |
 | UY-045 | Observabilidad: alarmas de "sorteo faltante" y un canario | Las trampas de las alarmas: la evaluación tiene un tope de 7 días, y 0 no es lo mismo que "sin dato". |
 
-> 🚦 **Gate G4:** dos semanas de incremental en la nube sin intervención manual.
+> 🚦 **Gate G4:** dos semanas de incremental en la nube sin intervención manual. Incluye los
+> criterios de UY-033 (owner, 2026-11-02): transiciones `not_yet_published` → `draw`, al menos un
+> feriado, ambos turnos y cero peticiones duplicadas según el manifiesto. El incremental local se
+> apaga antes de que arranque el de la nube, para que no haya dos manifiestos.
 
 ---
 
@@ -402,8 +407,8 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 | *Fase 4 — Pruebas locales* | | | |
 | UY-030 | Reconciliación de toda la historia (con UY-031) | **merged** (2026-11-02), en dos PRs (owner, 5a) · **UY-030.1 merged** (2026-11-01): `core/reconcile.py` explica cada día hábil del calendario de cada juego desde las mismas expectativas que `draw_gaps` (salteado por un anuncio, corrido dentro de la ventana, o hueco) y cada sorteo fuera del calendario (anunciado, corrido u otro); `make uy-reconcile` lo cruza con los días hábiles contados desde las fechas, recalcula `draw_gaps`, revisa el número de sorteo y la cuarentena, y sale con 1 ante cualquier diferencia · **sobre toda la plata:** los 13.713 días hábiles del calendario explicados (911 salteados por anuncio, casi todos feriados; 65 corridos; 13 en los 4 huecos explicados; 0 abiertos), 275 sorteos del 5 de Oro fuera del calendario (246 anunciados, 28 corridos, 1 después del paro de 2019) · número de sorteo 1847..2923 en 1.077 sorteos, 1.074 pasos de +1 y las 2 rupturas de 2017 con su flag · 0 en cuarentena · **D18 medido:** el año más lento es 2011 con 14,9 s y 2016 tarda 12,7 s (toda la historia en ~281 s, con la serie del número), lejos de los 900 s de una Lambda · **UY-030.2 merged** (2026-11-02): `post()` en el cliente cortés (los mismos reintentos, guard y 1 req/s; tras un 301/302/303 sigue con GET), `make uy-estadisticas` (12 POST con los valores que ofrece el formulario, guardados en bronce con su `queries.json`) y la sección `ver_estadisticas` de `uy-reconcile` (sin peticiones, desde el último juego en bronce; una diferencia sin explicar hace fallar) · **hallazgo:** el formulario de Quiniela es solo la Vespertina, y la Nocturna no tiene uno (owner, 7a) · **las 12 coinciden con toda la plata:** 5 de Oro y Revancha 2006–2026 (4.161 consultados, 20.805 apariciones), la Vespertina 2007–2026 en las 9 posiciones sueltas y la 1–20 (97.380) y la Tómbola (97.380); la única diferencia es la Revancha del 2010-10-07, explicada (owner, 9a) · 18 peticiones en total (4 GET y 2 POST de sondeo, y las 12) | [#143](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/143), [#144](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/144) |
 | ~~UY-031~~ | Se juntó con UY-030 (owner, 2026-11-01) | — | — |
-| UY-032 | Oro local: auditoría de aleatoriedad | todo | — |
-| UY-033 | Incremental en local durante 2 semanas → **G3** | todo | — |
+| UY-032 | Oro local: auditoría de aleatoriedad | todo (se hace con UY-044; owner, 2026-11-02) | — |
+| ~~UY-033~~ | Incremental en local durante 2 semanas | **dropped** (owner, 2026-11-02): sus criterios pasan a G4 · **G3 cumplido** el 2026-11-02 con UY-030 | — |
 | *Fase 5 — Nube* | | | |
 | UY-040 | Decisiones de la nube | todo | — |
 | UY-041 | Almacenamiento, IAM y LF | todo | — |
