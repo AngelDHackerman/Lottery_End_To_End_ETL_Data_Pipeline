@@ -46,3 +46,6 @@ de 2026). That block is not the requested draw.
 | `extracto_quiniela_nocturna_2009-08-01.html` | `…extracto_QN_S.php?vdia=01&vmes=08&vano=2009` | UY-023: times out of order (Inicio 21:00, Fin 15:24), kept as published |
 | `pozos_5_de_oro_2016-06-01.pdf` | the pozos link of `ver_resultados.php?vdia=1&vmes=6&vano=2016` | UY-024: the first pozos PDF linked from ver_resultados; draw 1847. Copied byte for byte (no coupons, no personal data) |
 | `pozos_5_de_oro_2026-10-18.pdf` | the pozos link of `ver_resultados.php?vdia=18&vmes=10&vano=2026` | UY-024: the latest in bronze; draw 2920 |
+| `estadisticas_5_de_oro_2006-01-01_2026-10-28.html` | POST `ver_estadisticas.php?xjue=4&xpos=1`, 2006-01-01 to 2026-10-28 (fetched 2026-11-01) | UY-030.2: the 5 de Oro and Revancha grids; 4,161 consulted, one of them the Revancha the site also stores under 2010-10-07 |
+| `estadisticas_quiniela_pos01_2025.html` | POST `ver_estadisticas.php?xjue=2&xpos=1`, 2025, positions 1 to 1 (fetched 2026-11-01) | UY-030.2: the 3-digit grid under the hundreds; 249 consulted, the Vespertinas of 2025 — the form's Quiniela is the Vespertina |
+| `estadisticas_tombola_2007-01-01_2026-10-30.html` | POST `ver_estadisticas.php?xjue=3&xpos=1`, 2007-01-01 to 2026-10-30 (fetched 2026-11-01) | UY-030.2: the Tómbola counts its replacements too, 20 numbers per draw |

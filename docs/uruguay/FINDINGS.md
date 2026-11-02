@@ -30,7 +30,7 @@ nuevas**. Los cupones se citan solo por su formato (`#########-#`), nunca por su
 | **Q7** | Encoding | **Respondida** (verificado: UTF-8 en el HTML; el texto de los PDF sale con tildes correctas) | UY-002 + UY-003 |
 | **Q8** | Rango y reglas del 5 de Oro | **Respondida** (verificado: 01–44 hasta 2014-03-16, 01–48 desde 2014-03-19; reglas 2012–2026 en CSV; el decreto de 1989 decía 01–36, y lo de 1990–2011 es un hueco) | UY-004 + UY-007 |
 | **Q9** | Términos de uso | **Respondida** (no hay términos ni aviso legal; pie y `robots.txt` transcritos, sin conclusión legal) | UY-004 |
-| **Q10** | `ver_estadisticas` como control cruzado | **Respondida** (verificado: coincide con el bronce; sin descarga) | UY-004 |
+| **Q10** | `ver_estadisticas` como control cruzado | **Respondida** (verificado: coincide con el bronce; sin descarga). UY-030.2: toda la plata coincide; el formulario de Quiniela es solo la Vespertina | UY-004, UY-030.2 |
 | **—** | Acceso desde AWS | **Respondida** (verificado: us-east-1 llega sin proxy) | UY-005 |
 
 **Cierre (UY-007, 2026-10-15).** Las diez preguntas y la de AWS tienen respuesta. Lo que sigue en
@@ -869,6 +869,27 @@ equivocado: mismos números y mismo pozo. Las estadísticas oficiales la cuentan
 **Consecuencia (UY-026 / UY-030):** las estadísticas sirven como control agregado del 5 de Oro y de
 la Revancha, con una excepción documentada (−1 Revancha el 2010-10-07). La Quiniela por posición
 queda para cuando exista su plata.
+
+**UY-030.2 (2026-11-01): toda la plata contra las estadísticas, con 18 peticiones.**
+El gasto fue de 4 GET para ver los formularios, 2 POST de sondeo y las 12 consultas de
+`make uy-estadisticas`, todas guardadas en bronce (`source=estadisticas/fetched=2026-11-01/`):
+
+- **El formulario «Quiniela» (`xjue=2`) es solo la Vespertina** (verificado). En la posición 1
+  de 2025, el sitio dice «249 sorteos consultados», justo las Vespertinas de 2025, y sus
+  conteos coinciden con la Vespertina en todos los números. Contra la Nocturna difieren 438
+  apariciones, y contra las dos juntas 297. **La Nocturna no tiene un formulario**: todos los
+  enlaces llevan `xpos=1`, y no se probó otro valor porque la interfaz no lo ofrece (owner,
+  UY-030 6a y 7a). La Nocturna se controla con su extracto, pero no con estas estadísticas.
+- **Lo que ofrece el formulario:** `xjue=1` Lotería, `2` Quiniela, `3` Tómbola, `4` 5 de Oro.
+  La Quiniela y la Tómbola empiezan en 2007; el 5 de Oro, en 2006. Las posiciones de la Quiniela
+  solo se pueden pedir sueltas para 1–6, 10, 15 y 20, o como rango «desde/hasta» entre esos
+  valores.
+- **La Tómbola cuenta también las reposiciones:** 20 números por sorteo.
+- **Resultado: las 12 consultas coinciden con la plata.** Se compararon el 5 de Oro y la
+  Revancha de 2006-01-01 a 2026-10-28 (4.161 sorteos consultados = 2 × 2.080 más la Revancha
+  mal fechada, y 20.805 apariciones), y la Vespertina de 2007-01-01 a 2026-10-30 (4.869
+  sorteos): las 9 posiciones sueltas, la 1–20 (97.380 apariciones) y la Tómbola (97.380). La
+  única diferencia es la ya conocida de 2010-10-07, que `uy-reconcile` explica (owner, UY-030 9a).
 
 ---
 

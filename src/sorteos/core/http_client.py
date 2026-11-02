@@ -12,7 +12,9 @@ Three properties, each enforced here so no caller can forget them:
    never by its full text.
 2. **Courtesy.** One request per second across every client in the process, an
    identifiable User-Agent, exponential backoff with jitter on 429/5xx and on transport
-   errors, ``Retry-After`` honoured.
+   errors, ``Retry-After`` honoured. A POST (a search form, UY-030.2) gets all of it too: it
+   is retried like a GET, so only a form that reads, never one that changes anything, may
+   be sent through here.
 3. **No caching here.** What has already been fetched is the manifest's business
    (manifest.Manifest) — a ``no_draw`` day is never stored in bronze but must not be fetched
    again either, so the cache cannot be the raw store (roadmap-uruguay.md, C3).
@@ -29,7 +31,7 @@ import random
 import re
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import unquote, urljoin
@@ -43,6 +45,8 @@ USER_AGENT_TEMPLATE = "{agent} (data-engineering portfolio; +{contact})"
 
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 MAX_REDIRECTS = 5
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+KEEP_METHOD_STATUSES = frozenset({307, 308})  # a POST stays a POST; the rest go on as GET
 
 
 class BlockedURLError(RuntimeError):
@@ -165,11 +169,19 @@ class PoliteClient:
     def get(self, url: str) -> FetchResult:
         """GET ``url`` politely. Returns any final status (callers judge a 404); raises
         FetchError only when retries are exhausted on 429/5xx/transport errors."""
+        return self._fetch(url, None)
+
+    def post(self, url: str, data: Mapping[str, str]) -> FetchResult:
+        """POST the form ``data`` to ``url``, with everything :meth:`get` does. Only for a
+        form that reads: a retry sends it again."""
+        return self._fetch(url, dict(data))
+
+    def _fetch(self, url: str, data: dict[str, str] | None) -> FetchResult:
         assert_allowed(url, self.blocklist)
         attempt = 0
         while True:
             try:
-                result = self._get_following_redirects(url)
+                result = self._send_following_redirects(url, data)
             except BlockedURLError:
                 raise
             except requests.RequestException as exc:
@@ -192,21 +204,29 @@ class PoliteClient:
                 continue
             return result
 
-    def _get_following_redirects(self, url: str) -> FetchResult:
+    def _send_following_redirects(self, url: str, data: dict[str, str] | None) -> FetchResult:
         current = url
         for _ in range(MAX_REDIRECTS + 1):
             assert_allowed(current, self.blocklist)
             _GLOBAL_LIMITER.wait(self.min_interval, sleep=self._sleep)
             started = time.monotonic()
-            response = self._session.get(current, timeout=self.timeout, allow_redirects=False)
+            if data is None:
+                response = self._session.get(current, timeout=self.timeout, allow_redirects=False)
+            else:
+                response = self._session.post(
+                    current, data=data, timeout=self.timeout, allow_redirects=False
+                )
             elapsed = time.monotonic() - started
             location = response.headers.get("Location")
-            if response.status_code in (301, 302, 303, 307, 308) and location:
+            if response.status_code in REDIRECT_STATUSES and location:
                 current = urljoin(current, location)  # checked by assert_allowed above
+                if response.status_code not in KEEP_METHOD_STATUSES:
+                    data = None
                 continue
             logger.info(
                 "fetched",
                 extra={
+                    "method": "GET" if data is None else "POST",
                     "url": current,
                     "status": response.status_code,
                     "bytes": len(response.content),

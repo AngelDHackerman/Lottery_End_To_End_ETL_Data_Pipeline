@@ -1,4 +1,4 @@
-"""The reconciliation report of local UY silver (UY-030; roadmap Fase 4). Reads silver only.
+"""The reconciliation report of local UY silver (UY-030; roadmap Fase 4). No requests.
 
     python -m sorteos.uy.reconcile                       # markdown to stdout
     python -m sorteos.uy.reconcile --json-report months.json
@@ -13,10 +13,13 @@ What it reconciles, each against something it did not come from:
 - **The draw number**, per game that has one: from the first numbered draw on, each is the
   previous plus one, except on the draws flagged ``draw_number_out_of_sequence`` (UY-024).
 - **Quarantine**: its rows, against the draws that made it to silver.
+- **The DNLQ's own counts** (UY-030.2): the newest ``ver_estadisticas`` answers that
+  ``make uy-estadisticas`` kept in bronze, against silver over the same dates
+  (``sorteos.uy.estadisticas``). Without any in bronze the report says so and goes on.
 
 The exit code is 1 when any of them fails: a calendar day without a reason, an open gap, a
-stale ``draw_gaps``, an unflagged break in the draw number, or anything in quarantine.
-``ver_estadisticas`` joins it in UY-030.2.
+stale ``draw_gaps``, an unflagged break in the draw number, anything in quarantine, or a
+count of the site that silver does not match and no known difference explains.
 """
 
 from __future__ import annotations
@@ -32,8 +35,10 @@ from pathlib import Path
 from sorteos.core import gaps
 from sorteos.core import reconcile as rc
 from sorteos.core import silver as core_silver
-from sorteos.uy import backfill, build_silver, silver
+from sorteos.core.bronze import BronzeStore
+from sorteos.uy import backfill, build_silver, estadisticas, silver
 from sorteos.uy import dq_flags as dq
+from sorteos.uy.sources import COUNTRY
 
 DRAW_COLUMNS = (*silver.GAP_INPUTS, "draw_number", "dq_flags")
 GAP_KEY = ("game", "previous_draw_date", "expected_date", "status", "calendar_event_date")
@@ -79,6 +84,7 @@ class Reconciliation:
     series: list[Series] = field(default_factory=list)
     quarantine: Counter = field(default_factory=Counter)  # per "source: reason"
     draws: int = 0
+    stats: tuple[str, list[estadisticas.Comparison]] | None = None  # (fetched on, compared)
 
     @property
     def problems(self) -> list[str]:
@@ -103,11 +109,21 @@ class Reconciliation:
             ]
         if self.quarantine:
             out.append(f"quarantine: {sum(self.quarantine.values())} rows")
+        if self.stats:
+            out += [
+                f"ver_estadisticas {c.query.name}: {c.error or 'differs from silver'}"
+                for c in self.stats[1]
+                if not c.ok
+            ]
         return out
 
 
-def collect(root: Path, today: date) -> Reconciliation:
+def collect(root: Path, today: date, bronze: Path | None = None) -> Reconciliation:
+    """Silver under ``root``; with ``bronze`` (the root of the bronze store), the site's own
+    counts kept there too."""
     report = Reconciliation(today)
+    if bronze is not None:
+        report.stats = estadisticas.compare_latest(BronzeStore(bronze, COUNTRY), root)
     draws = core_silver.read(root, core_silver.DRAWS, DRAW_COLUMNS)
     events = core_silver.read(root, core_silver.CALENDAR_EVENTS)
     report.draws = len(draws)
@@ -274,6 +290,46 @@ def format_report(r: Reconciliation) -> str:
         else "Silver is empty."
     )
     lines += [f"- {n} {why}" for why, n in sorted(r.quarantine.items())]
+
+    lines += ["", "## ver_estadisticas", ""]
+    if r.stats is None:
+        lines.append("No answers in bronze: `make uy-estadisticas` asks the site (~12 POSTs).")
+    else:
+        fetched, compared = r.stats
+        lines += [
+            f"Asked on {fetched}. The Quiniela and Tómbola of the form are the Vespertina.",
+            "",
+        ]
+        lines += _table(
+            ["query", "from", "to", "positions", "consulted (site / silver)", "numbers", "result"],
+            [
+                [
+                    c.query.name,
+                    c.query.start,
+                    c.query.end,
+                    "{}-{}".format(*c.query.positions) if c.query.positions else "all",
+                    f"{c.consulted[0]} / {c.consulted[1]}",
+                    c.numbers,
+                    "ok" if c.ok else (c.error or "DIFFERS"),
+                ]
+                for c in compared
+            ],
+        )
+        known = {k for c in compared for k in c.known}
+        if known:
+            lines += ["", "Known differences, counted on the silver side:", ""]
+            lines += [
+                f"- {k.day} {k.ball_type} {' '.join(k.numbers)}: {k.why}"
+                for k in sorted(known, key=lambda k: k.day)
+            ]
+        differing = [c for c in compared if c.differences and any(c.differences.values())]
+        for c in differing:
+            lines += ["", f"Differences in {c.query.name}:", ""]
+            lines += [
+                f"- {ball} {n}: site {site}, silver {ours}"
+                for ball, diffs in c.differences.items()
+                for n, (site, ours) in diffs.items()
+            ]
     return "\n".join(lines) + "\n"
 
 
@@ -297,13 +353,14 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--silver", type=Path, default=build_silver.DEFAULT_SILVER)
+    p.add_argument("--root", type=Path, default=backfill.DEFAULT_ROOT, help="bronze is here")
     p.add_argument("--json-report", type=Path, help="also write the counts per month as JSON")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    report = collect(args.silver, backfill.today_in_uruguay())
+    report = collect(args.silver, backfill.today_in_uruguay(), args.root)
     sys.stdout.write(format_report(report))
     if args.json_report:
         args.json_report.write_text(
