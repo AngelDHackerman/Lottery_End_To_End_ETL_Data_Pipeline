@@ -8,8 +8,8 @@ owner**.
 
 **Cómo leerlo.** Las [decisiones D1–D30](#decisiones-del-owner-2026-10-16) ya están aprobadas (D24–D30
 son de la nube, UY-040). Las [propuestas P1–P14](#propuestas-de-este-documento-se-aprueban-en-g2)
-salieron al escribir el detalle y se aprobaron en G2; P15 y P16 salen de UY-040 y se aprueban en su
-PR. El resto del documento explica cómo se aplican unas y otras.
+salieron al escribir el detalle y se aprobaron en G2; P15 y P16 salen de UY-040 y el owner las aprobó
+el 2026-11-02. El resto del documento explica cómo se aplican unas y otras.
 
 ---
 
@@ -66,8 +66,8 @@ PR. El resto del documento explica cómo se aplican unas y otras.
 | P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
 | P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`; el owner sumó `timing_out_of_order` en UY-023 y `draw_number_out_of_sequence` en UY-024, así que son 9), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
 | P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. **Corregida en UY-026.2 (owner, 1a y 2a):** un solo `.gluewheels.zip` en lugar de wheels sueltos, y solo con lo que Glue 5.0 no trae; ver [Dónde corre GX](#dónde-corre-gx-d20-p14). |
-| P15 | **Las claves de S3 copian las rutas locales.** Bronce: `uy/raw/` más el `bronze_key` del manifiesto sin su `bronze/` inicial (`uy/raw/country=uy/source=resultados/year=2016/…`). Plata: `uy/silver/` más la misma ruta de `data/uy/silver/` (`uy/silver/draws/country=uy/game=…/`). | El manifiesto migra sin reescribir ninguna clave, como en P3. Subir el bronce en UY-042 es un `aws s3 sync` por capa, y la reconciliación fila por fila compara las mismas rutas. El `country=uy` queda repetido dentro de `uy/`, pero es la partición que lee Glue y el escritor de plata no cambia. |
-| P16 | **Una sola tabla de DynamoDB**, `lottery-uy-manifest-<env>`. Clave de partición `<source>#<fecha>`; clave de orden `STATE` para la fila del manifiesto y `LOG#<fetched_at>#<n>` para cada fila de `fetch_log`. Un índice disperso guarda solo las claves no finales. | `history()` es una Query por clave y `record()` escribe el estado y el log en una sola transacción. `open_keys()` lee el índice disperso sin escanear la tabla; las correcciones de `manual_overrides` se siguen aplicando en el código. `summary()` y `date_range()` escanean unas 22.000 filas una vez por corrida, que cuesta fracciones de centavo. |
+| P15 | **Aprobada por el owner el 2026-11-02.** **Las claves de S3 copian las rutas locales.** Bronce: `uy/raw/` más el `bronze_key` del manifiesto sin su `bronze/` inicial (`uy/raw/country=uy/source=resultados/year=2016/…`). Plata: `uy/silver/` más la misma ruta de `data/uy/silver/` (`uy/silver/draws/country=uy/game=…/`). | El manifiesto migra sin reescribir ninguna clave, como en P3. Subir el bronce en UY-042 es un `aws s3 sync` por capa, y la reconciliación fila por fila compara las mismas rutas. El `country=uy` queda repetido dentro de `uy/`, pero es la partición que lee Glue y el escritor de plata no cambia. |
+| P16 | **Aprobada por el owner el 2026-11-02.** **Una sola tabla de DynamoDB**, `lottery-uy-manifest-<env>`. Clave de partición `<source>#<fecha>`; clave de orden `STATE` para la fila del manifiesto y `LOG#<fetched_at>#<n>` para cada fila de `fetch_log`. Un índice disperso guarda solo las claves no finales. | `history()` es una Query por clave y `record()` escribe el estado y el log en una sola transacción. `open_keys()` lee el índice disperso sin escanear la tabla; las correcciones de `manual_overrides` se siguen aplicando en el código. `summary()` y `date_range()` escanean unas 22.000 filas una vez por corrida, que cuesta fracciones de centavo. |
 
 ---
 
@@ -1007,7 +1007,7 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 
 ## Nube (UY-040)
 
-Decisiones del owner del 2026-11-02 (D24–D30) y dos propuestas (P15 y P16). La regla de la Fase 5
+Decisiones del owner del 2026-11-02 (D24–D30) y dos propuestas que aprobó el mismo día (P15 y P16). La regla de la Fase 5
 no cambia: **ningún recurso de Santa Lucía cambia**, y el `terraform plan` de cada PR solo agrega
 recursos de UY.
 
