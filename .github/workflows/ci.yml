@@ -225,7 +225,8 @@ jobs:
       matrix:
         # bootstrap/ is a separate root module (it creates the state backend), so it needs
         # its own init + validate. Validating only terraform/ would leave it unchecked.
-        directory: [terraform, terraform/bootstrap]
+        # terraform/uy is the Uruguay stack (UY-041.1), a separate root for the same reason.
+        directory: [terraform, terraform/bootstrap, terraform/uy]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

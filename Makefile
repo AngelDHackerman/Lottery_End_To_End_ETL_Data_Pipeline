@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -181,3 +181,32 @@ uy-dq-lock-upgrade: ## Same as uy-dq-lock, but let the pins move forward (UY-026
 
 uy-dq-build: ## Build dist/uy/uy_dq.gluewheels.zip from the lock + the sorteos wheel (UY-026.2; no AWS)
 	bash scripts/build_uy_dq_package.sh
+
+# UY-041.1: the Uruguay stack, terraform/uy/, with its own state (uy/terraform.tfstate). It
+# never shares an init with the main stack: terraform/backend.hcl names main/terraform.tfstate,
+# and a stack initialised against that state would plan to destroy every Santa Lucía resource.
+# So the key goes on the command line, last (it overrides any file), and a backend.hcl that
+# mentions main/ is refused outright.
+uy-tf-init: ## terraform init the UY stack (terraform/uy/) against its own state key (UY-041.1)
+	@test -f terraform/uy/backend.hcl || { \
+	  echo "terraform/uy/backend.hcl is missing — cp terraform/uy/backend.hcl.example terraform/uy/backend.hcl"; \
+	  exit 1; }
+	@! grep -q 'main/' terraform/uy/backend.hcl || { \
+	  echo "terraform/uy/backend.hcl names the main stack's state; remove its key line"; \
+	  exit 1; }
+	cd terraform/uy && terraform init -backend-config=backend.hcl \
+	  -backend-config=key=uy/terraform.tfstate -reconfigure -input=false
+
+# The plan is saved and checked before anyone can apply it: this stack only ever adds UY
+# resources (roadmap Fase 5), so any destroy or replace in it stops here, before review.
+uy-tf-plan: uy-tf-init ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
+	cd terraform/uy && terraform plan -out=tfplan
+	@! terraform -chdir=terraform/uy show -no-color tfplan | grep -E 'will be destroyed|must be replaced' || { \
+	  echo "The UY plan destroys or replaces something: not applying it. Review terraform/uy/tfplan."; \
+	  exit 1; }
+
+# Applies exactly the plan `make uy-tf-plan` printed and checked. Terraform refuses it if the
+# state moved since, so a stale plan never applies.
+uy-deploy: ## Apply terraform/uy/tfplan from `make uy-tf-plan` (UY-041.1)
+	@test -f terraform/uy/tfplan || { echo "No terraform/uy/tfplan — run make uy-tf-plan first"; exit 1; }
+	cd terraform/uy && terraform apply tfplan

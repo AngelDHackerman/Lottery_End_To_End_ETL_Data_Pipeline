@@ -1044,6 +1044,11 @@ borrado.
 root y al rol de purga de oro de Santa Lucía. El swap de oro de UY necesita borrar generaciones
 viejas de `uy/gold/`, así que necesita su propia excepción, limitada a ese prefijo.
 
+**Abierto para UY-042 (encontrado en UY-041.1):** el escritor de plata borra una partición que
+desapareció (`shutil.rmtree` en `core/silver.py`). En S3 eso es un `DeleteObject`, que la misma
+Deny rechaza. Ningún rol de UY tiene `s3:DeleteObject` todavía; se decide al diseñar cómo la
+Lambda silver escribe en S3.
+
 ### Lo que hereda cada PR de la Fase 5
 
 | PR | Lo que trae de aquí |
