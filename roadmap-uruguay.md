@@ -2,7 +2,7 @@
 **Owner:** Angel Hernandez
 **Brief de origen:** [`docs/uruguay/BRIEF.md`](./docs/uruguay/BRIEF.md)
 **Rama base:** `loteria-uruguaya-test` (hace de `master` para esta extensión hasta la fase de merge)
-**Última actualización:** 2026-11-02 (UY-033 descartada, G3 cumplido: sigue la Fase 5 con UY-040)
+**Última actualización:** 2026-11-02 (UY-040: decisiones de la nube en revisión)
 
 > Plan de ejecución de la extensión a Uruguay (DNLQ, `www.loteria.gub.uy`). El roadmap principal
 > ([`roadmap.md`](./roadmap.md)) sigue siendo el de Santa Lucía; este archivo **no** lo reemplaza
@@ -330,7 +330,7 @@ owner.
 
 | PR | Qué | Lecciones de `master` que aplican |
 |---|---|---|
-| UY-040 | Decisiones de la nube | ¿Buckets nuevos o el prefijo `country=uy` en los existentes? Una base de Glue/LF propia (`lottery_uy`). ¿Hace falta proxy? (depende de UY-005). Schedules en `America/Montevideo`. |
+| UY-040 | Decisiones de la nube | **Decididas el 2026-11-02** en [DESIGN.md § Nube](docs/uruguay/DESIGN.md#nube-uy-040) (D24–D30, P15–P16): el bucket de datos que ya existe con `uy/raw/`, `uy/silver/` y `uy/gold/`; la base `lottery_uy_db`; el proxy se confirma desde la Lambda; EventBridge Scheduler en `America/Montevideo`; el manifiesto en DynamoDB; Lambda fetch en zip y silver en imagen de ECR; GX en Glue 5.0. |
 | UY-041 | Almacenamiento, IAM y Lake Formation | LF: grants por tabla además de por base, los permisos explícitos (nunca `ALL`), y `lakeformation:GetDataAccess`. El deny del bucket y el versionado afectan cómo se purga oro. |
 | UY-042 | **Subir el bronce local a S3** (no se vuelve a scrapear) y correr el transform en la nube | Reconciliar la plata de la nube con la local, fila por fila, por hash. |
 | UY-043 | Orquestación incremental (EventBridge + Step Functions) | El polling del crawler usa `LastCrawl` y no solo `State==READY`. Validar el ASL renderizado. Los grupos de logs se declaran antes de que alguien escriba en ellos. |
@@ -410,7 +410,7 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 | UY-032 | Oro local: auditoría de aleatoriedad | todo (se hace con UY-044; owner, 2026-11-02) | — |
 | ~~UY-033~~ | Incremental en local durante 2 semanas | **dropped** (owner, 2026-11-02): sus criterios pasan a G4 · **G3 cumplido** el 2026-11-02 con UY-030 | — |
 | *Fase 5 — Nube* | | | |
-| UY-040 | Decisiones de la nube | todo | — |
+| UY-040 | Decisiones de la nube | **en revisión** (2026-11-02): D24–D30 decididas por el owner y P15–P16 propuestas en [DESIGN.md § Nube](docs/uruguay/DESIGN.md#nube-uy-040) · `raw/uy/` descartado porque el transform de Santa Lucía lista todo `raw/` y `object_count` taparía su caída · `lottery_uy_db` porque los grants de LF de Santa Lucía son con comodín · Lambda silver en imagen porque sus dependencias miden 222 MB de los 250 que admite un zip | — |
 | UY-041 | Almacenamiento, IAM y LF | todo | — |
 | UY-042 | Subir el bronce y reconciliar | todo | — |
 | UY-043 | Orquestación incremental | todo | — |
