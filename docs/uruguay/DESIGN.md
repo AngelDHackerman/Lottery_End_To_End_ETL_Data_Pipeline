@@ -6,9 +6,10 @@ pruebas y los riesgos, y el documento completo es lo que el owner aprueba en el 
 mismas etiquetas que FINDINGS: **verificado**, **observado**, **hipótesis** e **informado por el
 owner**.
 
-**Cómo leerlo.** Las [decisiones D1–D23](#decisiones-del-owner-2026-10-16) ya están aprobadas. Las
-[propuestas P1–P14](#propuestas-de-este-documento-se-aprueban-en-g2) salieron al escribir el detalle
-y esperan un sí o un no en G2. El resto del documento explica cómo se aplican unas y otras.
+**Cómo leerlo.** Las [decisiones D1–D30](#decisiones-del-owner-2026-10-16) ya están aprobadas (D24–D30
+son de la nube, UY-040). Las [propuestas P1–P14](#propuestas-de-este-documento-se-aprueban-en-g2)
+salieron al escribir el detalle y se aprobaron en G2; P15 y P16 salen de UY-040 y el owner las aprobó
+el 2026-11-02. El resto del documento explica cómo se aplican unas y otras.
 
 ---
 
@@ -39,6 +40,13 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | D21 | **Fila por fila en el transform, el conjunto en GX** | El transform marca cada fila (`dq_flags`) o la manda a cuarentena. GX valida la tabla entera y es el gate antes de oro. | Una fila rara no debe frenar un año; una tabla rota, sí. |
 | D22 | **El catálogo de `dq_flags` es cerrado** | Solo valen los nombres del catálogo. El escritor de plata rechaza cualquier otro, y GX lo comprueba. | Un flag escrito a mano en el código, con otro nombre o una errata, es un flag que ningún filtro de oro va a ver. |
 | D23 | **Pruebas de propiedades sin `hypothesis`** | Un target de Make que recorre todo el bronce local, más tablas pequeñas de casos en el CI. Ver [Pruebas y riesgos](#pruebas-y-riesgos-uy-011). | El bronce real ya tiene 20 años de casos raros. Generar datos inventados no encuentra nada que esos 21.000 archivos no tengan. |
+| D24 | **Almacenamiento: el bucket de datos que ya existe, con `uy/` arriba de todo** | `lottery-partitioned-storage-<env>` con `uy/raw/`, `uy/silver/` y `uy/gold/` (owner, 2026-11-02). Sin buckets nuevos. Ver [Nube](#nube-uy-040). | Hay un solo bucket de datos, con las capas como prefijos (`raw/`, `silver/`, `gold/`). Uno nuevo duplicaría versionado, cifrado, bloqueo público, `prevent_destroy` y la Deny de borrado. `raw/uy/` chocaría con Santa Lucía: su transform lista todo `raw/` y `object_count` cuenta `raw/` para ver si Santa Lucía dejó de crecer. |
+| D25 | **Una base propia: `lottery_uy_db`** | Base de Glue con sus propios grants de Lake Formation, y LF registra `uy/silver` aparte (owner, 2026-11-02). | En `lottery_santalucia_db`, los roles del crawler y de Step Functions tienen `ALTER`, `DELETE` y `DROP` sobre todas las tablas con comodín: ahí, un rol de Santa Lucía podría borrar una tabla de UY. Con otra base, el plan de Santa Lucía no cambia y Athena igual cruza las dos. |
+| D26 | **El proxy se confirma desde la Lambda** | Las Lambdas de UY van fuera de la VPC, como las de Santa Lucía. Que el sitio responda sin proxy se prueba desde la propia Lambda en UY-042 (owner, 2026-11-02). | UY-005 lo verificó desde CloudShell, que sale por otras IPs. Fuera de la VPC no hay NAT que pagar. |
+| D27 | **EventBridge Scheduler con la zona de Montevideo** | `cron(30 23 * * ? *)` con `schedule_expression_timezone = "America/Montevideo"`, la hora de D16 (owner, 2026-11-02). | Las reglas de EventBridge que usa Santa Lucía solo entienden UTC. Uruguay no tiene horario de verano desde 2015, pero si volviera, la corrida seguiría a las 23:30 locales. |
+| D28 | **El manifiesto en DynamoDB** | Una implementación del `Protocol` de D12 sobre DynamoDB on-demand con recuperación a un punto en el tiempo. SQLite queda para local y tests. Se migra una vez en UY-042: 21.726 claves y 21.803 filas de `fetch_log` (medido el 2026-11-02). Ver P16 (owner, 2026-11-02). | SQLite en S3 no necesita código nuevo, pero baja y sube 16 MB por corrida, y dos corridas solapadas se pisan el historial. DynamoDB tiene escrituras condicionales y PITR, y cuesta centavos al mes. |
+| D29 | **Dos Lambdas: fetch en zip y silver en imagen de contenedor** | Python 3.12 (D2). **fetch** (cliente cortés, clasificador y manifiesto) en zip, con `requests`, `beautifulsoup4` y `pyyaml`. **silver** (parsers, escritor de plata y `draw_gaps`) como imagen en un repo de ECR. Step Functions las encadena en UY-043 (owner, 2026-11-02). | Una Lambda en zip admite 250 MB descomprimidos, y las dependencias del transform miden **222 MB** para Linux y Python 3.12 antes del código (`pyarrow` solo pesa 156 MB; medido el 2026-11-02). Son 28 MB de margen, que una versión nueva de `pyarrow` puede comerse. Una imagen admite 10 GB. |
+| D30 | **GX en Glue 5.0, y el arranque se mide** | El job de D20 con el zip de wheels de UY-026.2. Se mide el arranque sobre el job desplegado (owner, 2026-11-02). | Es la hipótesis de P14: el job de `master` gasta ~21 minutos instalando GX desde PyPI. |
 
 ## Propuestas de este documento (se aprueban en G2)
 
@@ -58,6 +66,8 @@ y esperan un sí o un no en G2. El resto del documento explica cómo se aplican 
 | P12 | **El incremental pide las cuatro clases de fuente por defecto**: `resultados`, extractos PHP, PDF de extracto y PDF de pozos. **Aprobada por el owner el 2026-10-25.** | El default actual de `make uy-backfill` (`resultados,extractos`) es la razón por la que hasta el 2026-10-21 había solo 4 PDF de pozos en bronce. El backfill puede seguir eligiendo; el incremental no tiene por qué. |
 | P13 | **Aprobada por el owner el 2026-10-25.** **El catálogo inicial tiene 7 flags** (`pozo_plata_equals_oro`, `amount_sources_differ`, `next_draw_unparsed`, `next_draw_implausible`, `draw_number_inferred`, `tombola_repeated_number`, `tombola_not_from_quiniela`; el owner sumó `timing_out_of_order` en UY-023 y `draw_number_out_of_sequence` en UY-024, así que son 9), y **ninguno para el monto vacío**: el nulo ya lo dice (D6). | Cada uno sale de un caso verificado y dice cuántas filas marca hoy. Ver [el catálogo](#el-catálogo-d22-p13). |
 | P14 | **Aprobada por el owner el 2026-10-25.** **GX se empaqueta como wheels en S3**, construidos como el layer (lock con hashes, `--platform`, Python 3.11), y Glue los instala con `--additional-python-modules` apuntando a S3 y sin PyPI. | Un zip por `--extra-py-files` solo sirve con código Python puro, y GX 1.20 requiere `numpy` y `scipy` (y `pydantic-core` con pydantic 2), que son extensiones compiladas: Python no carga un `.so` desde un zip. Qué trae ya Glue 5.0 y cuánto tarda el arranque se mide en UY-026 antes de elegir. **Corregida en UY-026.2 (owner, 1a y 2a):** un solo `.gluewheels.zip` en lugar de wheels sueltos, y solo con lo que Glue 5.0 no trae; ver [Dónde corre GX](#dónde-corre-gx-d20-p14). |
+| P15 | **Aprobada por el owner el 2026-11-02.** **Las claves de S3 copian las rutas locales.** Bronce: `uy/raw/` más el `bronze_key` del manifiesto sin su `bronze/` inicial (`uy/raw/country=uy/source=resultados/year=2016/…`). Plata: `uy/silver/` más la misma ruta de `data/uy/silver/` (`uy/silver/draws/country=uy/game=…/`). | El manifiesto migra sin reescribir ninguna clave, como en P3. Subir el bronce en UY-042 es un `aws s3 sync` por capa, y la reconciliación fila por fila compara las mismas rutas. El `country=uy` queda repetido dentro de `uy/`, pero es la partición que lee Glue y el escritor de plata no cambia. |
+| P16 | **Aprobada por el owner el 2026-11-02.** **Una sola tabla de DynamoDB**, `lottery-uy-manifest-<env>`. Clave de partición `<source>#<fecha>`; clave de orden `STATE` para la fila del manifiesto y `LOG#<fetched_at>#<n>` para cada fila de `fetch_log`. Un índice disperso guarda solo las claves no finales. | `history()` es una Query por clave y `record()` escribe el estado y el log en una sola transacción. `open_keys()` lee el índice disperso sin escanear la tabla; las correcciones de `manual_overrides` se siguen aplicando en el código. `summary()` y `date_range()` escanean unas 22.000 filas una vez por corrida, que cuesta fracciones de centavo. |
 
 ---
 
@@ -992,3 +1002,54 @@ Propuesta P6. La tabla definitiva del roadmap se reescribe al cerrar G2.
 - ~~El plan de pruebas y los riesgos~~: escritos en [Pruebas y riesgos](#pruebas-y-riesgos-uy-011).
 
 **UY-011 está completo.** El documento entero es lo que el owner aprueba en **G2**.
+
+---
+
+## Nube (UY-040)
+
+Decisiones del owner del 2026-11-02 (D24–D30) y dos propuestas que aprobó el mismo día (P15 y P16). La regla de la Fase 5
+no cambia: **ningún recurso de Santa Lucía cambia**, y el `terraform plan` de cada PR solo agrega
+recursos de UY.
+
+### Dónde vive cada cosa
+
+| Pieza | Santa Lucía (hoy) | Uruguay |
+|---|---|---|
+| Bronce | `s3://lottery-partitioned-storage-<env>/raw/` | mismo bucket, `uy/raw/` (D24, P15) |
+| Plata | `silver/` (registrado en LF) | `uy/silver/` (registrado en LF aparte, D25) |
+| Oro | `gold/` | `uy/gold/` |
+| Catálogo | `lottery_santalucia_db` | `lottery_uy_db` (D25) |
+| Estado de la ingesta | sin manifiesto | DynamoDB `lottery-uy-manifest-<env>` (D28, P16) |
+| Cómputo | Lambda en zip con un layer, Glue | Lambda fetch en zip, Lambda silver en imagen de ECR (D29), Glue 5.0 para GX (D30) |
+| Horario | regla de EventBridge en UTC (jueves 18:00) | EventBridge Scheduler, 23:30 `America/Montevideo` (D27) |
+| Red | fuera de la VPC; NAT solo con `enable_internet` | fuera de la VPC (D26) |
+
+### Por qué `uy/` arriba y no dentro de cada capa (D24)
+
+**Verificado en el código el 2026-11-02.** Dos piezas de Santa Lucía leen prefijos enteros:
+
+- El transform lista todo `raw/` en cada corrida
+  ([`transformer.py`](../../src/loteria/transformer/transformer.py), `list_files_in_s3`). Hoy no se
+  rompería porque filtra `.txt`, pero recorrería los ~21.700 archivos de UY sin necesidad, y
+  dependería de que UY nunca guarde un `.txt`.
+- La Lambda `object_count` cuenta los objetos de cada capa (`raw/`, `silver/`, `gold/`) para ver si
+  Santa Lucía dejó de crecer. Con UY dentro de `raw/`, la curva crecería todos los días y **taparía
+  una caída de Santa Lucía**.
+
+Con `uy/` arriba no hay cruce, el IAM de UY cabe en un solo patrón (`…/uy/*`) y el prefijo hereda
+las protecciones del bucket: versionado, cifrado, bloqueo público, `prevent_destroy` y la Deny de
+borrado.
+
+**Abierto para UY-041 y UY-044:** la Deny de borrado (PR-002, fuera de Terraform) solo exceptúa a
+root y al rol de purga de oro de Santa Lucía. El swap de oro de UY necesita borrar generaciones
+viejas de `uy/gold/`, así que necesita su propia excepción, limitada a ese prefijo.
+
+### Lo que hereda cada PR de la Fase 5
+
+| PR | Lo que trae de aquí |
+|---|---|
+| UY-041 | El IAM de `uy/*`, `lottery_uy_db` con sus grants de LF y el registro de `uy/silver`, la tabla de DynamoDB (P16) y el repo de ECR. Las lecciones de LF de `master`: grants explícitos, nunca `ALL`; `lakeformation:GetDataAccess`; el grant de compatibilidad `IAM_ALLOWED_PRINCIPALS` también en la base nueva mientras la cuenta siga en modo híbrido |
+| UY-042 | Subir el bronce (`aws s3 sync`, P15) y migrar el manifiesto a DynamoDB. Probar sin proxy desde la Lambda fetch (D26) y medir un año de plata en la Lambda silver (el riesgo de D18). Al terminar, el riesgo del bronce en un solo disco queda cerrado |
+| UY-043 | `incremental.py` se separa en dos entradas, fetch y silver, que ya se comunican por `silver_pending.json`. Step Functions las encadena y EventBridge Scheduler las dispara (D27). El incremental local se apaga antes de la primera corrida en la nube (G4) |
+| UY-044 | Oro en `uy/gold/` con las métricas de UY-032, más la excepción de la Deny de borrado |
+| UY-045 | Alarmas de "sorteo faltante" a partir de `draw_gaps` y el canario |
