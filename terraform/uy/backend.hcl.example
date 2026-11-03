@@ -1,0 +1,8 @@
+# Backend configuration for the URUGUAY stack (terraform/uy/). Copy to `backend.hcl`
+# (gitignored) and fill in the bucket; `make uy-tf-init` uses it.
+#
+# NO `key` here, on purpose: `make uy-tf-init` passes key=uy/terraform.tfstate itself and
+# refuses a backend.hcl that names the main stack's state. Do not copy ../backend.hcl.
+
+bucket = "loteria-tf-state-<AWS_ACCOUNT_ID>" # same bucket as the main stack
+region = "us-east-1"
