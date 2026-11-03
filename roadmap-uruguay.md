@@ -410,7 +410,7 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 | UY-032 | Oro local: auditoría de aleatoriedad | todo (se hace con UY-044; owner, 2026-11-02) | — |
 | ~~UY-033~~ | Incremental en local durante 2 semanas | **dropped** (owner, 2026-11-02): sus criterios pasan a G4 · **G3 cumplido** el 2026-11-02 con UY-030 | — |
 | *Fase 5 — Nube* | | | |
-| UY-040 | Decisiones de la nube | **en revisión** (2026-11-02): D24–D30 decididas por el owner y P15–P16 propuestas en [DESIGN.md § Nube](docs/uruguay/DESIGN.md#nube-uy-040) · `raw/uy/` descartado porque el transform de Santa Lucía lista todo `raw/` y `object_count` taparía su caída · `lottery_uy_db` porque los grants de LF de Santa Lucía son con comodín · Lambda silver en imagen porque sus dependencias miden 222 MB de los 250 que admite un zip | — |
+| UY-040 | Decisiones de la nube | **en revisión** (2026-11-02): D24–D30 decididas por el owner y P15–P16 propuestas en [DESIGN.md § Nube](docs/uruguay/DESIGN.md#nube-uy-040) · `raw/uy/` descartado porque el transform de Santa Lucía lista todo `raw/` y `object_count` taparía su caída · `lottery_uy_db` porque los grants de LF de Santa Lucía son con comodín · Lambda silver en imagen porque sus dependencias miden 222 MB de los 250 que admite un zip | [#147](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/147) |
 | UY-041 | Almacenamiento, IAM y LF | todo | — |
 | UY-042 | Subir el bronce y reconciliar | todo | — |
 | UY-043 | Orquestación incremental | todo | — |
