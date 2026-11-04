@@ -1,4 +1,8 @@
-"""The manifest contract: three identical failures, manual overrides and the effective state."""
+"""The manifest contract: three identical failures, manual overrides and the effective state.
+
+Every contract test runs against both backends (UY-042.2): SQLite, the local one, and DynamoDB
+on moto, the cloud one. A rule that holds in one and not the other fails here.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +12,14 @@ from datetime import date
 import pytest
 
 from sorteos.core import manifest as mf
+from sorteos.core.manifest_dynamodb import DynamoManifest
 from sorteos.uy import backfill
 
 DAY = date(2019, 9, 25)
 NOW = "2026-10-28T00:00:00+00:00"
+MANIFEST_TABLE = (
+    "lottery-uy-manifest-test"  # the table the `dynamodb` fixture creates (conftest.py)
+)
 FORBIDDEN = b"<html>403 Forbidden</html>"  # one body, so one content_sha256
 
 # The schema the ~21,000-row local manifest was created with (UY-001). Frozen here on purpose:
@@ -32,11 +40,28 @@ CREATE TABLE fetch_log (
 """
 
 
+@pytest.fixture(params=["sqlite", "dynamodb"])
+def make_manifest(request, tmp_path):
+    """Build a manifest of the backend under test, with the given overrides."""
+    made = []
+
+    def make(overrides=None):
+        if request.param == "sqlite":
+            m = mf.SqliteManifest(tmp_path / f"m{len(made)}.sqlite", overrides)
+        else:
+            dynamodb = request.getfixturevalue("dynamodb")
+            m = DynamoManifest(MANIFEST_TABLE, overrides, client=dynamodb)
+        made.append(m)
+        return m
+
+    yield make
+    for m in made:
+        m.close()
+
+
 @pytest.fixture
-def manifest(tmp_path):
-    m = mf.SqliteManifest(tmp_path / "manifest.sqlite")
-    yield m
-    m.close()
+def manifest(make_manifest):
+    return make_manifest()
 
 
 def failure(status=403, content=FORBIDDEN, detail="HTTP 403, 26 bytes, not a PDF", day=DAY):
@@ -115,12 +140,26 @@ def test_history_is_the_last_rows_oldest_first(manifest):
     assert manifest.history("resultados", DAY, 2) == []
 
 
+def test_summary_and_date_range_count_the_stored_states(manifest):
+    manifest.record(mf.Record("resultados", date(2016, 7, 6), "u", mf.DRAW, NOW))
+    manifest.record(mf.Record("resultados", date(2016, 7, 9), "u", mf.DRAW, NOW))
+    manifest.record(mf.Record("resultados", date(2016, 7, 12), "u", mf.NO_DRAW, NOW))
+    manifest.record(failure())
+    assert manifest.summary() == [
+        ("pozos_5_de_oro", mf.ERROR, 1),
+        ("resultados", mf.DRAW, 2),
+        ("resultados", mf.NO_DRAW, 1),
+    ]
+    assert manifest.date_range("resultados") == ("2016-07-06", "2016-07-09")
+    assert manifest.date_range("pozos_5_de_oro") is None
+
+
 def override(state=mf.NO_DRAW):
     return mf.Override("resultados", DAY, state, DAY, "paro", "owner", date(2026, 10, 20))
 
 
-def test_the_effective_state_is_the_override_when_there_is_one(tmp_path):
-    m = mf.SqliteManifest(tmp_path / "m.sqlite", {("resultados", DAY): override()})
+def test_the_effective_state_is_the_override_when_there_is_one(make_manifest):
+    m = make_manifest({("resultados", DAY): override()})
     rec = mf.Record("resultados", DAY, "u", mf.ERROR, NOW, http_status=200, content=b"x")
     m.record(rec)
     assert m.effective_state("resultados", DAY) == mf.NO_DRAW
@@ -129,15 +168,15 @@ def test_the_effective_state_is_the_override_when_there_is_one(tmp_path):
     m.close()
 
 
-def test_an_override_applies_before_the_key_is_ever_fetched(tmp_path):
-    m = mf.SqliteManifest(tmp_path / "m.sqlite", {("resultados", DAY): override()})
+def test_an_override_applies_before_the_key_is_ever_fetched(make_manifest):
+    m = make_manifest({("resultados", DAY): override()})
     assert m.effective_state("resultados", DAY) == mf.NO_DRAW
     m.close()
 
 
-def test_open_keys_are_the_ones_not_final_once_overrides_apply(tmp_path):
+def test_open_keys_are_the_ones_not_final_once_overrides_apply(make_manifest):
     # P11: the incremental asks again for these, whatever their date.
-    m = mf.SqliteManifest(tmp_path / "m.sqlite", {("resultados", DAY): override()})
+    m = make_manifest({("resultados", DAY): override()})
     later = date(2026, 10, 20)
     m.record(mf.Record("resultados", DAY, "u", mf.ERROR, NOW))  # closed by the override
     m.record(failure(day=later))
