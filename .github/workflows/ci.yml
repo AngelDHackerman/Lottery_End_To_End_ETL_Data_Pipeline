@@ -263,8 +263,9 @@ jobs:
 
       - name: image builds (linux/amd64, no provenance, as uy-silver-push builds it)
         run: |
+          bash scripts/build_uy_silver_context.sh
           docker buildx build --platform linux/amd64 --provenance=false --load \
-            -f docker/uy-silver/Dockerfile -t uy-silver:ci .
+            -f docker/uy-silver/Dockerfile -t uy-silver:ci build/uy-silver-context
 
       - name: the handler and its heavy dependencies import inside the image
         run: |

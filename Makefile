@@ -237,8 +237,9 @@ uy-silver-lock: ## Recompile requirements/uy-silver.lock from uy-silver.txt (UY-
 	  --output-file requirements/uy-silver.lock requirements/uy-silver.txt
 
 uy-silver-image: ## Build the silver image locally as lottery-uy-silver:<content tag> (UY-042.4.1; no AWS)
+	bash scripts/build_uy_silver_context.sh >/dev/null
 	$(DOCKER) buildx build --platform linux/amd64 --provenance=false --load \
-	  -f docker/uy-silver/Dockerfile -t $(UY_SILVER_LOCAL):$(UY_SILVER_TAG) .
+	  -f docker/uy-silver/Dockerfile -t $(UY_SILVER_LOCAL):$(UY_SILVER_TAG) build/uy-silver-context
 
 # The image under Lambda's own emulator (it ships in the base image), against the REAL table
 # and bucket, as a dry run: it reads bronze, the manifest and uy/silver/, builds UY_YEAR and
