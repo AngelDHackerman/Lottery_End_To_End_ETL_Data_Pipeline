@@ -2,7 +2,7 @@
 **Owner:** Angel Hernandez
 **Brief de origen:** [`docs/uruguay/BRIEF.md`](./docs/uruguay/BRIEF.md)
 **Rama base:** `loteria-uruguaya-test` (hace de `master` para esta extensión hasta la fase de merge)
-**Última actualización:** 2026-11-04 (UY-041.2: el manifiesto en DynamoDB y el repo de ECR en revisión)
+**Última actualización:** 2026-11-04 (UY-042.1: subir el bronce a S3, en revisión)
 
 > Plan de ejecución de la extensión a Uruguay (DNLQ, `www.loteria.gub.uy`). El roadmap principal
 > ([`roadmap.md`](./roadmap.md)) sigue siendo el de Santa Lucía; este archivo **no** lo reemplaza
@@ -412,7 +412,7 @@ Estados: `todo`, `in-progress`, `merged`, `blocked`, `dropped`. Las fases avanza
 | *Fase 5 — Nube* | | | |
 | UY-040 | Decisiones de la nube | **merged** (2026-11-02): D24–D30 decididas y P15–P16 aprobadas por el owner en [DESIGN.md § Nube](docs/uruguay/DESIGN.md#nube-uy-040) · `raw/uy/` descartado porque el transform de Santa Lucía lista todo `raw/` y `object_count` taparía su caída · `lottery_uy_db` porque los grants de LF de Santa Lucía son con comodín · Lambda silver en imagen porque sus dependencias miden 222 MB de los 250 que admite un zip | [#147](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/147) |
 | UY-041 | Almacenamiento, IAM y LF | **en curso** (2026-11-03), en dos PRs (owner, 1a y 2a): **UY-041.1** un stack aparte, `terraform/uy/`, con su propio estado (`uy/terraform.tfstate`), para que el `make deploy` de Santa Lucía nunca vea los recursos de UY ni un apply de UY revierta a `master`; la base `lottery_uy_db`, el registro de `uy/silver` en LF y los tres roles (fetch, silver y GX), cada uno limitado a su capa bajo `uy/` · `make uy-tf-init` rechaza un `backend.hcl` que nombre `main/` y `make uy-tf-plan` falla ante cualquier destroy o replace · plan: **9 to add, 0 to change, 0 to destroy**, merged y aplicado · **UY-041.2** la tabla `lottery-uy-manifest-prod` (P16: `pk` = `<source>#<fecha>`, `sk` = `STATE` o `LOG#…`, índice disperso `open-keys` por el atributo `open`, PITR, protección contra borrado y `prevent_destroy`) y el repo de ECR `lottery-uy-silver-prod` (tags inmutables, escaneo al subir y **las 5 imágenes más recientes**, owner 2026-11-04), con la política del repo para que Lambda baje la imagen · fetch lee y escribe el manifiesto, silver solo lo lee · plan: **4 to add, 2 to change, 0 to destroy** (los 2 cambios son las políticas de los roles de Lambda) | [#148](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/148) · [#149](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/149) |
-| UY-042 | Subir el bronce y reconciliar | todo | — |
+| UY-042 | Subir el bronce y reconciliar | **en curso** (2026-11-04), en cuatro PRs (owner, a): **UY-042.1** el bronce a S3 · .2 el manifiesto en DynamoDB y su migración · .3 la Lambda fetch y la prueba sin proxy (D26) · .4 la imagen de silver, cómo escribe en S3, un año medido y la reconciliación con la plata local. **UY-042.1:** `make uy-bronze-sync` (`aws s3 sync` a `uy/raw/`, P15, sin `--delete` y sin `*.tmp`) y `make uy-bronze-check`, que compara cada archivo local con su objeto por tamaño y MD5 (el ETag de SSE-S3 en una sola parte) y antes de subir sirve de dry run: 21.239 archivos, 1,05 GB, ninguno pasa de 4,7 MB | [#150](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/150) |
 | UY-043 | Orquestación incremental | todo | — |
 | UY-044 | Oro en Athena (atómico) | todo | — |
 | UY-045 | Alarmas y canario → **G4** | todo | — |

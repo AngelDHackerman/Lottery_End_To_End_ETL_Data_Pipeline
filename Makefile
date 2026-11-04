@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -167,6 +167,22 @@ uy-estadisticas: ## Ask ver_estadisticas for the site's own counts, into bronze,
 
 uy-dq: ## Validate local UY silver against its Great Expectations suites (UY-026; read-only)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --silver $(UY_SILVER)
+
+# UY-042.1: local bronze to S3 (P15: uy/raw/ + the path under data/uy/bronze/). These two DO
+# touch AWS, with whatever AWS_PROFILE is set. From a worktree, point UY_BRONZE at the main
+# tree's data/uy/bronze. No --delete: S3 is about to be the copy that outlives the disk, and
+# the bucket's Deny (PR-002) refuses deletes anyway. *.tmp is a write that did not finish.
+# Run uy-bronze-check first: before the upload it is the dry run (how many files S3 lacks).
+UY_BRONZE ?= data/uy/bronze
+UY_BUCKET ?= lottery-partitioned-storage-prod
+
+uy-bronze-sync: ## Upload local UY bronze to s3://$(UY_BUCKET)/uy/raw/, then check it (UY-042.1; writes to S3)
+	@test -d $(UY_BRONZE)/country=uy || { echo "$(UY_BRONZE) has no country=uy/ — set UY_BRONZE"; exit 1; }
+	aws s3 sync $(UY_BRONZE)/ s3://$(UY_BUCKET)/uy/raw/ --exclude '*.tmp' --only-show-errors
+	$(MAKE) uy-bronze-check
+
+uy-bronze-check: ## Every local bronze file is in S3 with the same size and MD5 (UY-042.1; read-only)
+	PYTHONPATH=src python -m sorteos.uy.bronze_sync --root $(UY_BRONZE) --bucket $(UY_BUCKET)
 
 uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
