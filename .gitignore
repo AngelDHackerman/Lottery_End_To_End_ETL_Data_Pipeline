@@ -300,6 +300,9 @@ backend.hcl
 # Docker
 .dockerignore
 Dockerfile
+# UY-042.4.1: the silver Lambda image's Dockerfile is code and holds no credentials. Only this
+# path is let back in; the rule above still keeps any other Dockerfile out of the repo.
+!docker/uy-silver/Dockerfile
 
 # Build artifacts (lambdas / layers)
 build/

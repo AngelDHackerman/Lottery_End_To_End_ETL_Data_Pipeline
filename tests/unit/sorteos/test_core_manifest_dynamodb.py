@@ -93,3 +93,47 @@ def test_a_stale_attempt_count_is_refused_too(dynamodb, monkeypatch):
 
 def test_history_with_no_limit_reads_nothing(dynamodb):
     assert md.DynamoManifest(TABLE, client=dynamodb).history("resultados", DAY, 0) == []
+
+
+# --- the snapshot (UY-042.4.1) -----------------------------------------------------------
+
+
+def test_a_snapshot_answers_like_the_table_it_was_taken_from(dynamodb):
+    strike = date(2019, 9, 26)
+    overrides = {
+        ("resultados", strike): mf.Override(
+            "resultados", strike, mf.NO_DRAW, strike, "paro", "owner", date(2026, 10, 20)
+        )
+    }
+    m = md.DynamoManifest(TABLE, overrides, client=dynamodb)
+    m.record(mf.Record("resultados", DAY, "u", mf.DRAW, NOW, content=b"x", games=("5_de_oro",)))
+    m.record(mf.Record("resultados", date(2019, 9, 27), "u", mf.DRAW, NOW, content=b"y"))
+    m.record(mf.Record("resultados", strike, "u", mf.ERROR, NOW))
+    m.record(mf.Record("pozos_5_de_oro", DAY, "u", mf.NOT_YET_PUBLISHED, NOW))
+    snap = m.snapshot()
+    assert len(snap) == 4
+    for source, day in (("resultados", DAY), ("pozos_5_de_oro", DAY), ("resultados", strike)):
+        assert snap.get(source, day) == m.get(source, day)
+        assert snap.effective_state(source, day) == m.effective_state(source, day)
+    assert snap.get("resultados", date(2001, 1, 1)) is None
+    assert snap.summary() == m.summary()
+    assert (
+        snap.date_range("resultados")
+        == m.date_range("resultados")
+        == (
+            "2019-09-25",
+            "2019-09-27",
+        )
+    )
+    assert snap.date_range("extracto_5_de_oro") is None
+    assert snap.open_keys() == m.open_keys() == [("pozos_5_de_oro", DAY)]
+    assert [r["draw_date"] for r in snap.rows()][:1] == ["2019-09-25"]
+    snap.close()
+
+
+def test_a_snapshot_never_writes(dynamodb):
+    snap = md.DynamoManifest(TABLE, client=dynamodb).snapshot()
+    with pytest.raises(md.ReadOnlyManifestError):
+        snap.record(mf.Record("resultados", DAY, "u", mf.DRAW, NOW))
+    with pytest.raises(md.ReadOnlyManifestError):
+        snap.history("resultados", DAY, 3)

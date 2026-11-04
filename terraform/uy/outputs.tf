@@ -62,3 +62,12 @@ output "fetch_function" {
     log_group = aws_cloudwatch_log_group.fetch.name
   }
 }
+
+output "silver_function" {
+  description = "The silver Lambda (UY-042.4.1), the image it runs and its log group."
+  value = {
+    name      = aws_lambda_function.silver.function_name
+    image_uri = aws_lambda_function.silver.image_uri
+    log_group = aws_cloudwatch_log_group.silver.name
+  }
+}

@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -219,6 +219,72 @@ uy-fetch-probe: ## Invoke the fetch Lambda in probe mode: does the site answer i
 	@python -m json.tool dist/uy/probe.json
 	@python -c "import json, sys; sys.exit(0 if json.load(open('dist/uy/probe.json'))['ok'] else 1)"
 
+# UY-042.4.1: the silver Lambda image (D29). Its tag is a hash of its inputs, not of the image
+# (docker builds are not reproducible), so an unchanged tree has the same tag: uy-silver-push
+# finds it in ECR and pushes nothing, and uy-tf-plan sees no change. Needs Docker (with buildx).
+# --provenance=false: buildx would otherwise push an image index with an attestation, and
+# Lambda only accepts a plain image manifest.
+UY_SILVER_TAG = $(shell python3 scripts/uy_silver_tag.py)
+UY_SILVER_REPO ?= lottery-uy-silver-prod
+UY_SILVER_FUNCTION ?= lottery-uy-silver-prod
+UY_SILVER_LOCAL ?= lottery-uy-silver
+UY_YEAR ?= 2011
+DOCKER ?= docker
+comma := ,
+
+uy-silver-lock: ## Recompile requirements/uy-silver.lock from uy-silver.txt (UY-042.4.1; slow: pyarrow's wheels)
+	pip-compile --generate-hashes --strip-extras \
+	  --output-file requirements/uy-silver.lock requirements/uy-silver.txt
+
+uy-silver-image: ## Build the silver image locally as lottery-uy-silver:<content tag> (UY-042.4.1; no AWS)
+	bash scripts/build_uy_silver_context.sh >/dev/null
+	$(DOCKER) buildx build --platform linux/amd64 --provenance=false --load \
+	  -f docker/uy-silver/Dockerfile -t $(UY_SILVER_LOCAL):$(UY_SILVER_TAG) build/uy-silver-context
+
+# The image under Lambda's own emulator (it ships in the base image), against the REAL table
+# and bucket, as a dry run: it reads bronze, the manifest and uy/silver/, builds UY_YEAR and
+# uploads nothing. The credentials go in as environment variables, never on the command line.
+uy-silver-local: uy-silver-image ## Run the image locally on UY_YEAR as a dry run against AWS (UY-042.4.1; read-only)
+	@mkdir -p dist/uy
+	@eval "$$(aws configure export-credentials --format env)" && \
+	  $(DOCKER) run -d --rm --name uy-silver-local -p 9000:8080 \
+	    -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+	    -e AWS_DEFAULT_REGION=us-east-1 -e AWS_LAMBDA_FUNCTION_TIMEOUT=900 \
+	    -e AWS_LAMBDA_FUNCTION_MEMORY_SIZE=2048 \
+	    -e MANIFEST_TABLE=lottery-uy-manifest-prod -e SILVER_BUCKET=$(UY_BUCKET) \
+	    -e SILVER_PREFIX=uy/silver/ -e BRONZE_PREFIX=uy/raw/ \
+	    $(UY_SILVER_LOCAL):$(UY_SILVER_TAG) >/dev/null
+	@sleep 2; curl -sS -X POST http://localhost:9000/2015-03-31/functions/function/invocations \
+	  -d '{"years": [$(UY_YEAR)], "dry_run": true}' -o dist/uy/silver-local.json; \
+	  status=$$?; $(DOCKER) stop uy-silver-local >/dev/null; test $$status -eq 0
+	@python -m json.tool dist/uy/silver-local.json
+
+uy-silver-push: ## Build and push the silver image to ECR, unless its tag is already there (UY-042.4.1; writes to ECR)
+	@if aws ecr describe-images --repository-name $(UY_SILVER_REPO) \
+	     --image-ids imageTag=$(UY_SILVER_TAG) >/dev/null 2>&1; then \
+	  echo "$(UY_SILVER_REPO):$(UY_SILVER_TAG) is already in ECR: nothing to push"; \
+	else \
+	  set -e; \
+	  uri=$$(aws ecr describe-repositories --repository-names $(UY_SILVER_REPO) \
+	    --query 'repositories[0].repositoryUri' --output text); \
+	  aws ecr get-login-password | $(DOCKER) login --username AWS --password-stdin "$${uri%%/*}"; \
+	  $(MAKE) uy-silver-image; \
+	  $(DOCKER) tag $(UY_SILVER_LOCAL):$(UY_SILVER_TAG) "$$uri:$(UY_SILVER_TAG)"; \
+	  $(DOCKER) push "$$uri:$(UY_SILVER_TAG)"; \
+	fi
+
+# D18's measurement: one year in the deployed Lambda. It WRITES that year (and the reference
+# tables) to uy/silver/ unless UY_DRY_RUN=1.
+UY_DRY_RUN ?=
+uy-silver-invoke: ## Invoke the silver Lambda on UY_YEAR; writes to uy/silver/ unless UY_DRY_RUN=1 (UY-042.4.1)
+	@mkdir -p dist/uy
+	@aws lambda invoke --function-name $(UY_SILVER_FUNCTION) --cli-binary-format raw-in-base64-out \
+	  --cli-read-timeout 960 \
+	  --payload '{"years": [$(UY_YEAR)]$(if $(UY_DRY_RUN),$(comma) "dry_run": true)}' \
+	  dist/uy/silver.json --query FunctionError --output text | grep -qx None \
+	  || { cat dist/uy/silver.json; echo; echo "The silver Lambda failed (see above)"; exit 1; }
+	@python -m json.tool dist/uy/silver.json
+
 uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
 
@@ -251,7 +317,9 @@ uy-tf-init: ## terraform init the UY stack (terraform/uy/) against its own state
 # The plan is saved and checked before anyone can apply it: this stack only ever adds UY
 # resources (roadmap Fase 5), so any destroy or replace in it stops here, before review.
 uy-tf-plan: uy-tf-init uy-fetch-build ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
-	cd terraform/uy && terraform plan -out=tfplan
+	@aws ecr describe-images --repository-name $(UY_SILVER_REPO) --image-ids imageTag=$(UY_SILVER_TAG) \
+	  >/dev/null 2>&1 || { echo "$(UY_SILVER_REPO):$(UY_SILVER_TAG) is not in ECR — run make uy-silver-push first"; exit 1; }
+	cd terraform/uy && terraform plan -var silver_image_tag=$(UY_SILVER_TAG) -out=tfplan
 	@! terraform -chdir=terraform/uy show -no-color tfplan | grep -E 'will be destroyed|must be replaced' || { \
 	  echo "The UY plan destroys or replaces something: not applying it. Review terraform/uy/tfplan."; \
 	  exit 1; }

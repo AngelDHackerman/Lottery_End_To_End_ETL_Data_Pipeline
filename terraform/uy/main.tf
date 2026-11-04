@@ -12,6 +12,8 @@
 #   - the ECR repository for the silver Lambda's image (D29, ecr.tf)
 # Holds (UY-042.3):
 #   - the fetch Lambda and its log group (D26, D29, fetch.tf)
+# Holds (UY-042.4.1):
+#   - the silver Lambda (container image) and its log group (D18, D29, silver.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here
