@@ -30,3 +30,15 @@ variable "ecr_images_to_keep" {
   type        = number
   default     = 5
 }
+
+variable "fetch_zip_path" {
+  description = "The fetch Lambda's zip, built by `make uy-fetch-build` (UY-042.3)."
+  type        = string
+  default     = "../../dist/uy/uy_fetch.zip"
+}
+
+variable "log_retention_days" {
+  description = "Retention of the UY Lambdas' log groups."
+  type        = number
+  default     = 365
+}

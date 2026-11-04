@@ -10,6 +10,8 @@
 # Holds (UY-041.2):
 #   - the DynamoDB manifest table (P16, manifest.tf)
 #   - the ECR repository for the silver Lambda's image (D29, ecr.tf)
+# Holds (UY-042.3):
+#   - the fetch Lambda and its log group (D26, D29, fetch.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here

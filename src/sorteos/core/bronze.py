@@ -9,6 +9,10 @@ Two stores, deliberately separate (roadmap-uruguay.md, C3):
   bytes are "the page as served on ``fetched_at``", never the original document.
 - **The manifest** (``manifest.py``) is the cache. A ``no_draw`` day leaves nothing in
   bronze but has a manifest row, and that row is what stops it being requested again.
+
+``S3BronzeStore`` is the same store in the cloud (UY-042.3): the same keys, written under a
+prefix of the data bucket with the leading ``bronze/`` dropped (P15), so the manifest's
+``bronze_key`` names the file on disk and the object in S3 alike.
 """
 
 from __future__ import annotations
@@ -45,3 +49,39 @@ class BronzeStore:
 
     def read(self, key: str) -> bytes:
         return (self.root / key).read_bytes()
+
+
+BRONZE_ROOT = "bronze/"
+
+
+class S3BronzeStore:
+    """``BronzeStore`` on S3: ``bronze/<rest>`` is stored at ``<prefix><rest>`` (P15)."""
+
+    def __init__(self, bucket: str, prefix: str, country: str, client=None) -> None:
+        if not prefix.endswith("/"):
+            raise ValueError(f"prefix must end with '/': {prefix!r}")
+        self._keys = BronzeStore(Path("."), country)  # the one place keys are built
+        self.bucket = bucket
+        self.prefix = prefix
+        self.country = country
+        if client is None:  # pragma: no cover - the tests pass a moto client
+            import boto3
+
+            client = boto3.client("s3")
+        self._client = client
+
+    def key(self, source: str, day: date, extension: str) -> str:
+        return self._keys.key(source, day, extension)
+
+    def object_key(self, key: str) -> str:
+        if not key.startswith(BRONZE_ROOT):
+            raise ValueError(f"not a bronze key: {key!r}")
+        return self.prefix + key[len(BRONZE_ROOT) :]
+
+    def write(self, key: str, content: bytes) -> None:
+        # One PUT is atomic in S3: a reader sees the old object or the new one, never half,
+        # which is what the .tmp + rename of the local store exists to get.
+        self._client.put_object(Bucket=self.bucket, Key=self.object_key(key), Body=content)
+
+    def read(self, key: str) -> bytes:
+        return self._client.get_object(Bucket=self.bucket, Key=self.object_key(key))["Body"].read()

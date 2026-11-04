@@ -142,6 +142,25 @@ jobs:
           test "$first" = "$second" \
             || { echo "::error::lambda_layer.zip is not reproducible"; exit 1; }
 
+      # UY-042.3: the UY fetch Lambda's zip, the same two guarantees. Its lock is constrained
+      # by extractor.lock, so a bump there without `make uy-fetch-lock` fails here.
+      - name: uy fetch lock is in sync with its input
+        run: |
+          make uy-fetch-lock
+          git diff --exit-code -- requirements/uy-fetch.lock \
+            || { echo "::error::requirements/uy-fetch.lock is stale — run 'make uy-fetch-lock' and commit it"; exit 1; }
+
+      - name: uy fetch zip is byte-identical across runs
+        run: |
+          bash scripts/build_uy_fetch_package.sh
+          first=$(sha256sum dist/uy/uy_fetch.zip | cut -d' ' -f1)
+          bash scripts/build_uy_fetch_package.sh
+          second=$(sha256sum dist/uy/uy_fetch.zip | cut -d' ' -f1)
+          echo "run 1: $first"
+          echo "run 2: $second"
+          test "$first" = "$second" \
+            || { echo "::error::uy_fetch.zip is not reproducible"; exit 1; }
+
       # PR-046.3. The two runs above share one pip, so they could not see a zip that depends
       # on WHICH pip ran: console-script shebangs carried that pip's interpreter path, and a
       # laptop with `.venv` first on PATH built a different layer than one using /usr/bin/pip.
