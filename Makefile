@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -183,6 +183,17 @@ uy-bronze-sync: ## Upload local UY bronze to s3://$(UY_BUCKET)/uy/raw/, then che
 
 uy-bronze-check: ## Every local bronze file is in S3 with the same size and MD5 (UY-042.1; read-only)
 	PYTHONPATH=src python -m sorteos.uy.bronze_sync --root $(UY_BRONZE) --bucket $(UY_BUCKET)
+
+# UY-042.2: the manifest to DynamoDB (D28, P16), once. Writes with whatever AWS_PROFILE is set;
+# from a worktree, point UY_MANIFEST at the main tree's data/uy/manifest.sqlite. Safe to run
+# again (it writes only what is missing or differs) and it refuses once the cloud is ahead.
+UY_MANIFEST_TABLE ?= lottery-uy-manifest-prod
+
+uy-manifest-migrate: ## Copy $(UY_MANIFEST) to DynamoDB and prove it item by item (UY-042.2; writes to DynamoDB)
+	PYTHONPATH=src python -m sorteos.uy.manifest_migrate --sqlite $(UY_MANIFEST) --table $(UY_MANIFEST_TABLE)
+
+uy-manifest-check: ## Prove the DynamoDB manifest equals $(UY_MANIFEST), item by item and through the interface (UY-042.2; read-only)
+	PYTHONPATH=src python -m sorteos.uy.manifest_migrate --sqlite $(UY_MANIFEST) --table $(UY_MANIFEST_TABLE) --check
 
 uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
