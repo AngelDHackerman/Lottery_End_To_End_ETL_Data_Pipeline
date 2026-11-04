@@ -53,3 +53,12 @@ output "silver_ecr_repository_url" {
   description = "Where UY-042 pushes the silver Lambda image (D29)."
   value       = aws_ecr_repository.silver.repository_url
 }
+
+output "fetch_function" {
+  description = "The fetch Lambda (UY-042.3) and its log group."
+  value = {
+    name      = aws_lambda_function.fetch.function_name
+    arn       = aws_lambda_function.fetch.arn
+    log_group = aws_cloudwatch_log_group.fetch.name
+  }
+}

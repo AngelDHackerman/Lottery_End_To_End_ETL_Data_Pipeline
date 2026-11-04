@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -195,6 +195,30 @@ uy-manifest-migrate: ## Copy $(UY_MANIFEST) to DynamoDB and prove it item by ite
 uy-manifest-check: ## Prove the DynamoDB manifest equals $(UY_MANIFEST), item by item and through the interface (UY-042.2; read-only)
 	PYTHONPATH=src python -m sorteos.uy.manifest_migrate --sqlite $(UY_MANIFEST) --table $(UY_MANIFEST_TABLE) --check
 
+# UY-042.3: the fetch Lambda (D29). The lock pins everything with hashes and is constrained by
+# requirements/extractor.lock, so a bump there needs `make uy-fetch-lock` here too (CI says so).
+# The zip must exist before `make uy-tf-plan`, which builds it; it is byte-identical for the
+# same lock and code, so an unchanged tree never redeploys the function.
+UY_FETCH_FUNCTION ?= lottery-uy-fetch-prod
+
+uy-fetch-lock: ## Recompile requirements/uy-fetch.lock from uy-fetch.txt (UY-042.3)
+	pip-compile --generate-hashes --strip-extras \
+	  --output-file requirements/uy-fetch.lock requirements/uy-fetch.txt
+
+uy-fetch-build: ## Build dist/uy/uy_fetch.zip: sorteos + the lock, for python3.12 x86_64 (UY-042.3; no AWS)
+	bash scripts/build_uy_fetch_package.sh
+
+# D26: asks the site for the newest draw of each source FROM THE LAMBDA and compares the bytes
+# with the manifest. Writes nothing. Fails if the Lambda errors or any key did not answer 200.
+uy-fetch-probe: ## Invoke the fetch Lambda in probe mode: does the site answer it without a proxy? (UY-042.3; read-only)
+	@mkdir -p dist/uy
+	@aws lambda invoke --function-name $(UY_FETCH_FUNCTION) --cli-binary-format raw-in-base64-out \
+	  --cli-read-timeout 330 --payload '{"mode": "probe"}' dist/uy/probe.json \
+	  --query FunctionError --output text | grep -qx None \
+	  || { cat dist/uy/probe.json; echo; echo "The fetch Lambda failed (see above)"; exit 1; }
+	@python -m json.tool dist/uy/probe.json
+	@python -c "import json, sys; sys.exit(0 if json.load(open('dist/uy/probe.json'))['ok'] else 1)"
+
 uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
 
@@ -226,7 +250,7 @@ uy-tf-init: ## terraform init the UY stack (terraform/uy/) against its own state
 
 # The plan is saved and checked before anyone can apply it: this stack only ever adds UY
 # resources (roadmap Fase 5), so any destroy or replace in it stops here, before review.
-uy-tf-plan: uy-tf-init ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
+uy-tf-plan: uy-tf-init uy-fetch-build ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
 	cd terraform/uy && terraform plan -out=tfplan
 	@! terraform -chdir=terraform/uy show -no-color tfplan | grep -E 'will be destroyed|must be replaced' || { \
 	  echo "The UY plan destroys or replaces something: not applying it. Review terraform/uy/tfplan."; \
