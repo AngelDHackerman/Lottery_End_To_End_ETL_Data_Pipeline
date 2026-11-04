@@ -3,10 +3,9 @@
 # exactly what docker/uy-silver/Dockerfile copies, laid out as in the repo. Nothing else can
 # reach the image: no secret, state file or data, whatever is lying around the working tree.
 #
-# Why not a .dockerignore allowlist: the first version used Dockerfile.dockerignore with `*`
-# and a few `!` lines. Docker 29 built it; the BuildKit on GitHub's runners applied the `*` to
-# the Dockerfile itself and failed with "open Dockerfile: no such file or directory". A context
-# made by copying does not depend on how a Docker version reads ignore files.
+# Why a copied context and not a .dockerignore allowlist: what reaches the image is decided by
+# the copies below and nothing else, whatever ignore rules a Docker version applies; and the
+# repo's .gitignore keeps `.dockerignore` files out anyway (the 2025 credentials cleanup).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
