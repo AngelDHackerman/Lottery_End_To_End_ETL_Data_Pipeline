@@ -42,3 +42,14 @@ variable "log_retention_days" {
   type        = number
   default     = 365
 }
+
+# No default on purpose: `make uy-tf-plan` passes the tag of the image built from this tree.
+variable "silver_image_tag" {
+  description = "Tag of the silver Lambda image in ECR: scripts/uy_silver_tag.py (UY-042.4.1)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^s-[0-9a-f]{16}$", var.silver_image_tag))
+    error_message = "silver_image_tag must be the content tag from scripts/uy_silver_tag.py (s-<16 hex>), never a moving tag like latest."
+  }
+}

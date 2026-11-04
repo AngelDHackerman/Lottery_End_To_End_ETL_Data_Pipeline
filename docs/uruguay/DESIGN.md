@@ -1044,10 +1044,30 @@ borrado.
 root y al rol de purga de oro de Santa Lucía. El swap de oro de UY necesita borrar generaciones
 viejas de `uy/gold/`, así que necesita su propia excepción, limitada a ese prefijo.
 
-**Abierto para UY-042 (encontrado en UY-041.1):** el escritor de plata borra una partición que
-desapareció (`shutil.rmtree` en `core/silver.py`). En S3 eso es un `DeleteObject`, que la misma
-Deny rechaza. Ningún rol de UY tiene `s3:DeleteObject` todavía; se decide al diseñar cómo la
-Lambda silver escribe en S3.
+**Cerrado en UY-042.4.1 (owner, 1a):** el escritor de plata borra una partición que desapareció
+(`shutil.rmtree` en `core/silver.py`), y en S3 eso sería un `DeleteObject` que la Deny rechaza. La
+Lambda silver **nunca borra**: donde estaba la partición escribe un Parquet vacío, con el esquema de
+la tabla y 0 filas. Athena, GX y pyarrow leen 0 filas, lo mismo que si el archivo no estuviera, y el
+versionado del bucket guarda el objeto anterior. Ningún rol de UY tiene `s3:DeleteObject`.
+
+**Cómo corre plata en la nube (UY-042.4.1, owner 1a).** La Lambda arma en `/tmp/uy` lo mismo que
+`data/uy` y corre las funciones de `make uy-silver` sin cambios. El código de plata pregunta clave
+por clave, dos veces por día desde 2006: con SQLite son microsegundos, pero contra DynamoDB son
+~10.000 GetItems por corrida (casi una hora desde una red doméstica). Por eso lee el manifiesto
+con **un solo Scan**, en una foto de solo lectura (`ManifestSnapshot`), y baja **en paralelo** el
+bronce que va a leer: las páginas de los años pedidos y todos los PDF de pozos, que la serie del
+número de sorteo lee siempre. Medido con la imagen en local contra la nube (2026-11-04): 2011
+en ~1 minuto en total (Scan 16,6 s, 2.015 archivos y 149 MB de bronce en 16,3 s, build 25,8 s,
+el año 15,4 s), con los mismos 645 sorteos y 0 en cuarentena que la plata local.
+
+**Abierto para UY-043 (encontrado en UY-042.3, owner 1a):** `ver_resultados` trae la hora de la
+consulta (`Zona_Fecha`) y una barra con los sorteos de *hoy*, así que su SHA-256 cambia en cada
+petición aunque el sorteo no cambie (el parser da el mismo resultado). `Fetcher._snapshot` compara
+ese SHA, y cada vez que el incremental vuelve a pedir una página de `resultados` que se está
+asentando la cuenta como cambiada: la corrida del 2026-10-31 listó el 29, 30 y 31. Hoy cuesta
+casi nada, porque el año en curso se reescribe igual, pero el docstring de `_may_grow` dice lo
+contrario y en UY-043 esa señal pasa de la Lambda fetch a la silver. Arreglo previsto: comparar la
+página parseada, no los bytes.
 
 ### Lo que hereda cada PR de la Fase 5
 

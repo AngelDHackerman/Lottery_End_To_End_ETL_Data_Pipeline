@@ -236,6 +236,42 @@ jobs:
             -o addopts=-ra -o pythonpath= -p no:cacheprovider
 
   # -------------------------------------------------------------------------------------
+  # UY-042.4.1: the silver Lambda image. Unit tests run in .venv, which has every package, so
+  # they cannot see one missing from the image: that is how `requests` went missing (the
+  # handler imports sorteos.uy.backfill, which imports the HTTP client) and was only caught
+  # by `make uy-silver-local`. Here the handler is imported INSIDE the built image.
+  uy-silver-image:
+    name: uy silver (lock in sync + image builds and imports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install pip-tools
+        run: pip install "pip-tools==${PIP_TOOLS_VERSION}"
+
+      # Slow on a cold cache: pip-compile downloads every pyarrow wheel to hash it.
+      - name: lock is in sync with its input
+        run: |
+          make uy-silver-lock
+          git diff --exit-code -- requirements/uy-silver.lock \
+            || { echo "::error::requirements/uy-silver.lock is stale — run 'make uy-silver-lock' and commit it"; exit 1; }
+
+      - name: image builds (linux/amd64, no provenance, as uy-silver-push builds it)
+        run: |
+          docker buildx build --platform linux/amd64 --provenance=false --load \
+            -f docker/uy-silver/Dockerfile -t uy-silver:ci .
+
+      - name: the handler and its heavy dependencies import inside the image
+        run: |
+          docker run --rm --entrypoint python uy-silver:ci -c \
+            "import sorteos.uy.lambda_silver, pyarrow, pdfplumber, yaml, requests; print('imports ok')"
+
+  # -------------------------------------------------------------------------------------
   tf-validate:
     name: terraform validate
     runs-on: ubuntu-latest

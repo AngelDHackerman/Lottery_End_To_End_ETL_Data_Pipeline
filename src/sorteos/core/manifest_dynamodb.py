@@ -126,6 +126,15 @@ def from_dynamo(raw: Mapping[str, Any], columns: tuple[str, ...]) -> dict[str, A
     }
 
 
+def decoded(row: dict) -> dict:
+    """A STATE row as ``get()`` returns it: ``games``/``warnings`` as tuples, ``extra`` a dict."""
+    row = dict(row)
+    row["games"] = tuple(json.loads(row["games"] or "[]"))
+    row["warnings"] = tuple(json.loads(row["warnings"] or "[]"))
+    row["extra"] = json.loads(row["extra"] or "{}")
+    return row
+
+
 class DynamoManifest:
     def __init__(
         self,
@@ -156,12 +165,7 @@ class DynamoManifest:
 
     def get(self, source: str, day: date) -> dict | None:
         row = self._state(source, day.isoformat())
-        if row is None:
-            return None
-        row["games"] = tuple(json.loads(row["games"] or "[]"))
-        row["warnings"] = tuple(json.loads(row["warnings"] or "[]"))
-        row["extra"] = json.loads(row["extra"] or "{}")
-        return row
+        return decoded(row) if row else None
 
     def effective_state(self, source: str, day: date) -> str | None:
         row = self._state(source, day.isoformat())
@@ -261,6 +265,21 @@ class DynamoManifest:
 
     # --- the whole table -------------------------------------------------------------------
 
+    def snapshot(self) -> ManifestSnapshot:
+        """Every STATE row, read once with one Scan, as a read-only manifest (UY-042.4.1).
+
+        For a reader that asks about thousands of keys and writes none (the silver Lambda):
+        one Scan of the table instead of two GetItems per day. LOG items are not read.
+        """
+        pages = self._client.get_paginator("scan").paginate(
+            TableName=self._table,
+            FilterExpression="sk = :state",
+            ExpressionAttributeValues=to_dynamo({":state": STATE_SK}),
+            ConsistentRead=True,
+        )
+        rows = [from_dynamo(raw, MANIFEST_COLUMNS) for page in pages for raw in page["Items"]]
+        return ManifestSnapshot(rows, self.overrides)
+
     def _states(self) -> Iterator[dict]:
         pages = self._client.get_paginator("scan").paginate(
             TableName=self._table,
@@ -310,3 +329,69 @@ class DynamoManifest:
             and effective_state(self.overrides, source, date.fromisoformat(day), state)
             not in FINAL_STATES
         ]
+
+
+class ReadOnlyManifestError(RuntimeError):
+    pass
+
+
+class ManifestSnapshot:
+    """The manifest's STATE rows at one moment, answered from memory (UY-042.4.1).
+
+    The same answers as the manifest it was taken from, for the methods a reader uses. It
+    never writes: ``record()`` raises, and so does ``history()``, whose LOG rows it never read.
+    """
+
+    def __init__(
+        self,
+        rows: list[dict],
+        overrides: Mapping[tuple[str, date], Override] | None = None,
+    ) -> None:
+        self.overrides = dict(overrides or {})
+        self._rows = {(r["source"], r["draw_date"]): r for r in rows}
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def rows(self) -> list[dict]:
+        """Every stored row, undecoded (JSON columns as text), sorted by key."""
+        return [self._rows[k] for k in sorted(self._rows)]
+
+    def close(self) -> None:
+        pass
+
+    def get(self, source: str, day: date) -> dict | None:
+        row = self._rows.get((source, day.isoformat()))
+        return decoded(row) if row else None
+
+    def effective_state(self, source: str, day: date) -> str | None:
+        row = self._rows.get((source, day.isoformat()))
+        return effective_state(self.overrides, source, day, row["state"] if row else None)
+
+    def summary(self) -> list[tuple[str, str, int]]:
+        counts: dict[tuple[str, str], int] = {}
+        for (source, _), row in self._rows.items():
+            key = (source, row["state"])
+            counts[key] = counts.get(key, 0) + 1
+        return [(source, state, n) for (source, state), n in sorted(counts.items())]
+
+    def date_range(self, source: str) -> tuple[str, str] | None:
+        days = [d for (s, d), r in self._rows.items() if s == source and r["state"] == DRAW]
+        return (min(days), max(days)) if days else None
+
+    def open_keys(self) -> list[tuple[str, date]]:
+        keys = sorted((d, s) for (s, d), r in self._rows.items() if r["state"] not in FINAL_STATES)
+        return [
+            (s, date.fromisoformat(d))
+            for d, s in keys
+            if effective_state(
+                self.overrides, s, date.fromisoformat(d), self._rows[(s, d)]["state"]
+            )
+            not in FINAL_STATES
+        ]
+
+    def history(self, source: str, day: date, limit: int) -> list[dict]:
+        raise ReadOnlyManifestError("a snapshot holds no fetch_log; use DynamoManifest")
+
+    def record(self, rec: Record) -> str:
+        raise ReadOnlyManifestError("a snapshot is read-only; record() goes to DynamoManifest")
