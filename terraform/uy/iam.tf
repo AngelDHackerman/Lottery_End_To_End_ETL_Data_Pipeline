@@ -1,15 +1,16 @@
 # The three UY roles (UY-041.1). Each one can touch only its own layer under uy/:
 #
-#   role                 uy/raw/        uy/silver/     logs
-#   fetch Lambda         read + write   -              its function's group
-#   silver Lambda        read           read + write   its function's group
-#   GX Glue job          -              read           /aws-glue/* (Glue picks the group)
+#   role                 uy/raw/        uy/silver/     manifest (DynamoDB)   logs
+#   fetch Lambda         read + write   -              read + write          its function's group
+#   silver Lambda        read           read + write   read                  its function's group
+#   GX Glue job          -              read           -                     /aws-glue/* (Glue picks the group)
 #
 # No role here has s3:DeleteObject. The bucket's out-of-band Deny (PR-002) would refuse it
 # anyway, and the one writer that deletes on disk (core/silver.py removing a partition that
 # disappeared) is an open item for UY-042, where the silver Lambda's S3 path is designed.
 #
-# DynamoDB (manifest) and ECR (silver image) grants come with those resources in UY-041.2.
+# The manifest grants (UY-041.2) name the table and its index. Nothing here grants ECR: Lambda
+# pulls the silver image as the service, through the repository policy (ecr.tf).
 
 data "aws_iam_policy_document" "lambda_assume" {
   statement {
@@ -60,6 +61,26 @@ data "aws_iam_policy_document" "fetch_lambda" {
       variable = "s3:prefix"
       values   = [local.raw_prefix, "${local.raw_prefix}*"]
     }
+  }
+
+  # record() is one TransactWriteItems (the STATE item and its LOG# item). IAM authorises a
+  # transaction per item, as PutItem/UpdateItem/ConditionCheckItem, so those are the actions.
+  # No DeleteItem: the manifest never forgets a key.
+  statement {
+    sid    = "ReadWriteManifest"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:ConditionCheckItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+    ]
+    resources = [
+      aws_dynamodb_table.manifest.arn,
+      "${aws_dynamodb_table.manifest.arn}/index/*",
+    ]
   }
 
   # No logs:CreateLogGroup: the group is declared in Terraform before the function exists
@@ -113,6 +134,17 @@ data "aws_iam_policy_document" "silver_lambda" {
         local.silver_prefix, "${local.silver_prefix}*",
       ]
     }
+  }
+
+  # Silver reads which days are `draw` (date_range, build_year); only fetch writes the manifest.
+  statement {
+    sid     = "ReadManifest"
+    effect  = "Allow"
+    actions = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan"]
+    resources = [
+      aws_dynamodb_table.manifest.arn,
+      "${aws_dynamodb_table.manifest.arn}/index/*",
+    ]
   }
 
   statement {

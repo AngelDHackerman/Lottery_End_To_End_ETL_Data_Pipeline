@@ -24,3 +24,9 @@ variable "enable_iam_allowed_principals_compat" {
   type        = bool
   default     = true
 }
+
+variable "ecr_images_to_keep" {
+  description = "How many images of the silver Lambda the ECR lifecycle policy keeps (UY-041.2)."
+  type        = number
+  default     = 5
+}
