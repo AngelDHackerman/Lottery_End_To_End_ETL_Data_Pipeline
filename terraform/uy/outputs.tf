@@ -39,3 +39,17 @@ output "function_names" {
     silver = local.silver_function_name
   }
 }
+
+output "manifest_table" {
+  description = "The DynamoDB manifest (D28, P16) and its sparse index of open keys."
+  value = {
+    name       = aws_dynamodb_table.manifest.name
+    arn        = aws_dynamodb_table.manifest.arn
+    open_index = "open-keys"
+  }
+}
+
+output "silver_ecr_repository_url" {
+  description = "Where UY-042 pushes the silver Lambda image (D29)."
+  value       = aws_ecr_repository.silver.repository_url
+}

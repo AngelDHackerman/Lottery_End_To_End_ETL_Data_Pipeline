@@ -7,7 +7,9 @@
 # Holds (UY-041.1):
 #   - the Glue database lottery_uy_db and its Lake Formation registration of uy/silver (D25)
 #   - the three roles: fetch Lambda, silver Lambda, GX Glue job (iam.tf)
-# Next (UY-041.2): the DynamoDB manifest table (P16) and the ECR repo for the silver image (D29).
+# Holds (UY-041.2):
+#   - the DynamoDB manifest table (P16, manifest.tf)
+#   - the ECR repository for the silver Lambda's image (D29, ecr.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here
