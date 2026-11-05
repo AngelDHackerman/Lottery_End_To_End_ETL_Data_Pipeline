@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -284,6 +284,21 @@ uy-silver-invoke: ## Invoke the silver Lambda on UY_YEAR; writes to uy/silver/ u
 	  dist/uy/silver.json --query FunctionError --output text | grep -qx None \
 	  || { cat dist/uy/silver.json; echo; echo "The silver Lambda failed (see above)"; exit 1; }
 	@python -m json.tool dist/uy/silver.json
+
+# UY-042.4.2: all of UY silver in the cloud, then the proof. The backfill invokes the silver
+# Lambda once per year, in order (owner, 1a), and finalize last; the first error stops it. The
+# reconciliation builds local silver NOW into a temporary folder (owner, 2a; data/uy/silver is
+# not touched) and compares every table row by row with uy/silver/, ingested_at and run_id
+# aside. Run both on the same day: draw_gaps depends on today's date in Uruguay. From a
+# worktree, point UY_ROOT at the main tree's data/uy (manifest.sqlite + bronze).
+UY_ROOT ?= data/uy
+
+uy-silver-backfill: ## Rebuild all UY silver in the cloud, one Lambda invocation per year, then draw_gaps (UY-042.4.2; writes uy/silver/)
+	PYTHONPATH=src python -m sorteos.uy.silver_backfill --function $(UY_SILVER_FUNCTION) \
+	  --table $(UY_MANIFEST_TABLE) $(if $(UY_YEARS),--years $(UY_YEARS))
+
+uy-silver-reconcile: ## Build local silver now and compare it row by row with uy/silver/ in S3 (UY-042.4.2; read-only)
+	PYTHONPATH=src python -m sorteos.uy.silver_compare --root $(UY_ROOT) --bucket $(UY_BUCKET)
 
 uy-dq-sync: ## Regenerate qa/uy/expectations/ from src/sorteos/uy/dq/suites.py (UY-026)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --sync-suites
