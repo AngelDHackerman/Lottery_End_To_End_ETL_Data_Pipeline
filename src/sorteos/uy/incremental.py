@@ -21,6 +21,11 @@ with ``make uy-silver`` first: the incremental only rewrites the years it touche
 Last, the gap detector rewrites ``draw_gaps`` (step 2 in DESIGN), on every run, even when
 nothing changed: a site that stops publishing changes nothing, and that is the gap to see.
 It skips when silver has quarantine and the run exits 1 (owner, UY-028 3a).
+
+**Two steps (UY-043.1).** ``fetch_step`` asks the site and returns what changed; ``silver_step``
+rewrites those years and ``draw_gaps``. Neither knows where the manifest, bronze or silver
+live, so the cloud runs the same two steps in two Lambdas (UY-043.2), with the pending years
+in DynamoDB instead of ``silver_pending.json``. ``main`` is the local run: both, in order.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import argparse
 import json
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -51,6 +57,77 @@ def window_start(manifest: mf.Manifest, today: date) -> date:
     if span:
         start = min(start, date.fromisoformat(span[1]) + timedelta(days=1))
     return start
+
+
+@dataclass(frozen=True)
+class Fetched:
+    """What ``fetch_step`` did: the window, the old open keys it also asked for, the counts."""
+
+    start: date
+    today: date
+    older: int
+    stats: backfill.RunStats
+
+    @property
+    def years(self) -> set[int]:
+        """The years silver has to rewrite (D17)."""
+        return {day.year for _, day in self.stats.changed}
+
+    def lines(self) -> list[str]:
+        return [
+            f"window {self.start} .. {self.today}, open keys before it: {self.older}",
+            f"requests {self.stats.requests}, skipped {self.stats.skipped}, "
+            f"changed {len(self.stats.changed)}",
+            *(f"changed {source} {day}" for source, day in sorted(self.stats.changed)),
+        ]
+
+
+def fetch_step(
+    client: PoliteClient,
+    store,
+    manifest: mf.Manifest,
+    today: date,
+    max_requests: int | None = None,
+) -> Fetched:
+    """Ask for the window and for every older open key; write bronze and the manifest."""
+    start = window_start(manifest, today)
+    older = [(source, day) for source, day in manifest.open_keys() if day < start]
+    job = backfill.Backfill(
+        client,
+        store,
+        manifest,
+        sources=backfill.resolve_sources(SOURCES),
+        today=today,
+        max_requests=max_requests,
+    )
+    job.run(start, today)
+    stats = job.run_keys(older)
+    logger.info(
+        "incremental fetched",
+        extra={
+            "start": start.isoformat(),
+            "open_keys_before_start": len(older),
+            "requests": stats.requests,
+            "skipped": stats.skipped,
+            "changed": len(stats.changed),
+            **stats.by_state,
+        },
+    )
+    return Fetched(start, today, len(older), stats)
+
+
+def silver_step(
+    manifest: mf.Manifest, store, out: Path, years: set[int], today: date
+) -> tuple[list[str], build_silver.GapReport]:
+    """Rewrite ``years`` (none: silver is left alone), then ``draw_gaps``, always."""
+    run = build_silver.new_run("incremental")
+    if years:
+        counts = build_silver.rebuild(manifest, store, out, sorted(years), run)
+        lines = [build_silver.format_counts(counts)]
+    else:
+        lines = ["silver: nothing changed"]
+    report = build_silver.detect_gaps(out, run, today)
+    return [*lines, build_silver.format_gaps(report)], report
 
 
 def read_pending(path: Path) -> set[int]:
@@ -84,48 +161,19 @@ def main(argv: list[str] | None = None, *, client: PoliteClient | None = None) -
     store = bronze.BronzeStore(args.root, COUNTRY)
     try:
         today = backfill.today_in_uruguay()
-        start = window_start(manifest, today)
-        older = [(source, day) for source, day in manifest.open_keys() if day < start]
-        job = backfill.Backfill(
-            client or privacy.polite_client(),
-            store,
-            manifest,
-            sources=backfill.resolve_sources(SOURCES),
-            today=today,
-            max_requests=args.max_requests,
+        fetched = fetch_step(
+            client or privacy.polite_client(), store, manifest, today, args.max_requests
         )
-        job.run(start, today)
-        stats = job.run_keys(older)
-        logger.info(
-            "incremental fetched",
-            extra={
-                "start": start.isoformat(),
-                "open_keys_before_start": len(older),
-                "requests": stats.requests,
-                "skipped": stats.skipped,
-                "changed": len(stats.changed),
-                **stats.by_state,
-            },
-        )
-
+        # Written before silver starts and removed when it ends: a run cut in between still
+        # rewrites these years next time, when the manifest no longer changes.
         pending_path = args.root / PENDING
-        years = read_pending(pending_path) | {day.year for _, day in stats.changed}
-        lines = [
-            f"window {start} .. {today}, open keys before it: {len(older)}",
-            f"requests {stats.requests}, skipped {stats.skipped}, changed {len(stats.changed)}",
-            *(f"changed {source} {day}" for source, day in sorted(stats.changed)),
-        ]
-        run = build_silver.new_run("incremental")
+        years = read_pending(pending_path) | fetched.years
         if years:
             write_pending(pending_path, years)
-            counts = build_silver.rebuild(manifest, store, args.silver, sorted(years), run)
+        lines, report = silver_step(manifest, store, args.silver, years, today)
+        if years:
             pending_path.unlink()
-            lines.append(build_silver.format_counts(counts))
-        else:
-            lines.append("silver: nothing changed")
-        report = build_silver.detect_gaps(args.silver, run, today)
-        lines.append(build_silver.format_gaps(report))
-        print("\n".join(lines), file=sys.stderr)
+        print("\n".join([*fetched.lines(), *lines]), file=sys.stderr)
     finally:
         manifest.close()
     return 0 if report.rows is not None else 1

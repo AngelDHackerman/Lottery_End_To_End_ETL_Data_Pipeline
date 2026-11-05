@@ -1060,14 +1060,17 @@ número de sorteo lee siempre. Medido con la imagen en local contra la nube (202
 en ~1 minuto en total (Scan 16,6 s, 2.015 archivos y 149 MB de bronce en 16,3 s, build 25,8 s,
 el año 15,4 s), con los mismos 645 sorteos y 0 en cuarentena que la plata local.
 
-**Abierto para UY-043 (encontrado en UY-042.3, owner 1a):** `ver_resultados` trae la hora de la
-consulta (`Zona_Fecha`) y una barra con los sorteos de *hoy*, así que su SHA-256 cambia en cada
-petición aunque el sorteo no cambie (el parser da el mismo resultado). `Fetcher._snapshot` compara
-ese SHA, y cada vez que el incremental vuelve a pedir una página de `resultados` que se está
-asentando la cuenta como cambiada: la corrida del 2026-10-31 listó el 29, 30 y 31. Hoy cuesta
-casi nada, porque el año en curso se reescribe igual, pero el docstring de `_may_grow` dice lo
-contrario y en UY-043 esa señal pasa de la Lambda fetch a la silver. Arreglo previsto: comparar la
-página parseada, no los bytes.
+**Cerrado en UY-043.1 (encontrado en UY-042.3).** `ver_resultados` trae la hora de la consulta
+(`Zona_Fecha`) y una barra con los sorteos de *hoy*, así que su SHA-256 cambia en cada petición
+aunque el sorteo no cambie: la corrida del 2026-10-31 listó como cambiados el 29, el 30 y el 31.
+Ahora, cuando una página de `resultados` vuelve con otros bytes pero se parsea y se clasifica
+igual que la del bronce, **se queda la página vieja** (owner, UY-043.1 1a): el bronce no se
+reescribe, el manifiesto conserva su SHA-256 y la clave no cuenta como cambio. La consulta igual
+queda en el historial (`attempts` sube). Así el `source_sha256` de silver siempre es una página que
+existe en el bronce. Se compara también la clasificación porque el manifiesto guarda algo que el
+parser no lee: el enlace al PDF de pozos, que aparece días después. Si la página vieja no se puede
+leer, o no es la que dice el manifiesto, se escribe la nueva, que es el lado seguro. Las otras
+fuentes no tienen el problema: el probe de D26 dio los mismos bytes en 7 de 8.
 
 ### Lo que hereda cada PR de la Fase 5
 

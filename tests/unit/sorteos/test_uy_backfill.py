@@ -119,7 +119,8 @@ def test_a_recent_results_page_is_asked_again_until_it_settles(stores):
     assert client.calls == [url, url]
     assert same.changed == set() and same.skipped == 0
 
-    client.pages[url] = (200, page + b"\n")  # the page grew
+    # the page grew: a number it did not have (other bytes alone are not a change, UY-043.1)
+    client.pages[url] = (200, page.replace(b"316   ", b"317   ", 1))
     grown = job(client, stores, today=date(2016, 7, 8), srcs="resultados").run(DAY, DAY)
     assert grown.changed == {("resultados", DAY)}
 
