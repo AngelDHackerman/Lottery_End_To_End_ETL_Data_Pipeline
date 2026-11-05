@@ -21,6 +21,7 @@ extract per game drawn. ``--max-requests`` caps a session.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
 import sys
 from collections.abc import Iterable, Iterator
@@ -33,6 +34,7 @@ from sorteos.core import bronze
 from sorteos.core import manifest as mf
 from sorteos.core.http_client import FetchError, PoliteClient
 from sorteos.uy import classify, privacy
+from sorteos.uy.parsers import resultados
 from sorteos.uy.sources import ALL_SOURCES, COUNTRY, RESULTADOS, SOURCE_GROUPS, Source
 
 logger = logging.getLogger(__name__)
@@ -135,7 +137,7 @@ class Backfill:
     def _may_grow(self, source: Source, day: date, state: str) -> bool:
         """A recent results page in ``draw`` is asked again until it settles: fetched at 16:22,
         it lists the Vespertina only, and the Nocturna (out after 21:20) would never be found
-        (UY-027.1, 2026-10-29). The same content again is not a change."""
+        (UY-027.1, 2026-10-29). The same parsed page again is not a change (``_same_page``)."""
         return (
             source is RESULTADOS and state == mf.DRAW and (self.today - day).days < self.settle_days
         )
@@ -171,9 +173,14 @@ class Backfill:
         verdict = self._classify(source, day, result.status, result.content)
         state = self._state_for(source, day, verdict)
         key = None
+        content = result.content
         if state == mf.DRAW:
             key = self.store.key(source.name, day, source.extension)
-            self.store.write(key, result.content)
+            kept = self._same_page(source, day, key, content, verdict)
+            if kept is None:
+                self.store.write(key, content)
+            else:
+                content = kept
         self._record(
             mf.Record(
                 source=source.name,
@@ -186,13 +193,48 @@ class Backfill:
                 warnings=verdict.warnings,
                 extra=verdict.extra,
                 detail=verdict.detail,
-                content=result.content,
+                content=content,
                 bronze_key=key,
                 content_type=result.headers.get("Content-Type"),
                 last_modified=result.headers.get("Last-Modified"),
                 classifier_version=classify.CLASSIFIER_VERSION,
             )
         )
+
+    def _same_page(
+        self, source: Source, day: date, key: str, content: bytes, verdict
+    ) -> bytes | None:
+        """The page already in bronze, when ``content`` says the same thing in other bytes.
+
+        Every fetch of ``ver_resultados`` carries its own time (``Zona_Fecha``) and a box with
+        *today's* draws, so its SHA-256 moves on every request even when the draw does not
+        (UY-042.3). A page that parses and classifies as the one in bronze keeps the bytes
+        already there (owner, UY-043.1 1a): bronze is not rewritten, the manifest keeps its
+        SHA-256, so silver's ``source_sha256`` stays a page that exists, and the key is not a
+        change. The fetch is still an attempt in the history. The classification is compared
+        too because the manifest keeps what the parser does not read: the pozos link.
+
+        Only the results page: the other sources answer the same bytes twice (the D26 probe,
+        7 of 8). An old page that cannot be read is a change, which is the safe side: a year
+        rewritten for nothing.
+        """
+        if source is not RESULTADOS:
+            return None
+        row = self.manifest.get(source.name, day)
+        if not row or row["state"] != mf.DRAW or row["bronze_key"] != key:
+            return None
+        try:
+            old = self.store.read(key)
+        except Exception as exc:  # local or S3: any failure means "write the new page"
+            logger.warning("old page unreadable", extra={"key": key, "error": str(exc)})
+            return None
+        if hashlib.sha256(old).hexdigest() != row["content_sha256"]:
+            return None  # bronze is not the page the manifest fetched: replace both
+        same = old == content or (
+            parsed_page(old, day) == parsed_page(content, day)
+            and self._classify(source, day, 200, old) == verdict
+        )
+        return old if same else None
 
     @staticmethod
     def _classify(source: Source, day: date, status: int, content: bytes):
@@ -236,6 +278,14 @@ class Backfill:
     def _snapshot(self, source: str, day: date) -> tuple[str | None, str | None]:
         row = self.manifest.get(source, day)
         return self.manifest.effective_state(source, day), row and row["content_sha256"]
+
+
+def parsed_page(content: bytes, day: date) -> object:
+    """What silver reads from a results page; a page it rejects compares by its reason."""
+    try:
+        return resultados.parse(content, day)
+    except ValueError as exc:  # PageError, or a date the page cannot hold
+        return f"{type(exc).__name__}: {exc}"
 
 
 def resolve_sources(spec: str) -> list[Source]:

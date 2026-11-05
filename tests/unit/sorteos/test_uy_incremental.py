@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import date, timedelta
 
@@ -14,6 +15,7 @@ from test_uy_backfill import (  # pytest puts this directory on sys.path
     POZOS,
     UY,
     FakeClient,
+    extract,
     job,
     july_2016,
     root_logger_restored,  # noqa: F401 (a fixture)
@@ -75,13 +77,89 @@ def test_the_same_failure_again_is_no_change_until_it_closes_the_key(stores):
     assert runs[2].changed == {("pozos_5_de_oro", DAY)}  # error -> missing (D11)
 
 
-def test_a_page_whose_content_moves_is_changed_even_in_the_same_state(stores):
+PAGE = (UY / "resultados_2016-07-06.html").read_bytes()
+
+
+def refetch(stores, content: bytes) -> backfill.RunStats:
+    """Fetch the 2016-07-06 results page, then fetch it again as ``content``."""
     client = FakeClient(july_2016())
     job(client, stores, srcs="resultados").run(DAY, DAY)
-    other = (UY / "resultados_2016-07-06.html").read_bytes() + b"\n"
-    client.pages[sources.RESULTADOS.url(DAY)] = (200, other)
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, content)
+    return job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+
+
+def bronze_page(stores) -> bytes:
+    store, manifest = stores
+    return store.read(manifest.get("resultados", DAY)["bronze_key"])
+
+
+def test_a_refetch_that_parses_the_same_keeps_the_page_in_bronze(stores):
+    # Each fetch of ver_resultados carries its own "today" box: other bytes, same draws.
+    later = PAGE.replace(b"Domingo 4 de Octubre de 2026", b"Lunes 5 de Octubre de 2026")
+    assert later != PAGE
+    stats = refetch(stores, later)
+    assert stats.changed == set() and stats.requests == 1
+    row = stores[1].get("resultados", DAY)
+    assert bronze_page(stores) == PAGE  # bronze is the first page: silver's lineage holds
+    assert row["content_sha256"] == hashlib.sha256(PAGE).hexdigest()
+    assert row["attempts"] == 2  # the fetch is still in the history
+
+
+def test_a_refetch_with_other_numbers_is_a_change(stores):
+    later = PAGE.replace(b"316                    </div>", b"317                    </div>", 1)
+    assert later != PAGE
+    assert refetch(stores, later).changed == {("resultados", DAY)}
+    assert bronze_page(stores) == later
+
+
+def test_a_pozos_link_that_appears_is_a_change(stores):
+    # The parser does not read it, but the manifest keeps it and the pozos PDF depends on it.
+    client = FakeClient(july_2016())
+    before = PAGE.replace(b"RES_INFORMACION_DE_POZOS", b"RES_OTRA_COSA")
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, before)
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    assert "pozos_url" not in stores[1].get("resultados", DAY)["extra"]
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, PAGE)
     stats = job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
     assert stats.changed == {("resultados", DAY)}
+    assert stores[1].get("resultados", DAY)["extra"]["pozos_url"] == POZOS
+    assert bronze_page(stores) == PAGE
+
+
+def test_a_bronze_page_that_is_not_the_manifests_is_replaced(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    store, manifest = stores
+    store.write(manifest.get("resultados", DAY)["bronze_key"], b"<html>damaged</html>")
+    stats = job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+    assert stats.changed == set()  # same bytes as the manifest's: nothing moved for silver
+    assert bronze_page(stores) == PAGE  # but bronze is the page again
+
+
+def test_an_old_page_that_cannot_be_read_is_replaced(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    store, manifest = stores
+    (store.root / manifest.get("resultados", DAY)["bronze_key"]).unlink()
+    later = PAGE.replace(b"Domingo 4 de Octubre de 2026", b"Lunes 5 de Octubre de 2026")
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, later)
+    stats = job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+    assert stats.changed == {("resultados", DAY)}  # the safe side: silver rewrites the year
+    assert bronze_page(stores) == later
+
+
+def test_a_page_the_parser_rejects_compares_by_its_reason():
+    assert backfill.parsed_page(EMPTY_DAY, DAY) == "PageError: no game blocks"
+    assert backfill.parsed_page(PAGE, DAY) == backfill.parsed_page(PAGE + b"\n", DAY)
+
+
+def test_only_the_results_page_is_compared_by_its_parse(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados,extractos").run(DAY, DAY)
+    php = sources.EXTRACTOS_PHP[0]
+    client.pages[php.url(DAY)] = (200, extract(DAY) + b"\n")
+    stats = job(client, stores, srcs="resultados,extractos", refresh=True).run(DAY, DAY)
+    assert stats.changed == {(php.name, DAY)}
 
 
 def test_run_keys_asks_for_that_key_only(stores):
