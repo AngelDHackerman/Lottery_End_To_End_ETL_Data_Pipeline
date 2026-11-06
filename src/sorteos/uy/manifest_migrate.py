@@ -19,7 +19,8 @@ local file over it would undo fetches.
 **The proof**, after writing or with ``--check``:
 
 - every item of the table equals the one SQLite gives, field by field, and nothing else is
-  there: 21,726 STATE and 21,803 LOG items on 2026-11-02;
+  there: 21,726 STATE and 21,803 LOG items on 2026-11-02 (``PENDING#silver`` is not a
+  manifest row and is left out of both sides);
 - through the ``Manifest`` interface, both backends answer the same ``summary()``,
   ``date_range()`` of every source and ``open_keys()`` (with ``manual_overrides.csv``).
 
@@ -29,6 +30,7 @@ The exit code is 0 when the proof holds, 1 when it does not and 2 when the write
 from __future__ import annotations
 
 import argparse
+import re
 import sqlite3
 import sys
 import time
@@ -48,6 +50,9 @@ Key = tuple[str, str]  # (pk, sk)
 BATCH = 25  # BatchWriteItem's limit
 MAX_ROUNDS = 8  # retries of UnprocessedItems, with backoff
 SHOW = 10
+# A manifest key, ``<source>#<YYYY-MM-DD>``. Any other item (``PENDING#silver``, UY-043.2) is
+# not a manifest row: SQLite never had it, so the copy and its proof ignore it.
+MANIFEST_PK = re.compile(r"[a-z0-9_]+#\d{4}-\d{2}-\d{2}")
 
 _deserializer = TypeDeserializer()
 
@@ -87,7 +92,8 @@ def table_items(client, table: str) -> dict[Key, dict[str, Any]]:
     for page in client.get_paginator("scan").paginate(TableName=table, ConsistentRead=True):
         for raw in page["Items"]:
             item = _plain(raw)
-            out[(item["pk"], item["sk"])] = item
+            if MANIFEST_PK.fullmatch(item["pk"]):
+                out[(item["pk"], item["sk"])] = item
     return out
 
 

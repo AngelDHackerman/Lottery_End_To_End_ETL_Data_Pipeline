@@ -127,9 +127,16 @@ def test_the_real_client_keeps_the_privacy_guard():
 
 @pytest.mark.parametrize(
     "event, problem",
-    [({"mode": "fetch"}, "only 'probe'"), ({"sources": ["kini"]}, "unknown sources")],
+    [
+        ({"mode": "fetch"}, "'probe' or 'incremental'"),
+        ({"sources": ["kini"]}, "unknown sources"),
+        ({"mode": "incremental", "max_requests": 0}, "positive integer"),
+        ({"mode": "incremental", "max_requests": "50"}, "positive integer"),
+        ({"mode": "incremental", "max_requests": True}, "positive integer"),
+        ({"mode": "incremental", "max_requests": None}, "positive integer"),
+    ],
 )
-def test_the_handler_refuses_what_is_not_a_probe_yet(event, problem):
+def test_the_handler_refuses_a_bad_event(event, problem):
     with pytest.raises(ValueError, match=problem):
         lambda_fetch.handler(event)
 

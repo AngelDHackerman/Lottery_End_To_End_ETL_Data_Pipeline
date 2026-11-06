@@ -19,7 +19,7 @@ import pytest
 
 from sorteos.core import manifest as mf
 from sorteos.core import silver as core_silver
-from sorteos.core.manifest_dynamodb import DynamoManifest
+from sorteos.core.manifest_dynamodb import DynamoManifest, PendingYears
 from sorteos.uy import build_silver
 from sorteos.uy import lambda_silver as ls
 
@@ -155,6 +155,7 @@ def test_finalize_rewrites_the_gaps_and_fails_on_quarantine(s3, env, monkeypatch
         ({"years": [2005]}, "years must be"),
         ({"years": "2016"}, "years must be"),
         ({"years": [True]}, "years must be"),
+        ({"years": [2016], "pending": True}, "not both"),
     ],
 )
 def test_the_handler_refuses_a_bad_event(event, problem):
@@ -219,3 +220,77 @@ def test_a_warm_container_starts_from_an_empty_work_root(s3, env, monkeypatch):
     monkeypatch.setattr(build_silver, "rebuild", fake_rebuild(lambda root: None))
     ls.handler({"years": [2016], "dry_run": True}, s3=s3)
     assert not (env / "bronze" / "stale.html").exists()
+
+
+# --- the incremental: years from PENDING#silver (UY-043.2) --------------------------------
+
+
+def built_years(monkeypatch, during=lambda: None):
+    """Fake the build; return the list of years it was asked for. ``during`` runs mid-build."""
+    asked: list[int] = []
+
+    def rebuild(manifest, bronze, out, years, run):
+        asked.extend(years)
+        during()
+        (out / DRAWS_2016).parent.mkdir(parents=True, exist_ok=True)
+        (out / DRAWS_2016).write_bytes(parquet("draws", 4))
+        return [build_silver.YearCount(year=y, draws=10, seconds=1.0) for y in years]
+
+    monkeypatch.setattr(build_silver, "rebuild", rebuild)
+    return asked
+
+
+def test_pending_rebuilds_the_years_of_the_item_and_clears_them(s3, env, monkeypatch, dynamodb):
+    PendingYears(TABLE, dynamodb).add({2016})
+    asked = built_years(monkeypatch)
+    report = ls.handler({"pending": True}, s3=s3, dynamodb=dynamodb)
+    assert asked == [2016]
+    assert report["put"] == [DRAWS_2016]
+    assert report["pending"] == {"years": [2016], "rev": 1, "cleared": True}
+    assert PendingYears(TABLE, dynamodb).read().years == frozenset()
+
+
+def test_no_pending_year_only_finalizes(s3, env, monkeypatch, dynamodb):
+    monkeypatch.setattr(build_silver, "rebuild", lambda *a: pytest.fail("nothing is pending"))
+    monkeypatch.setattr(
+        build_silver, "detect_gaps", lambda out, run, today: build_silver.GapReport([], 0)
+    )
+    report = ls.handler({"pending": True, "finalize": True}, s3=s3, dynamodb=dynamodb)
+    assert report["pending"] == {"years": [], "rev": 0, "cleared": True}
+    assert report["ok"] is True and "manifest" not in report["timings"]
+
+
+def test_a_pending_dry_run_leaves_the_item(s3, env, monkeypatch, dynamodb):
+    PendingYears(TABLE, dynamodb).add({2016})
+    built_years(monkeypatch)
+    report = ls.handler({"pending": True, "dry_run": True}, s3=s3, dynamodb=dynamodb)
+    assert report["pending"]["cleared"] is False
+    assert PendingYears(TABLE, dynamodb).read().years == {2016}
+
+
+def test_a_fetch_during_the_build_keeps_its_year_pending(s3, env, monkeypatch, dynamodb):
+    PendingYears(TABLE, dynamodb).add({2016})
+    built_years(monkeypatch, during=lambda: PendingYears(TABLE, dynamodb).add({2016}))
+    report = ls.handler({"pending": True}, s3=s3, dynamodb=dynamodb)
+    assert report["pending"]["cleared"] is False
+    assert PendingYears(TABLE, dynamodb).read().years == {2016}
+
+
+def test_a_build_that_fails_keeps_its_years_pending(s3, env, monkeypatch, dynamodb):
+    PendingYears(TABLE, dynamodb).add({2016})
+
+    def boom():
+        raise RuntimeError("the build died")
+
+    built_years(monkeypatch, during=boom)
+    with pytest.raises(RuntimeError, match="died"):
+        ls.handler({"pending": True}, s3=s3, dynamodb=dynamodb)
+    assert PendingYears(TABLE, dynamodb).read().years == {2016}
+
+
+def test_years_by_hand_never_touch_the_pending_item(s3, env, monkeypatch, dynamodb):
+    PendingYears(TABLE, dynamodb).add({2025})
+    asked = built_years(monkeypatch)
+    report = ls.handler({"years": [2016]}, s3=s3, dynamodb=dynamodb)
+    assert asked == [2016] and "pending" not in report
+    assert PendingYears(TABLE, dynamodb).read().years == {2025}

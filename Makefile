@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -219,6 +219,18 @@ uy-fetch-probe: ## Invoke the fetch Lambda in probe mode: does the site answer i
 	@python -m json.tool dist/uy/probe.json
 	@python -c "import json, sys; sys.exit(0 if json.load(open('dist/uy/probe.json'))['ok'] else 1)"
 
+# UY-043.2: the nightly fetch, by hand until the Scheduler of UY-043.3. UY_DRY_RUN=1 asks the
+# site and writes nothing (the report says what would change); a real run writes bronze, the
+# manifest and the years PENDING#silver hands to `make uy-silver-pending`.
+uy-fetch-incremental: ## Invoke the fetch Lambda in incremental mode; writes bronze + manifest unless UY_DRY_RUN=1 (UY-043.2)
+	@mkdir -p dist/uy
+	@aws lambda invoke --function-name $(UY_FETCH_FUNCTION) --cli-binary-format raw-in-base64-out \
+	  --cli-read-timeout 960 \
+	  --payload '{"mode": "incremental"$(if $(UY_DRY_RUN),$(comma) "dry_run": true)}' \
+	  dist/uy/fetch.json --query FunctionError --output text | grep -qx None \
+	  || { cat dist/uy/fetch.json; echo; echo "The fetch Lambda failed (see above)"; exit 1; }
+	@python -m json.tool dist/uy/fetch.json
+
 # UY-042.4.1: the silver Lambda image (D29). Its tag is a hash of its inputs, not of the image
 # (docker builds are not reproducible), so an unchanged tree has the same tag: uy-silver-push
 # finds it in ECR and pushes nothing, and uy-tf-plan sees no change. Needs Docker (with buildx).
@@ -284,6 +296,16 @@ uy-silver-invoke: ## Invoke the silver Lambda on UY_YEAR; writes to uy/silver/ u
 	  dist/uy/silver.json --query FunctionError --output text | grep -qx None \
 	  || { cat dist/uy/silver.json; echo; echo "The silver Lambda failed (see above)"; exit 1; }
 	@python -m json.tool dist/uy/silver.json
+
+uy-silver-pending: ## Invoke the silver Lambda on the years in PENDING#silver, then draw_gaps; UY_DRY_RUN=1 writes nothing (UY-043.2)
+	@mkdir -p dist/uy
+	@aws lambda invoke --function-name $(UY_SILVER_FUNCTION) --cli-binary-format raw-in-base64-out \
+	  --cli-read-timeout 960 \
+	  --payload '{"pending": true, "finalize": true$(if $(UY_DRY_RUN),$(comma) "dry_run": true)}' \
+	  dist/uy/silver-pending.json --query FunctionError --output text | grep -qx None \
+	  || { cat dist/uy/silver-pending.json; echo; echo "The silver Lambda failed (see above)"; exit 1; }
+	@python -m json.tool dist/uy/silver-pending.json
+	@python -c "import json, sys; sys.exit(0 if json.load(open('dist/uy/silver-pending.json'))['ok'] else 1)"
 
 # UY-042.4.2: all of UY silver in the cloud, then the proof. The backfill invokes the silver
 # Lambda once per year, in order (owner, 1a), and finalize last; the first error stops it. The

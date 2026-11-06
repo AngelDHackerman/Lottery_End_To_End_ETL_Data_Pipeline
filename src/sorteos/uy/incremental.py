@@ -34,6 +34,7 @@ import argparse
 import json
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -88,8 +89,10 @@ def fetch_step(
     manifest: mf.Manifest,
     today: date,
     max_requests: int | None = None,
+    on_change: Callable[[str, date], None] | None = None,
 ) -> Fetched:
-    """Ask for the window and for every older open key; write bronze and the manifest."""
+    """Ask for the window and for every older open key; write bronze and the manifest.
+    ``on_change(source, day)`` runs as each key changes (``backfill.Backfill``)."""
     start = window_start(manifest, today)
     older = [(source, day) for source, day in manifest.open_keys() if day < start]
     job = backfill.Backfill(
@@ -99,6 +102,7 @@ def fetch_step(
         sources=backfill.resolve_sources(SOURCES),
         today=today,
         max_requests=max_requests,
+        on_change=on_change,
     )
     job.run(start, today)
     stats = job.run_keys(older)

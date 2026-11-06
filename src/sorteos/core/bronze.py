@@ -13,6 +13,8 @@ Two stores, deliberately separate (roadmap-uruguay.md, C3):
 ``S3BronzeStore`` is the same store in the cloud (UY-042.3): the same keys, written under a
 prefix of the data bucket with the leading ``bronze/`` dropped (P15), so the manifest's
 ``bronze_key`` names the file on disk and the object in S3 alike.
+
+``DryRunStore`` wraps either one and keeps its writes in memory (UY-043.2).
 """
 
 from __future__ import annotations
@@ -85,3 +87,26 @@ class S3BronzeStore:
 
     def read(self, key: str) -> bytes:
         return self._client.get_object(Bucket=self.bucket, Key=self.object_key(key))["Body"].read()
+
+
+class DryRunStore:
+    """Any bronze store whose writes stay in memory (the fetch Lambda's dry run, UY-043.2).
+
+    Reads go to the real store unless this run wrote the key, so ``_same_page`` compares a new
+    page with the one really in bronze. ``written`` is what a real run would have put.
+    """
+
+    def __init__(self, store: BronzeStore | S3BronzeStore) -> None:
+        self._store = store
+        self.written: dict[str, bytes] = {}
+
+    def key(self, source: str, day: date, extension: str) -> str:
+        return self._store.key(source, day, extension)
+
+    def write(self, key: str, content: bytes) -> None:
+        self.written[key] = content
+
+    def read(self, key: str) -> bytes:
+        if key in self.written:
+            return self.written[key]
+        return self._store.read(key)

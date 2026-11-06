@@ -1,9 +1,10 @@
 # The fetch Lambda (UY-042.3). DESIGN.md D26, D29.
 #
-# In UY-042.3 it only runs the probe of D26 (`make uy-fetch-probe`): it asks the site again for
-# the newest draw of each source and compares the bytes with the manifest, writing nothing.
-# No schedule here: EventBridge Scheduler and Step Functions arrive in UY-043, with the real
-# fetch, the day the local incremental is switched off (G4).
+# Two modes. The probe of D26 (`make uy-fetch-probe`, UY-042.3) asks the site again for the
+# newest draw of each source and compares the bytes with the manifest, writing nothing. The
+# incremental (UY-043.2, `make uy-fetch-incremental`) is the nightly fetch; it marks the years
+# silver has to rewrite in PENDING#silver. No schedule here: EventBridge Scheduler and Step
+# Functions arrive in UY-043.3, the day the local incremental is switched off (G4).
 #
 # The zip (dist/uy/uy_fetch.zip, `make uy-fetch-build`) is uploaded straight from disk: at
 # ~2 MB it is far under the 50 MB direct-upload limit, so there is no S3 object to keep in
@@ -32,9 +33,12 @@ resource "aws_lambda_function" "fetch" {
   runtime          = "python3.12"
   architectures    = ["x86_64"] # the lock's compiled wheels (pyyaml, charset_normalizer)
 
-  # The probe is 8 requests at 1 per second, with at most 2 short retries each. 5 minutes
-  # leaves room for a slow site without letting a blocked one hang for long.
-  timeout     = 300
+  # The probe is 8 requests at 1 per second, with at most 2 short retries each. The nightly
+  # incremental (UY-043.2) is ~40-60 requests, but a failing site costs up to 5 retries with
+  # waits of up to 120 s each, so it gets Lambda's maximum (owner, UY-043.2 a), plus a budget
+  # of 400 requests (lambda_fetch.DEFAULT_MAX_REQUESTS). A run cut short loses nothing: each
+  # changed year is already pending for silver, and the next run picks up the rest.
+  timeout     = 900
   memory_size = 256
 
   environment {

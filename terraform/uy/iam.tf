@@ -147,6 +147,23 @@ data "aws_iam_policy_document" "silver_lambda" {
     ]
   }
 
+  # UY-043.2: the years silver still has to rewrite live in ONE item of this table
+  # (PendingYears in core/manifest_dynamodb.py). Silver reads it with the GetItem above and
+  # removes the years it rewrote with this UpdateItem; LeadingKeys keeps every manifest row
+  # out of its reach, so silver still cannot change what was fetched.
+  statement {
+    sid       = "ClearPendingSilverYears"
+    effect    = "Allow"
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.manifest.arn]
+
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["PENDING#silver"]
+    }
+  }
+
   statement {
     sid       = "WriteOwnLogs"
     effect    = "Allow"

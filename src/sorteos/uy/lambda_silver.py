@@ -3,6 +3,7 @@
     {"years": [2016]}                       # rebuild these years (and the reference tables)
     {"finalize": true}                      # rewrite draw_gaps from the silver in S3
     {"years": [2016], "dry_run": true}      # build, measure, report; upload nothing
+    {"pending": true, "finalize": true}     # the incremental (UY-043.2): see below
 
 **How.** It makes ``/tmp/uy`` look like ``data/uy`` and then runs the very functions
 ``make uy-silver`` runs (``build_silver.rebuild`` and ``detect_gaps``), so ``core/silver.py``
@@ -28,6 +29,13 @@ versioned bucket keeps the previous object.
 does; ``timings`` adds each step around it: silver down, the manifest Scan, the bronze
 download, the whole build (with the draw-number series) and the upload.
 
+**The incremental (UY-043.2).** ``pending`` takes the years from the ``PENDING#silver`` item
+(``PendingYears``), which the fetch Lambda fills. It is read before the manifest snapshot, and
+after the upload exactly those years are removed, only if no fetch added any since (owner,
+UY-043.2 2a). No pending year is a normal night: only ``finalize`` runs. A dry run reads the
+item and leaves it. ``years`` given by hand (the backfill, a manual rebuild) never touch it,
+and an event with both is refused.
+
 Years run in the order given and each one uploads only what it wrote, so separate invocations
 for separate years do not undo each other. ``finalize`` reads every year's draws, so it runs
 after the years it should see.
@@ -51,7 +59,7 @@ import pyarrow.parquet as pq
 from sorteos.core import manifest as mf
 from sorteos.core import silver as core_silver
 from sorteos.core.bronze import BRONZE_ROOT, BronzeStore
-from sorteos.core.manifest_dynamodb import DynamoManifest, ManifestSnapshot
+from sorteos.core.manifest_dynamodb import DynamoManifest, ManifestSnapshot, PendingYears
 from sorteos.uy import backfill, build_silver
 from sorteos.uy.parsers import pozos_pdf
 from sorteos.uy.sources import COUNTRY
@@ -171,10 +179,13 @@ def _years(event: dict) -> list[int]:
 def handler(event: dict | None, context: Any = None, s3=None, dynamodb=None) -> dict[str, Any]:
     event = event or {}
     years = _years(event)
+    from_pending = bool(event.get("pending"))
     finalize = bool(event.get("finalize"))
     dry_run = bool(event.get("dry_run"))
-    if not years and not finalize:
-        raise ValueError('nothing to do: give "years", "finalize" or both')
+    if years and from_pending:
+        raise ValueError('give "years" or "pending", not both')
+    if not years and not finalize and not from_pending:
+        raise ValueError('nothing to do: give "years", "pending", "finalize" or a mix')
     if s3 is None:  # pragma: no cover - the tests pass moto clients
         import boto3
         from botocore.config import Config
@@ -184,6 +195,12 @@ def handler(event: dict | None, context: Any = None, s3=None, dynamodb=None) -> 
         s3 = boto3.client("s3", config=Config(max_pool_connections=WORKERS))
     bucket = os.environ["SILVER_BUCKET"]
     silver_prefix = os.environ["SILVER_PREFIX"]
+
+    pending = seen = None
+    if from_pending:  # before the snapshot: see PendingYears
+        pending = PendingYears(os.environ["MANIFEST_TABLE"], dynamodb)
+        seen = pending.read()
+        years = sorted(seen.years)
 
     silver_dir = WORK_ROOT / "silver"
     if WORK_ROOT.exists():  # a warm container keeps /tmp: start from nothing
@@ -236,6 +253,13 @@ def handler(event: dict | None, context: Any = None, s3=None, dynamodb=None) -> 
         started = time.perf_counter()
         upload(s3, bucket, silver_prefix, silver_dir, put, empty)
         timings["upload"] = time.perf_counter() - started
+    if pending is not None and seen is not None:
+        report["pending"] = {
+            "years": years,
+            "rev": seen.rev,
+            # After the upload only: a run that died before it leaves the years for the next.
+            "cleared": False if dry_run else pending.done(seen),
+        }
     report |= {
         "put": put,
         "emptied": empty,

@@ -24,7 +24,7 @@ import argparse
 import hashlib
 import logging
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -88,6 +88,7 @@ class Backfill:
         settle_days: int = DEFAULT_SETTLE_DAYS,
         refresh: bool = False,
         max_requests: int | None = None,
+        on_change: Callable[[str, date], None] | None = None,
     ) -> None:
         self.client = client
         self.store = store
@@ -99,6 +100,11 @@ class Backfill:
         self.settle_days = settle_days
         self.refresh = refresh
         self.max_requests = max_requests
+        # Called the moment a key changes, right after its manifest write (UY-043.2): the
+        # cloud marks the year pending for silver there, so a run cut short (a Lambda timeout)
+        # loses none. At the end of the run would be too late: the next run sees those keys
+        # unchanged, and silver would never rewrite their year.
+        self.on_change = on_change
         self.stats = RunStats()
 
     def run(self, start: date, end: date) -> RunStats:
@@ -263,6 +269,8 @@ class Backfill:
         self.stats.count(state)
         if self._snapshot(rec.source, rec.draw_date) != before:
             self.stats.changed.add((rec.source, rec.draw_date))
+            if self.on_change is not None:
+                self.on_change(rec.source, rec.draw_date)
         if state in (mf.ERROR, mf.MISSING) or rec.warnings:
             logger.warning(
                 "needs attention",

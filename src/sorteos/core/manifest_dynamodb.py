@@ -18,13 +18,18 @@ Same contract as ``SqliteManifest``, and the same tests run against both. The ta
   the second one loudly instead of losing a row (D28), and the LOG item never overwrites one.
 
 Reads of one key are strongly consistent: ``record()`` decides on the history it just wrote.
+
+**One item that is not a manifest row (UY-043.2):** ``PENDING#silver`` / ``SET``, the years
+silver still has to rewrite (``PendingYears``). Its ``sk`` is not ``STATE`` and it has no
+``open``, so no Scan or Query above ever sees it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
@@ -230,7 +235,12 @@ class DynamoManifest:
             "detail": rec.detail,
             "fetched_at": rec.fetched_at,
         }
-        if previous:
+        self._write(row, log, attempts)
+        return state
+
+    def _write(self, row: dict[str, Any], log: dict[str, Any], attempts: int) -> None:
+        """The STATE item and its LOG item, in one transaction guarded by ``attempts``."""
+        if attempts > 1:
             guard = {
                 "ConditionExpression": "attempts = :seen",
                 "ExpressionAttributeValues": to_dynamo({":seen": attempts - 1}),
@@ -258,10 +268,9 @@ class DynamoManifest:
             )
         except self._client.exceptions.TransactionCanceledException as exc:
             raise ConcurrentWriteError(
-                f"{rec.source} {day}: another run wrote this key at the same time; "
-                "nothing was written, run again"
+                f"{row['source']} {row['draw_date']}: another run wrote this key at the same "
+                "time; nothing was written, run again"
             ) from exc
-        return state
 
     # --- the whole table -------------------------------------------------------------------
 
@@ -331,6 +340,40 @@ class DynamoManifest:
         ]
 
 
+class DryRunManifest(DynamoManifest):
+    """A ``DynamoManifest`` whose writes stay in memory (the fetch Lambda's dry run, UY-043.2).
+
+    ``record()`` decides exactly as the real one (the same code: the 3-failure rule, attempts,
+    the first fetch), reading the table, and keeps the STATE and LOG rows it would have written
+    here instead. Reads of a key it recorded answer from those rows, so a run sees its own
+    writes as it would against the table. ``summary()``, ``date_range()`` and ``open_keys()``
+    still answer the table: the incremental reads them before its first write.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.rows: dict[tuple[str, str], dict[str, Any]] = {}
+        self.logs: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+    def _state(self, source: str, day: str) -> dict | None:
+        if (source, day) in self.rows:
+            return self.rows[(source, day)]
+        return super()._state(source, day)
+
+    def history(self, source: str, day: date, limit: int) -> list[dict]:
+        mine = self.logs.get((source, day.isoformat()), [])
+        if limit <= 0:
+            return []
+        if len(mine) >= limit:
+            return mine[-limit:]
+        return [*super().history(source, day, limit - len(mine)), *mine]
+
+    def _write(self, row: dict[str, Any], log: dict[str, Any], attempts: int) -> None:
+        key = (row["source"], row["draw_date"])
+        self.rows[key] = row
+        self.logs.setdefault(key, []).append(log)
+
+
 class ReadOnlyManifestError(RuntimeError):
     pass
 
@@ -395,3 +438,86 @@ class ManifestSnapshot:
 
     def record(self, rec: Record) -> str:
         raise ReadOnlyManifestError("a snapshot is read-only; record() goes to DynamoManifest")
+
+
+# --- the years silver still has to rewrite (UY-043.2) -------------------------------------
+
+PENDING_PK = "PENDING#silver"
+PENDING_SK = "SET"
+
+
+@dataclass(frozen=True)
+class Pending:
+    """What ``PendingYears.read()`` saw: the years, and the revision they were read at."""
+
+    years: frozenset[int]
+    rev: int
+
+
+class PendingYears:
+    """The cloud's ``silver_pending.json``: one item, ``years`` (a number set) and ``rev``.
+
+    - The fetch Lambda calls ``add()`` AFTER it wrote bronze and the manifest: ``ADD`` is a set
+      union, atomic, and safe to repeat; each call also adds 1 to ``rev``.
+    - The silver Lambda calls ``read()`` BEFORE it takes the manifest snapshot, rebuilds those
+      years and uploads them, and then ``done()``: a ``DELETE`` of exactly the years it read,
+      only while ``rev`` is still the one it read (owner, UY-043.2 2a).
+
+    Why the condition: a fetch that runs while silver builds (a manual run, the Scheduler
+    firing twice) may change a year silver already read with the older snapshot. Without it,
+    silver would delete that year and the change would never reach silver. With it, ``done()``
+    deletes nothing and returns False; the years stay and the next run rewrites them again,
+    which costs one rebuild and loses nothing. A silver run that dies before ``done()`` leaves
+    them too. The item is never created by Terraform: no item is no pending year.
+    """
+
+    def __init__(self, table: str, client=None) -> None:
+        if client is None:  # pragma: no cover - the tests pass a moto client
+            import boto3
+
+            client = boto3.client("dynamodb")
+        self._client = client
+        self._table = table
+
+    @property
+    def _key(self) -> dict[str, Any]:
+        return to_dynamo({"pk": PENDING_PK, "sk": PENDING_SK})
+
+    def add(self, years: Iterable[int]) -> None:
+        wanted = sorted(set(years))
+        if not wanted:  # DynamoDB refuses an empty set, and nothing changed anyway
+            return
+        self._client.update_item(
+            TableName=self._table,
+            Key=self._key,
+            UpdateExpression="ADD years :years, rev :one",
+            ExpressionAttributeValues={
+                ":years": {"NS": [str(y) for y in wanted]},
+                ":one": {"N": "1"},
+            },
+        )
+
+    def read(self) -> Pending:
+        raw = self._client.get_item(TableName=self._table, Key=self._key, ConsistentRead=True)
+        item = raw.get("Item") or {}
+        years = frozenset(int(y) for y in item.get("years", {}).get("NS", []))
+        return Pending(years, int(item.get("rev", {}).get("N", "0")))
+
+    def done(self, seen: Pending) -> bool:
+        """Remove ``seen.years`` if nothing was added since ``seen`` was read; say whether."""
+        if not seen.years:
+            return True
+        try:
+            self._client.update_item(
+                TableName=self._table,
+                Key=self._key,
+                UpdateExpression="DELETE years :years",
+                ConditionExpression="rev = :rev",
+                ExpressionAttributeValues={
+                    ":years": {"NS": [str(y) for y in sorted(seen.years)]},
+                    ":rev": {"N": str(seen.rev)},
+                },
+            )
+        except self._client.exceptions.ConditionalCheckFailedException:
+            return False
+        return True
