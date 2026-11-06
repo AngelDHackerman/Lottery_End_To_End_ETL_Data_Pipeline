@@ -77,6 +77,14 @@ def test_the_copy_answers_like_sqlite(sqlite, dynamodb, capsys):
     local.close()
 
 
+def test_the_pending_item_is_not_a_manifest_row(sqlite, dynamodb, capsys):
+    assert migrate(sqlite, dynamodb) == 0
+    md.PendingYears(TABLE, dynamodb).add({2026})  # UY-043.2: the fetch Lambda's bookkeeping
+    capsys.readouterr()
+    assert migrate(sqlite, dynamodb, "--check") == 0
+    assert "OK: the table is the local manifest" in capsys.readouterr().out
+
+
 def test_a_migrated_key_keeps_counting_failures_in_the_cloud(sqlite, dynamodb):
     migrate(sqlite, dynamodb)
     cloud = md.DynamoManifest(TABLE, client=dynamodb)

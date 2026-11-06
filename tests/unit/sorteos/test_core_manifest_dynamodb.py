@@ -137,3 +137,50 @@ def test_a_snapshot_never_writes(dynamodb):
         snap.record(mf.Record("resultados", DAY, "u", mf.DRAW, NOW))
     with pytest.raises(md.ReadOnlyManifestError):
         snap.history("resultados", DAY, 3)
+
+
+# --- PENDING#silver: the years silver still has to rewrite (UY-043.2) ----------------------
+
+
+def test_no_item_is_no_pending_year(dynamodb):
+    pending = md.PendingYears(TABLE, dynamodb)
+    pending.add([])  # nothing changed: no item is written
+    assert pending.read() == md.Pending(frozenset(), 0)
+    assert dynamodb.scan(TableName=TABLE)["Items"] == []
+
+
+def test_add_is_a_union_and_counts_each_call(dynamodb):
+    pending = md.PendingYears(TABLE, dynamodb)
+    pending.add({2026})
+    pending.add([2025, 2026])
+    assert pending.read() == md.Pending(frozenset({2025, 2026}), 2)
+
+
+def test_done_removes_the_years_it_read(dynamodb):
+    pending = md.PendingYears(TABLE, dynamodb)
+    pending.add({2025, 2026})
+    assert pending.done(pending.read()) is True
+    assert pending.read() == md.Pending(frozenset(), 1)
+    assert pending.done(pending.read()) is True  # nothing pending: nothing to remove
+
+
+def test_a_fetch_during_the_build_keeps_every_year(dynamodb):
+    """The race ``rev`` exists for: silver read 2026 with an older snapshot, a fetch changed
+    2026 again meanwhile. Removing 2026 would lose that change; nothing is removed."""
+    pending = md.PendingYears(TABLE, dynamodb)
+    pending.add({2025, 2026})
+    seen = pending.read()
+    pending.add({2026})  # the concurrent fetch
+    assert pending.done(seen) is False
+    assert pending.read().years == {2025, 2026}
+    assert pending.done(pending.read()) is True  # the next run clears them
+    assert pending.read().years == frozenset()
+
+
+def test_the_pending_item_is_not_a_manifest_row(dynamodb):
+    m = md.DynamoManifest(TABLE, client=dynamodb)
+    m.record(mf.Record("resultados", DAY, "u", mf.NOT_YET_PUBLISHED, NOW))
+    before = (m.summary(), m.date_range("resultados"), m.open_keys(), m.snapshot().rows())
+    md.PendingYears(TABLE, dynamodb).add({2019})
+    after = (m.summary(), m.date_range("resultados"), m.open_keys(), m.snapshot().rows())
+    assert after == before

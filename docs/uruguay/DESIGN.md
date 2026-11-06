@@ -1078,6 +1078,6 @@ fuentes no tienen el problema: el probe de D26 dio los mismos bytes en 7 de 8.
 |---|---|
 | UY-041 | El IAM de `uy/*`, `lottery_uy_db` con sus grants de LF y el registro de `uy/silver`, la tabla de DynamoDB (P16) y el repo de ECR. Las lecciones de LF de `master`: grants explícitos, nunca `ALL`; `lakeformation:GetDataAccess`; el grant de compatibilidad `IAM_ALLOWED_PRINCIPALS` también en la base nueva mientras la cuenta siga en modo híbrido |
 | UY-042 | Subir el bronce (`aws s3 sync`, P15) y migrar el manifiesto a DynamoDB. Probar sin proxy desde la Lambda fetch (D26) y medir un año de plata en la Lambda silver (el riesgo de D18). Al terminar, el riesgo del bronce en un solo disco queda cerrado |
-| UY-043 | `incremental.py` se separa en dos entradas, fetch y silver, que ya se comunican por `silver_pending.json`. Step Functions las encadena y EventBridge Scheduler las dispara (D27). El incremental local se apaga antes de la primera corrida en la nube (G4) |
+| UY-043 | `incremental.py` se separa en dos entradas, fetch y silver, que en local se comunican por `silver_pending.json` y en la nube por el ítem `PENDING#silver` del manifiesto (UY-043.2: `years` + `rev`, el borrado condicionado a `rev`). Step Functions las encadena y EventBridge Scheduler las dispara (D27). El incremental local se apaga antes de la primera corrida en la nube (G4) |
 | UY-044 | Oro en `uy/gold/` con las métricas de UY-032, más la excepción de la Deny de borrado |
 | UY-045 | Alarmas de "sorteo faltante" a partir de `draw_gaps` y el canario |
