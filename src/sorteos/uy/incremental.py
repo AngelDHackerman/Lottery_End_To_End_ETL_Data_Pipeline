@@ -38,12 +38,19 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sorteos.core import bronze
 from sorteos.core import manifest as mf
 from sorteos.core.http_client import PoliteClient
-from sorteos.uy import backfill, build_silver, privacy
+from sorteos.uy import backfill, privacy
 from sorteos.uy.sources import COUNTRY, RESULTADOS
+
+# build_silver needs pyarrow, which only the silver image has. The fetch Lambda imports this
+# module for fetch_step, and its zip has no pyarrow (UY-043.2.1): build_silver is imported
+# inside the functions that use it. CI imports lambda_fetch from the built zip to keep it so.
+if TYPE_CHECKING:
+    from sorteos.uy import build_silver
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +131,8 @@ def silver_step(
     manifest: mf.Manifest, store, out: Path, years: set[int], today: date
 ) -> tuple[list[str], build_silver.GapReport]:
     """Rewrite ``years`` (none: silver is left alone), then ``draw_gaps``, always."""
+    from sorteos.uy import build_silver
+
     run = build_silver.new_run("incremental")
     if years:
         counts = build_silver.rebuild(manifest, store, out, sorted(years), run)
@@ -145,6 +154,8 @@ def write_pending(path: Path, years: set[int]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from sorteos.uy import build_silver
+
     p = argparse.ArgumentParser(
         prog="python -m sorteos.uy.incremental",
         description=__doc__,
