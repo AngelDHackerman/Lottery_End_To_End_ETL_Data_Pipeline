@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -208,6 +208,11 @@ uy-fetch-lock: ## Recompile requirements/uy-fetch.lock from uy-fetch.txt (UY-042
 uy-fetch-build: ## Build dist/uy/uy_fetch.zip: sorteos + the lock, for python3.12 x86_64 (UY-042.3; no AWS)
 	bash scripts/build_uy_fetch_package.sh
 
+# UY-043.2.1: #156 deployed a zip whose handler could not be imported (pyarrow). This runs the
+# handler's code from the zip with only the zip, the stdlib and boto3; uy-tf-plan needs it.
+uy-fetch-check: uy-fetch-build ## Import and run the fetch Lambda's code from its zip, with only what Lambda has (UY-043.2.1; no AWS)
+	python scripts/uy_fetch_smoke.py dist/uy/uy_fetch.zip
+
 # D26: asks the site for the newest draw of each source FROM THE LAMBDA and compares the bytes
 # with the manifest. Writes nothing. Fails if the Lambda errors or any key did not answer 200.
 uy-fetch-probe: ## Invoke the fetch Lambda in probe mode: does the site answer it without a proxy? (UY-042.3; read-only)
@@ -353,7 +358,7 @@ uy-tf-init: ## terraform init the UY stack (terraform/uy/) against its own state
 
 # The plan is saved and checked before anyone can apply it: this stack only ever adds UY
 # resources (roadmap Fase 5), so any destroy or replace in it stops here, before review.
-uy-tf-plan: uy-tf-init uy-fetch-build ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
+uy-tf-plan: uy-tf-init uy-fetch-check ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
 	@aws ecr describe-images --repository-name $(UY_SILVER_REPO) --image-ids imageTag=$(UY_SILVER_TAG) \
 	  >/dev/null 2>&1 || { echo "$(UY_SILVER_REPO):$(UY_SILVER_TAG) is not in ECR — run make uy-silver-push first"; exit 1; }
 	cd terraform/uy && terraform plan -var silver_image_tag=$(UY_SILVER_TAG) -out=tfplan
