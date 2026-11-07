@@ -10,6 +10,8 @@ What it asks for (docs/uruguay/DESIGN.md, D16, P11, P12):
   instead, so a run that did not happen for a while leaves no hole;
 - every key the manifest still has open, whatever its date, and only that key: the pozos PDF
   in ``error`` close themselves after at most three identical failures (D11);
+- the days before the window, up to ``backfill.POZOS_WAIT_DAYS``, whose 5 de Oro results page
+  still has no pozos link (UY-043.2.2): the page again, and the pozos PDF once it links it;
 - the four kinds of source: results, PHP extracts, extract PDFs (a backup, not parsed; D19
   starts it here) and pozos PDFs.
 
@@ -44,7 +46,7 @@ from sorteos.core import bronze
 from sorteos.core import manifest as mf
 from sorteos.core.http_client import PoliteClient
 from sorteos.uy import backfill, privacy
-from sorteos.uy.sources import COUNTRY, RESULTADOS
+from sorteos.uy.sources import COUNTRY, POZOS, RESULTADOS
 
 # build_silver needs pyarrow, which only the silver image has. The fetch Lambda imports this
 # module for fetch_step, and its zip has no pyarrow (UY-043.2.1): build_silver is imported
@@ -75,6 +77,7 @@ class Fetched:
     today: date
     older: int
     stats: backfill.RunStats
+    awaiting_pozos: tuple[date, ...] = ()
 
     @property
     def years(self) -> set[int]:
@@ -83,7 +86,8 @@ class Fetched:
 
     def lines(self) -> list[str]:
         return [
-            f"window {self.start} .. {self.today}, open keys before it: {self.older}",
+            f"window {self.start} .. {self.today}, open keys before it: {self.older}, "
+            f"days before it awaiting pozos: {len(self.awaiting_pozos)}",
             f"requests {self.stats.requests}, skipped {self.stats.skipped}, "
             f"changed {len(self.stats.changed)}",
             *(f"changed {source} {day}" for source, day in sorted(self.stats.changed)),
@@ -112,19 +116,29 @@ def fetch_step(
         on_change=on_change,
     )
     job.run(start, today)
+    # Before the window, only the days whose 5 de Oro page still lacks its pozos link, and only
+    # those two keys: the page again, then the pozos PDF if the page now links it. Not run_day,
+    # which would also ask any source of that day never fetched (D19).
+    waiting = tuple(
+        day
+        for day in backfill.daterange(today - timedelta(days=backfill.POZOS_WAIT_DAYS - 1), start)
+        if day < start and job.awaiting_pozos(day)
+    )
+    job.run_keys((key, day) for day in waiting for key in (RESULTADOS.name, POZOS.name))
     stats = job.run_keys(older)
     logger.info(
         "incremental fetched",
         extra={
             "start": start.isoformat(),
             "open_keys_before_start": len(older),
+            "awaiting_pozos": len(waiting),
             "requests": stats.requests,
             "skipped": stats.skipped,
             "changed": len(stats.changed),
             **stats.by_state,
         },
     )
-    return Fetched(start, today, len(older), stats)
+    return Fetched(start, today, len(older), stats, waiting)
 
 
 def silver_step(
