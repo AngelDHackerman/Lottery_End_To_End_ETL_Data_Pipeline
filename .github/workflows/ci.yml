@@ -161,6 +161,15 @@ jobs:
           test "$first" = "$second" \
             || { echo "::error::uy_fetch.zip is not reproducible"; exit 1; }
 
+      # UY-043.2.1: #156 deployed a zip whose handler could not even be imported (lambda_fetch
+      # pulled in build_silver and pyarrow, which only the silver image has). The step above
+      # never runs the zip; this one imports the handler and runs a small incremental from it,
+      # with only the zip, the standard library and boto3, which the Lambda runtime brings.
+      - name: uy fetch zip runs with only what the Lambda has
+        run: |
+          pip install "boto3==1.34.131"
+          python scripts/uy_fetch_smoke.py dist/uy/uy_fetch.zip
+
       # PR-046.3. The two runs above share one pip, so they could not see a zip that depends
       # on WHICH pip ran: console-script shebangs carried that pip's interpreter path, and a
       # laptop with `.venv` first on PATH built a different layer than one using /usr/bin/pip.
