@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -320,6 +320,15 @@ uy-silver-pending: ## Invoke the silver Lambda on the years in PENDING#silver, t
 # worktree, point UY_ROOT at the main tree's data/uy (manifest.sqlite + bronze).
 UY_ROOT ?= data/uy
 
+# UY-043.3.1: the nightly state machine, started by hand. Dry run only until UY-043.3.2, where
+# the first real run lands together with the switch-off of the local incremental (owner, 1a):
+# two writers on one manifest is what G4 forbids.
+uy-sfn-run: ## Run the UY state machine once and wait; UY_DRY_RUN=1 is required until UY-043.3.2 (UY-043.3.1)
+	@test -n "$(UY_DRY_RUN)" || { \
+	  echo "Only UY_DRY_RUN=1 for now: the first real run is UY-043.3.2, with the local incremental switched off"; \
+	  exit 1; }
+	python scripts/uy_sfn_run.py --dry-run
+
 uy-silver-backfill: ## Rebuild all UY silver in the cloud, one Lambda invocation per year, then draw_gaps (UY-042.4.2; writes uy/silver/)
 	PYTHONPATH=src python -m sorteos.uy.silver_backfill --function $(UY_SILVER_FUNCTION) \
 	  --table $(UY_MANIFEST_TABLE) $(if $(UY_YEARS),--years $(UY_YEARS))
@@ -362,6 +371,7 @@ uy-tf-plan: uy-tf-init uy-fetch-check ## Plan the UY stack into terraform/uy/tfp
 	@aws ecr describe-images --repository-name $(UY_SILVER_REPO) --image-ids imageTag=$(UY_SILVER_TAG) \
 	  >/dev/null 2>&1 || { echo "$(UY_SILVER_REPO):$(UY_SILVER_TAG) is not in ECR — run make uy-silver-push first"; exit 1; }
 	cd terraform/uy && terraform plan -var silver_image_tag=$(UY_SILVER_TAG) -out=tfplan
+	terraform -chdir=terraform/uy show -json tfplan | python scripts/uy_sfn_validate.py
 	@! terraform -chdir=terraform/uy show -no-color tfplan | grep -E 'will be destroyed|must be replaced' || { \
 	  echo "The UY plan destroys or replaces something: not applying it. Review terraform/uy/tfplan."; \
 	  exit 1; }

@@ -1,0 +1,101 @@
+{
+  "Comment": "UY nightly incremental (UY-043.3): fetch, then silver for the years fetch marked. Input: {\"dry_run\": true|false}; missing means false. Rendered by pipeline.tf, checked by tests/unit/sorteos/test_uy_pipeline_asl.py and, against AWS, by scripts/uy_sfn_validate.py.",
+  "StartAt": "Defaults",
+  "TimeoutSeconds": ${execution_timeout_seconds},
+  "States": {
+    "Defaults": {
+      "Comment": "A console start with {} must behave like the schedule's {\"dry_run\": false}, so the input is merged over the defaults. Anything else the input carries is kept and ignored.",
+      "Type": "Pass",
+      "Parameters": {
+        "input.$": "States.JsonMerge(States.StringToJson('{\"dry_run\": false}'), $, false)"
+      },
+      "OutputPath": "$.input",
+      "Next": "CheckInput"
+    },
+    "CheckInput": {
+      "Comment": "The Lambdas read dry_run with bool(), so the string \"false\" would be a dry run and 1 a real one. Only a JSON boolean gets through.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.dry_run",
+          "IsBoolean": true,
+          "Next": "Fetch"
+        }
+      ],
+      "Default": "BadInput"
+    },
+    "BadInput": {
+      "Type": "Fail",
+      "Error": "BadInput",
+      "Cause": "dry_run must be true or false (a JSON boolean). Nothing was fetched."
+    },
+    "Fetch": {
+      "Comment": "Retries only Lambda's own service errors (the function never ran). An error of the function itself is not retried: a second try would ask the site again for up to 400 pages, and the next night catches up anyway (window_start, owner UY-043.3 3a).",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fetch_function_arn}",
+        "Payload": {
+          "mode": "incremental",
+          "dry_run.$": "$.dry_run"
+        }
+      },
+      "ResultSelector": {
+        "report.$": "$.Payload"
+      },
+      "ResultPath": "$.fetch",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Silver"
+    },
+    "Silver": {
+      "Comment": "Always runs: with no pending year it only rewrites draw_gaps (~2 s), so no Choice is needed. One retry of anything: it is idempotent, and it clears PENDING#silver only if rev did not move (UY-043.2).",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${silver_function_arn}",
+        "Payload": {
+          "pending": true,
+          "finalize": true,
+          "dry_run.$": "$.dry_run"
+        }
+      },
+      "ResultSelector": {
+        "report.$": "$.Payload"
+      },
+      "ResultPath": "$.silver",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 1
+        }
+      ],
+      "End": true
+    }
+  }
+}
