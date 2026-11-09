@@ -153,7 +153,15 @@ uy-properties: ## Every rule over the whole local bronze, in memory; fails only 
 UY_SILVER ?= data/uy/silver
 UY_YEARS ?=
 
-uy-incremental: ## Daily run: last 7 days + every open key, all four sources, then silver for the years touched (UY-027.1)
+# UY-043.3.2: the nightly run moved to the cloud (lottery-uy-pipeline-prod, 23:30 Montevideo).
+# The local manifest.sqlite is frozen as a backup since 2026-10-31; a local run would fetch into
+# it, never into DynamoDB, and the two would drift (owner, UY-043.3 2a). UY_LOCAL=1 is the way
+# back for a deliberate local run. uy-silver, uy-reconcile and uy-dq stay as they were.
+uy-incremental: ## LOCAL daily run, off since UY-043.3.2 (the cloud runs it): needs UY_LOCAL=1 (UY-027.1)
+	@test -n "$(UY_LOCAL)" || { \
+	  echo "The nightly run lives in the cloud since UY-043.3.2: make uy-sfn-run starts it by hand."; \
+	  echo "A local run writes to the frozen data/uy/manifest.sqlite, not to DynamoDB. UY_LOCAL=1 to do it anyway."; \
+	  exit 1; }
 	PYTHONPATH=src python -m sorteos.uy.incremental --silver $(UY_SILVER)
 
 uy-silver: ## Rewrite local UY silver from bronze: every year, or UY_YEARS=2016 / 2014-2016,2026 (UY-027.1; no requests)
@@ -320,14 +328,11 @@ uy-silver-pending: ## Invoke the silver Lambda on the years in PENDING#silver, t
 # worktree, point UY_ROOT at the main tree's data/uy (manifest.sqlite + bronze).
 UY_ROOT ?= data/uy
 
-# UY-043.3.1: the nightly state machine, started by hand. Dry run only until UY-043.3.2, where
-# the first real run lands together with the switch-off of the local incremental (owner, 1a):
-# two writers on one manifest is what G4 forbids.
-uy-sfn-run: ## Run the UY state machine once and wait; UY_DRY_RUN=1 is required until UY-043.3.2 (UY-043.3.1)
-	@test -n "$(UY_DRY_RUN)" || { \
-	  echo "Only UY_DRY_RUN=1 for now: the first real run is UY-043.3.2, with the local incremental switched off"; \
-	  exit 1; }
-	python scripts/uy_sfn_run.py --dry-run
+# UY-043.3.1: the nightly state machine, started by hand. A real run since UY-043.3.2, when the
+# local incremental was switched off (one writer on the manifest, G4); UY_DRY_RUN=1 asks the site
+# and writes nothing. The Scheduler starts the same thing every night at 23:30 Montevideo.
+uy-sfn-run: ## Run the UY state machine once and wait: a REAL run, or UY_DRY_RUN=1 (UY-043.3.1, UY-043.3.2)
+	python scripts/uy_sfn_run.py $(if $(UY_DRY_RUN),--dry-run,--real)
 
 uy-silver-backfill: ## Rebuild all UY silver in the cloud, one Lambda invocation per year, then draw_gaps (UY-042.4.2; writes uy/silver/)
 	PYTHONPATH=src python -m sorteos.uy.silver_backfill --function $(UY_SILVER_FUNCTION) \

@@ -16,6 +16,8 @@
 #   - the silver Lambda (container image) and its log group (D18, D29, silver.tf)
 # Holds (UY-043.3.1):
 #   - the nightly state machine, its role, log group and failure alarm (D16, pipeline.tf)
+# Holds (UY-043.3.2):
+#   - the EventBridge Scheduler that starts it at 23:30 Montevideo, and its role (D27, pipeline.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here

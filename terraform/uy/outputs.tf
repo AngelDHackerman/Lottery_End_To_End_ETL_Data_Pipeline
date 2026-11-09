@@ -73,11 +73,12 @@ output "silver_function" {
 }
 
 output "pipeline" {
-  description = "The nightly state machine (UY-043.3.1), its log group and its failure alarm."
+  description = "The nightly state machine (UY-043.3.1), its log group, its failure alarm and its schedule (UY-043.3.2)."
   value = {
     name      = aws_sfn_state_machine.pipeline.name
     arn       = aws_sfn_state_machine.pipeline.arn
     log_group = aws_cloudwatch_log_group.pipeline.name
     alarm     = aws_cloudwatch_metric_alarm.pipeline_failed.alarm_name
+    schedule  = "${aws_scheduler_schedule.nightly.name}: ${aws_scheduler_schedule.nightly.schedule_expression} ${aws_scheduler_schedule.nightly.schedule_expression_timezone}"
   }
 }
