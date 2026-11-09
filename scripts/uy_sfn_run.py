@@ -1,7 +1,7 @@
 """Start the UY nightly state machine by hand and wait for it (UY-043.3.1).
 
     python scripts/uy_sfn_run.py --dry-run    # or: UY_DRY_RUN=1 make uy-sfn-run
-    python scripts/uy_sfn_run.py --real       # writes bronze, the manifest and silver
+    python scripts/uy_sfn_run.py --real       # or: make uy-sfn-run (bronze, manifest, silver)
 
 Starts one execution of ``lottery-uy-pipeline-<env>`` with ``{"dry_run": ...}``, polls it every
 10 seconds and prints its output: the fetch report and the silver report, the same ones
@@ -9,7 +9,7 @@ Starts one execution of ``lottery-uy-pipeline-<env>`` with ``{"dry_run": ...}``,
 SUCCEEDED, 1 otherwise, with the error and cause Step Functions gives.
 
 The execution name says who started it (``manual-dry-…`` / ``manual-real-…``), so the console
-tells a hand-started run from a scheduled one.
+tells a hand-started run from a scheduled one (the Scheduler's get a generated id, UY-043.3.2).
 """
 
 from __future__ import annotations

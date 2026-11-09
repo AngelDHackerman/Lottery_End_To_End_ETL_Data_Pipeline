@@ -7,9 +7,9 @@
 # one against the Step Functions API (scripts/uy_sfn_validate.py: master's lesson, a definition
 # built by Terraform is only proven by AWS).
 #
-# No schedule here, on purpose (owner, UY-043.3 1a): this PR runs it only as a dry run. The
-# EventBridge Scheduler (D27), the switch-off of the local incremental and the first real run are
-# UY-043.3.2, so the first write to the cloud manifest and the switch-off land together.
+# Started every night at 23:30 Montevideo by the EventBridge Scheduler at the bottom (D27,
+# UY-043.3.2), which lands together with the switch-off of the local incremental (`make
+# uy-incremental` refuses without UY_LOCAL=1): one writer on the manifest, as G4 requires.
 #
 # No crawler step: lottery_uy_db has no tables yet (they arrive with UY-044). The GX job (D30)
 # becomes a step after Silver in UY-043.4.
@@ -172,4 +172,79 @@ resource "aws_cloudwatch_metric_alarm" "pipeline_failed" {
       stat        = "Sum"
     }
   }
+}
+
+# --- The nightly schedule (UY-043.3.2, D27) --------------------------------------------------
+#
+# EventBridge Scheduler, not an EventBridge rule: rules only speak UTC, and the Scheduler keeps
+# 23:30 in Montevideo even if Uruguay brings daylight saving back (D27).
+#
+# No retries (owner, UY-043.3 3a): a night that fails to start is caught up by the next one,
+# since the fetch window starts the day after the manifest's last `resultados`. A failed run is
+# the alarm above; a night that never started is UY-045's dead-man alarm.
+
+data "aws_iam_policy_document" "scheduler_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+    # Only this account's schedules (the confused-deputy guard, as for the state machine's role).
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+  }
+}
+
+resource "aws_iam_role" "scheduler" {
+  name               = "lottery-uy-scheduler-${var.environment}"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
+}
+
+data "aws_iam_policy_document" "scheduler" {
+  statement {
+    sid       = "StartUyPipeline"
+    effect    = "Allow"
+    actions   = ["states:StartExecution"]
+    resources = [aws_sfn_state_machine.pipeline.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "scheduler" {
+  name   = "lottery-uy-scheduler-${var.environment}"
+  role   = aws_iam_role.scheduler.id
+  policy = data.aws_iam_policy_document.scheduler.json
+}
+
+resource "aws_scheduler_schedule" "nightly" {
+  #checkov:skip=CKV_AWS_297:the input is {"dry_run": false}; nothing for a customer key to protect
+  name        = "lottery-uy-nightly-${var.environment}"
+  description = "Starts ${local.state_machine_name} every night at 23:30 Montevideo (UY-043.3.2, D27)."
+
+  schedule_expression          = "cron(30 23 * * ? *)"
+  schedule_expression_timezone = "America/Montevideo"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_sfn_state_machine.pipeline.arn
+    role_arn = aws_iam_role.scheduler.arn
+    # Explicit, though Defaults turns {} into the same: the console shows what a night asks for.
+    input = jsonencode({ dry_run = false })
+
+    retry_policy {
+      maximum_retry_attempts       = 0
+      maximum_event_age_in_seconds = 60 # the API's minimum; with no retries it never matters
+    }
+  }
+
+  # role_arn gives no edge to the role's policy: without this, a schedule created in the same
+  # apply could fire before StartExecution is allowed (the same race as PR-023's).
+  depends_on = [aws_iam_role_policy.scheduler]
 }

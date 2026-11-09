@@ -1,5 +1,6 @@
 """The UY nightly state machine (UY-043.3.1): its definition, rendered without AWS, and the two
-scripts around it (scripts/uy_sfn_validate.py, scripts/uy_sfn_run.py).
+scripts around it (scripts/uy_sfn_validate.py, scripts/uy_sfn_run.py). Since UY-043.3.2 also
+the schedule that starts it and the cutover in the Makefile.
 
 The definition is checked against AWS too, by `make uy-tf-plan`. These tests pin what AWS cannot
 know: the owner's retry decisions (UY-043.3 3a) and that dry_run reaches both Lambdas.
@@ -9,7 +10,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -177,3 +180,47 @@ def test_run_reports_the_output_or_the_failure():
     failed = run.report({"status": "FAILED", "error": "BadInput", "cause": "dry_run must be"})
     assert failed.startswith("FAILED: BadInput") and "dry_run must be" in failed
     assert run.report({"status": "TIMED_OUT"}).startswith("TIMED_OUT: ?")
+
+
+# --- The schedule and the cutover (UY-043.3.2) -------------------------------------------------
+#
+# Terraform cannot be rendered here without AWS, so the owner's choices are pinned on the source:
+# D27's hour and zone, and no retries (UY-043.3 3a).
+
+
+def _block(text: str, header: str) -> str:
+    start = text.index(header)
+    return text[start : text.index("\n}\n", start)]
+
+
+def test_the_schedule_is_2330_montevideo_without_retries():
+    schedule = _block(
+        (REPO / "terraform" / "uy" / "pipeline.tf").read_text("utf-8"),
+        'resource "aws_scheduler_schedule" "nightly"',
+    )
+    assert 'schedule_expression          = "cron(30 23 * * ? *)"' in schedule
+    assert 'schedule_expression_timezone = "America/Montevideo"' in schedule
+    assert "maximum_retry_attempts       = 0" in schedule
+    assert "arn      = aws_sfn_state_machine.pipeline.arn" in schedule
+    assert "input = jsonencode({ dry_run = false })" in schedule
+
+
+def _make(*args: str) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items() if k not in {"UY_LOCAL", "UY_DRY_RUN"}}
+    return subprocess.run(
+        ["make", "--no-print-directory", *args], cwd=REPO, env=env, capture_output=True, text=True
+    )
+
+
+def test_the_local_incremental_refuses_without_uy_local():
+    # Run for real, not -n: the guard is the recipe's first line, so nothing reaches Python.
+    refused = _make("uy-incremental")
+    assert refused.returncode != 0
+    assert "UY_LOCAL=1" in refused.stdout and "frozen" in refused.stdout
+    allowed = _make("-n", "uy-incremental", "UY_LOCAL=1")
+    assert "python -m sorteos.uy.incremental" in allowed.stdout
+
+
+def test_the_manual_run_is_real_unless_dry_run_is_asked():
+    assert "uy_sfn_run.py --real" in _make("-n", "uy-sfn-run").stdout
+    assert "uy_sfn_run.py --dry-run" in _make("-n", "uy-sfn-run", "UY_DRY_RUN=1").stdout
