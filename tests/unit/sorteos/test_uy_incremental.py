@@ -187,6 +187,83 @@ def test_run_keys_skips_a_key_closed_in_between_and_stops_at_the_budget(stores):
     assert stats.skipped == 1 and stats.requests == 1
 
 
+# --- a 5 de Oro page still waiting for its pozos link (UY-043.2.2) -------------------------
+
+NO_LINK = PAGE.replace(b"RES_INFORMACION_DE_POZOS", b"RES_OTRA_COSA")
+LATER = DAY + timedelta(days=10)  # past the settle and outside the 7-day window
+
+
+def stored_without_link(stores):
+    client = FakeClient(july_2016())
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, NO_LINK)
+    job(client, stores, today=DAY + timedelta(days=1), srcs="resultados,pozos").run(DAY, DAY)
+    assert "pozos_url" not in stores[1].get("resultados", DAY)["extra"]
+    assert stores[1].get("pozos_5_de_oro", DAY) is None
+
+
+def ten_days_later(page: bytes) -> FakeClient:
+    """The window of LATER (it starts the day after the last draw, DAY) with nothing new, and
+    DAY's results page as ``page``."""
+    pages = {
+        sources.RESULTADOS.url(DAY + timedelta(days=n)): (200, EMPTY_DAY) for n in range(1, 11)
+    }
+    pages[sources.RESULTADOS.url(DAY)] = (200, page)
+    pages[POZOS] = (200, b"%PDF-1.4 pozos")
+    return FakeClient(pages)
+
+
+def test_a_link_that_appears_after_the_window_is_found_and_its_pdf_fetched(stores):
+    stored_without_link(stores)
+    client = ten_days_later(PAGE)
+    fetched = incremental.fetch_step(client, *stores, LATER)
+    assert fetched.start == DAY + timedelta(days=1)  # DAY is before the window
+    assert fetched.awaiting_pozos == (DAY,)
+    assert {("resultados", DAY), ("pozos_5_de_oro", DAY)} <= fetched.stats.changed
+    assert stores[1].get("pozos_5_de_oro", DAY)["state"] == mf.DRAW
+    assert fetched.years == {2016}
+    # Found: the next night does not ask for it again.
+    client = ten_days_later(PAGE)
+    assert incremental.fetch_step(client, *stores, LATER).awaiting_pozos == ()
+    assert sources.RESULTADOS.url(DAY) not in client.calls
+
+
+def test_a_page_still_without_link_is_asked_again_and_nothing_else(stores):
+    stored_without_link(stores)
+    client = ten_days_later(NO_LINK)
+    fetched = incremental.fetch_step(client, *stores, LATER)
+    assert fetched.awaiting_pozos == (DAY,)
+    assert client.calls.count(sources.RESULTADOS.url(DAY)) == 1
+    assert POZOS not in client.calls  # no link, no PDF; and no extract of DAY (D19)
+    assert not any(s.url(DAY) in client.calls for s in sources.EXTRACTOS_PHP)
+    assert ("resultados", DAY) not in fetched.stats.changed
+
+
+def test_the_wait_for_pozos_ends_after_14_days(stores):
+    stored_without_link(stores)
+    for age, waiting in ((3, True), (13, True), (14, False)):
+        j = job(FakeClient({}), stores, today=DAY + timedelta(days=age))
+        assert j.awaiting_pozos(DAY) is waiting, age
+
+
+def test_only_a_5_de_oro_draw_without_link_waits_for_pozos(stores):
+    _, m = stores
+    today = DAY + timedelta(days=5)
+    days = [DAY - timedelta(days=n) for n in range(4)]
+    m.record(mf.Record("resultados", days[0], "u", mf.DRAW, NOW, games=("5_de_oro",)))
+    m.record(mf.Record("resultados", days[1], "u", mf.DRAW, NOW, games=("quiniela_nocturna",)))
+    m.record(
+        mf.Record(
+            "resultados", days[2], "u", mf.DRAW, NOW, games=("5_de_oro",), extra={"pozos_url": "x"}
+        )
+    )
+    m.record(mf.Record("resultados", days[3], "u", mf.NO_DRAW, NOW))
+    j = job(FakeClient({}), stores, today=today)
+    assert [j.awaiting_pozos(d) for d in days] == [True, False, False, False]
+    assert job(FakeClient({}), stores, today=today, srcs="resultados").awaiting_pozos(days[0]) is (
+        False  # a run that does not fetch pozos has no reason to ask the page again
+    )
+
+
 # --- the window ---------------------------------------------------------------------------
 
 

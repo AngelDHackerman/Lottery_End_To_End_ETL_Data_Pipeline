@@ -113,6 +113,7 @@ def run_incremental(
         "dry_run": pending is None,
         "window": [fetched.start.isoformat(), today.isoformat()],
         "open_keys_before_window": fetched.older,
+        "awaiting_pozos": [day.isoformat() for day in fetched.awaiting_pozos],
         "requests": stats.requests,
         "skipped": stats.skipped,
         "by_state": dict(sorted(stats.by_state.items())),

@@ -35,7 +35,7 @@ from sorteos.core import manifest as mf
 from sorteos.core.http_client import FetchError, PoliteClient
 from sorteos.uy import classify, privacy
 from sorteos.uy.parsers import resultados
-from sorteos.uy.sources import ALL_SOURCES, COUNTRY, RESULTADOS, SOURCE_GROUPS, Source
+from sorteos.uy.sources import ALL_SOURCES, COUNTRY, POZOS, RESULTADOS, SOURCE_GROUPS, Source
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,11 @@ REFERENCE = Path(__file__).parent / "reference"
 DEFAULT_START = date(2006, 8, 1)
 # An empty page this many days old is a day without a draw, not a draw not yet published.
 DEFAULT_SETTLE_DAYS = 3
+# A 5 de Oro results page without its pozos link is asked again up to this age (UY-043.2.2).
+# The site adds the link to the page when it publishes the pozos report, usually the next day,
+# but on 2026-11-07 the pages of 11-01 and 11-05 still had none: past the 3-day settle, nobody
+# would ever ask again, and those draws would never get their draw number.
+POZOS_WAIT_DAYS = 14
 
 
 def today_in_uruguay() -> date:
@@ -143,9 +148,27 @@ class Backfill:
     def _may_grow(self, source: Source, day: date, state: str) -> bool:
         """A recent results page in ``draw`` is asked again until it settles: fetched at 16:22,
         it lists the Vespertina only, and the Nocturna (out after 21:20) would never be found
-        (UY-027.1, 2026-10-29). The same parsed page again is not a change (``_same_page``)."""
-        return (
-            source is RESULTADOS and state == mf.DRAW and (self.today - day).days < self.settle_days
+        (UY-027.1, 2026-10-29). Past that, it is asked again while it waits for its pozos link
+        (``awaiting_pozos``). The same parsed page again is not a change (``_same_page``)."""
+        if source is not RESULTADOS or state != mf.DRAW:
+            return False
+        return (self.today - day).days < self.settle_days or self.awaiting_pozos(day)
+
+    def awaiting_pozos(self, day: date) -> bool:
+        """``day`` had a 5 de Oro draw, its stored results page has no pozos link yet, it is
+        younger than POZOS_WAIT_DAYS, and this run fetches pozos (UY-043.2.2). Asking the page
+        again is how the link is found: once it is there, the page is a change and the pozos
+        PDF is the next source of the same day."""
+        if POZOS not in self.sources or not POZOS.applies_to(day):
+            return False
+        if not 0 <= (self.today - day).days < POZOS_WAIT_DAYS:
+            return False
+        row = self.manifest.get(RESULTADOS.name, day)
+        return bool(
+            row
+            and row["state"] == mf.DRAW
+            and POZOS.game in row["games"]
+            and not row["extra"].get("pozos_url")
         )
 
     def _url_for(self, source: Source, day: date) -> str | None:
