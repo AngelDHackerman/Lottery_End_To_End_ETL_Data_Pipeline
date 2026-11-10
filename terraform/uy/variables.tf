@@ -53,3 +53,22 @@ variable "silver_image_tag" {
     error_message = "silver_image_tag must be the content tag from scripts/uy_silver_tag.py (s-<16 hex>), never a moving tag like latest."
   }
 }
+
+variable "dq_zip_path" {
+  description = "The DQ job's zip of wheels, built by `make uy-dq-build` (UY-026.2, UY-043.4)."
+  type        = string
+  default     = "../../dist/uy/uy_dq.gluewheels.zip"
+}
+
+# With fetch (900 s) and silver (900 s, twice, 60 s apart) this has to stay under the state
+# machine's hour: 10 minutes leaves 4 to spare.
+variable "dq_timeout_minutes" {
+  description = "Timeout of the silver DQ Glue job, in minutes (UY-043.4)."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.dq_timeout_minutes >= 2 && var.dq_timeout_minutes <= 10
+    error_message = "dq_timeout_minutes must be 2..10: above 10 the worst case no longer fits the state machine's one-hour timeout."
+  }
+}

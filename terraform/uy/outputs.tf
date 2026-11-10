@@ -82,3 +82,13 @@ output "pipeline" {
     schedule  = "${aws_scheduler_schedule.nightly.name}: ${aws_scheduler_schedule.nightly.schedule_expression} ${aws_scheduler_schedule.nightly.schedule_expression_timezone}"
   }
 }
+
+output "dq_job" {
+  description = "The silver gate's Glue job (UY-043.4), its artifacts and where its lines go."
+  value = {
+    name      = aws_glue_job.silver_dq.name
+    script    = "s3://${aws_s3_object.dq_script.bucket}/${aws_s3_object.dq_script.key}"
+    wheels    = "s3://${aws_s3_object.dq_zip.bucket}/${aws_s3_object.dq_zip.key}"
+    log_group = "/aws-glue/jobs/output"
+  }
+}

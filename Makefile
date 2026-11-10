@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-dq-run uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -355,6 +355,12 @@ uy-dq-lock-upgrade: ## Same as uy-dq-lock, but let the pins move forward (UY-026
 uy-dq-build: ## Build dist/uy/uy_dq.gluewheels.zip from the lock + the sorteos wheel (UY-026.2; no AWS)
 	bash scripts/build_uy_dq_package.sh
 
+# UY-043.4: the gate's Glue job, by hand. It only reads uy/silver/. The nightly pipeline runs
+# the same job as its last step, and the job runs one at a time: not for 23:30 Montevideo.
+UY_DQ_TIMEOUT ?=
+uy-dq-run: ## Run the silver DQ Glue job once, wait, print its verdict and its start-up time (UY-043.4; read-only)
+	python scripts/uy_dq_run.py $(if $(UY_DQ_TIMEOUT),--timeout $(UY_DQ_TIMEOUT))
+
 # UY-041.1: the Uruguay stack, terraform/uy/, with its own state (uy/terraform.tfstate). It
 # never shares an init with the main stack: terraform/backend.hcl names main/terraform.tfstate,
 # and a stack initialised against that state would plan to destroy every Santa Lucía resource.
@@ -372,7 +378,7 @@ uy-tf-init: ## terraform init the UY stack (terraform/uy/) against its own state
 
 # The plan is saved and checked before anyone can apply it: this stack only ever adds UY
 # resources (roadmap Fase 5), so any destroy or replace in it stops here, before review.
-uy-tf-plan: uy-tf-init uy-fetch-check ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
+uy-tf-plan: uy-tf-init uy-fetch-check uy-dq-build ## Plan the UY stack into terraform/uy/tfplan; fails on any destroy or replace (UY-041.1)
 	@aws ecr describe-images --repository-name $(UY_SILVER_REPO) --image-ids imageTag=$(UY_SILVER_TAG) \
 	  >/dev/null 2>&1 || { echo "$(UY_SILVER_REPO):$(UY_SILVER_TAG) is not in ECR — run make uy-silver-push first"; exit 1; }
 	cd terraform/uy && terraform plan -var silver_image_tag=$(UY_SILVER_TAG) -out=tfplan

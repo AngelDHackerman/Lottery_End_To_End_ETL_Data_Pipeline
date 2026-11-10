@@ -23,6 +23,8 @@ TEMPLATE = REPO / "terraform" / "uy" / "pipeline.asl.json.tftpl"
 TIMEOUT = 3600  # pipeline.tf, local.execution_timeout_seconds
 FETCH_ARN = "arn:aws:lambda:us-east-1:111111111111:function:lottery-uy-fetch-test"
 SILVER_ARN = "arn:aws:lambda:us-east-1:111111111111:function:lottery-uy-silver-test"
+DQ_JOB = "lottery-uy-silver-dq-test"
+DQ_TIMEOUT = 600  # variables.tf, dq_timeout_minutes: 10 at most
 LAMBDA_SERVICE_ERRORS = {
     "Lambda.ServiceException",
     "Lambda.AWSLambdaException",
@@ -44,6 +46,7 @@ def asl() -> dict:
     values = {
         "fetch_function_arn": FETCH_ARN,
         "silver_function_arn": SILVER_ARN,
+        "dq_job_name": DQ_JOB,
         "execution_timeout_seconds": str(TIMEOUT),
     }
     # templatefile() would fail on an unknown variable; so does this.
@@ -88,7 +91,7 @@ def test_the_input_defaults_to_a_real_run_and_only_a_boolean_gets_through(asl):
 def test_fetch_then_silver_with_dry_run_reaching_both(asl):
     states = asl["States"]
     fetch, silver = states["Fetch"], states["Silver"]
-    assert fetch["Next"] == "Silver" and silver["End"] is True
+    assert fetch["Next"] == "Silver" and silver["Next"] == "ValidateSilver"
 
     assert fetch["Parameters"]["FunctionName"] == FETCH_ARN
     assert fetch["Parameters"]["Payload"] == {"mode": "incremental", "dry_run.$": "$.dry_run"}
@@ -117,10 +120,46 @@ def test_silver_retries_anything_once_after_the_service_errors(asl):
     assert retry[-1]["MaxAttempts"] == 1
 
 
+def test_the_gate_is_the_last_step_and_its_failure_is_the_executions(asl):
+    """Owner, UY-043.4 3a: a failed gate ends the run FAILED, and the alarm mails it."""
+    gate = asl["States"]["ValidateSilver"]
+    assert gate["End"] is True
+    # .sync waits for the job; without it the state would succeed as soon as the run started.
+    assert gate["Resource"] == "arn:aws:states:::glue:startJobRun.sync"
+    assert gate["Parameters"] == {
+        "JobName": DQ_JOB,
+        "Arguments": {"--RUN_ID.$": "$$.Execution.Name"},
+    }
+    # Nothing swallows the failure, and the same silver is never validated twice.
+    assert "Catch" not in gate and "Retry" not in gate
+    # The run id is what finds the verdict in /aws-glue/jobs/output; the times are D30's.
+    assert gate["ResultPath"] == "$.dq"
+    assert set(gate["ResultSelector"]) == {
+        "job_run_id.$",
+        "state.$",
+        "started_on.$",
+        "completed_on.$",
+        "billed_seconds.$",
+    }
+
+
+def test_the_gate_job_reads_from_wheels_in_s3_and_never_from_pypi():
+    job = _block(
+        (REPO / "terraform" / "uy" / "dq.tf").read_text("utf-8"),
+        'resource "aws_glue_job" "silver_dq"',
+    )
+    assert re.search(r'glue_version\s*=\s*"5\.0"', job)
+    assert re.search(r'"--python-modules-installer-option"\s*=\s*"--no-index"', job)
+    assert re.search(r'"--additional-python-modules"\s*=\s*"s3://\$\{aws_s3_object\.dq_zip', job)
+    assert "great-expectations==" not in job  # master's ~21 minutes of PyPI at every start
+
+
 def test_the_execution_timeout_covers_the_worst_case(asl):
-    # fetch 900 s, silver 900 s twice with 60 s between: the Lambdas' own timeouts.
+    # fetch 900 s, silver 900 s twice with 60 s between, then the DQ job's own timeout.
     assert asl["TimeoutSeconds"] == TIMEOUT
-    assert TIMEOUT > 900 + 900 + 60 + 900
+    assert TIMEOUT > 900 + 900 + 60 + 900 + DQ_TIMEOUT
+    variables = (REPO / "terraform" / "uy" / "variables.tf").read_text("utf-8")
+    assert "var.dq_timeout_minutes <= 10" in _block(variables, 'variable "dq_timeout_minutes"')
 
 
 # --- scripts/uy_sfn_validate.py -----------------------------------------------------------
