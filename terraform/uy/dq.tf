@@ -5,6 +5,7 @@
 # cluster is the price of the interpreter. Same shape as Santa Lucía's loteria-silver-dq job
 # (PR-033), with the one thing D30 set out to measure changed: GX arrives as a zip of wheels
 # from S3, installed with --no-index, instead of from PyPI at every start (~21 minutes there).
+# Measured on 2026-11-10: the script's first line 67 s after StartedOn, 113 s for the whole run.
 #
 # Two artifacts, both uploaded by this stack so the job and what it runs change in one apply:
 #   uy/dq/uy_dq_glue_main.py      the script (a Spark job's script_location must be one .py)
@@ -62,8 +63,17 @@ resource "aws_glue_job" "silver_dq" {
   default_arguments = {
     # P14: pip installs from the zip alone and never reaches PyPI. What Glue 5.0 already has
     # (pandas, numpy, pyarrow) is not in the zip and is not reinstalled.
+    #
+    # --no-deps is required, not a shortcut (UY-043.4.1). Glue's installer runs pip where the
+    # modules Glue ships are not visible as installed, so with --no-index alone the resolver
+    # stopped at the first of them a wheel asks for ("No matching distribution found for
+    # packaging", from altair) and the job died before its script. The zip is already the whole
+    # pinned closure minus Glue's base (requirements/uy-dq.lock), so there is nothing left for
+    # pip to resolve; at run time the imports find Glue's own packaging, pandas and the rest.
+    # What --no-deps gives up, pip noticing a missing dependency, CI's `uy dq` job covers: it
+    # runs the gate's tests on Python 3.11 with exactly the base lock plus this zip.
     "--additional-python-modules"       = "s3://${aws_s3_object.dq_zip.bucket}/${aws_s3_object.dq_zip.key}"
-    "--python-modules-installer-option" = "--no-index"
+    "--python-modules-installer-option" = "--no-index --no-deps"
 
     "--SILVER_BUCKET" = data.aws_s3_bucket.partitioned.bucket
     "--SILVER_PREFIX" = local.silver_prefix

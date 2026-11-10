@@ -103,6 +103,7 @@ def test_a_green_gate_runs_the_local_runner_on_the_copy(monkeypatch, capsys):
     assert lines[0].startswith(f"{glue_job.START_MARK} 20") and lines[0].endswith("run_id=exec-1")
     assert "uy_draws: ok (1 expectations, 12999 rows)" in lines
     assert lines[-1].startswith(f"{glue_job.RESULT_MARK}: PASS seconds=")
+    assert set(out["seconds"]) == {"imports", "download", "validate", "total"}
 
 
 def test_a_failed_expectation_fails_the_job_and_names_itself(monkeypatch, capsys):
