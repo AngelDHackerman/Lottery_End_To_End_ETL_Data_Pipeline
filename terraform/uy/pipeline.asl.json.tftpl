@@ -1,5 +1,5 @@
 {
-  "Comment": "UY nightly incremental (UY-043.3): fetch, then silver for the years fetch marked. Input: {\"dry_run\": true|false}; missing means false. Rendered by pipeline.tf, checked by tests/unit/sorteos/test_uy_pipeline_asl.py and, against AWS, by scripts/uy_sfn_validate.py.",
+  "Comment": "UY nightly incremental (UY-043.3): fetch, then silver for the years fetch marked, then the GX gate over all of silver (UY-043.4). Input: {\"dry_run\": true|false}; missing means false. Rendered by pipeline.tf, checked by tests/unit/sorteos/test_uy_pipeline_asl.py and, against AWS, by scripts/uy_sfn_validate.py.",
   "StartAt": "Defaults",
   "TimeoutSeconds": ${execution_timeout_seconds},
   "States": {
@@ -95,6 +95,26 @@
           "MaxAttempts": 1
         }
       ],
+      "Next": "ValidateSilver"
+    },
+    "ValidateSilver": {
+      "Comment": "The GX gate (D30): a Glue 5.0 job that reads all of uy/silver/ and writes nothing, so it also runs in a dry run, over the silver that is there. .sync waits for the job, and a failed expectation fails the job, this state and the execution (owner, UY-043.4 3a): the alarm mails it. No Retry: the same silver gives the same verdict. The verdict itself is in /aws-glue/jobs/output, stream = job_run_id.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${dq_job_name}",
+        "Arguments": {
+          "--RUN_ID.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "job_run_id.$": "$.Id",
+        "state.$": "$.JobRunState",
+        "started_on.$": "$.StartedOn",
+        "completed_on.$": "$.CompletedOn",
+        "billed_seconds.$": "$.ExecutionTime"
+      },
+      "ResultPath": "$.dq",
       "End": true
     }
   }

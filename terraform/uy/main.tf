@@ -18,6 +18,8 @@
 #   - the nightly state machine, its role, log group and failure alarm (D16, pipeline.tf)
 # Holds (UY-043.3.2):
 #   - the EventBridge Scheduler that starts it at 23:30 Montevideo, and its role (D27, pipeline.tf)
+# Holds (UY-043.4):
+#   - the silver gate: the GX Glue 5.0 job and its two artifacts in S3 (D20, D30, dq.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here

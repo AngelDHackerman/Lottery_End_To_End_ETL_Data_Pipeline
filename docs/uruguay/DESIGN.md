@@ -875,6 +875,25 @@ documentación de Glue del 2026-10-28:
 **Hipótesis:** que instalar desde el zip sin PyPI baje el arranque a segundos. El job de Glue y la
 medición del arranque pasan a la Fase 5, sobre el job que se despliega (owner, UY-026 1a).
 
+**El job (UY-043.4; owner, 2026-11-10, 1a, 2a y 3a).** `lottery-uy-silver-dq-prod`, en
+[`terraform/uy/dq.tf`](../../terraform/uy/dq.tf):
+
+- **Glue 5.0 con 2 workers G.1X** (1a), el mínimo de un job de Spark. No usa Spark: es la forma de
+  tener Python 3.11. Cuesta unos $0,03 por corrida, ~$0,90 al mes, varias veces el resto del
+  pipeline; se acepta por ser el mismo patrón que Santa Lucía y por responder esta hipótesis.
+- **Lee la plata como la lee `make uy-dq`** (2a): copia `uy/silver/` completo a disco (4,4 MB) y
+  llama al mismo `runner.run(Path)`
+  ([`glue_job.py`](../../src/sorteos/uy/dq/glue_job.py)). Local y nube corren el mismo código.
+- **Una falla es la falla de la ejecución** (3a). El job lanza una excepción, `ValidateSilver`
+  (`glue:startJobRun.sync`, que sí espera al job) falla sin `Catch` ni reintento, la ejecución
+  termina en `FAILED` y la alarma del pipeline manda el correo. La causa que muestra Step Functions
+  nombra la suite, la expectativa y la columna. La plata de esa noche ya quedó escrita: lo que el
+  gate protege es el oro (UY-044), que no se construye sobre una plata que falló.
+- **El veredicto está en `/aws-glue/jobs/output`**, en el stream con el id de la corrida. El job no
+  crea un SparkContext, así que un grupo de logs propio quedaría vacío (PR-033.1) y no se declara.
+- **El arranque se mide** con `make uy-dq-run`: la primera línea del script (`UY DQ START`) menos
+  el `StartedOn` de la corrida.
+
 Las lecciones de `master` que se repiten tal cual:
 
 - **Las expectativas se derivan de los datos** (PR-032). Cada una se corre contra la plata local
@@ -1079,6 +1098,6 @@ fuentes no tienen el problema: el probe de D26 dio los mismos bytes en 7 de 8.
 | UY-041 | El IAM de `uy/*`, `lottery_uy_db` con sus grants de LF y el registro de `uy/silver`, la tabla de DynamoDB (P16) y el repo de ECR. Las lecciones de LF de `master`: grants explícitos, nunca `ALL`; `lakeformation:GetDataAccess`; el grant de compatibilidad `IAM_ALLOWED_PRINCIPALS` también en la base nueva mientras la cuenta siga en modo híbrido |
 | UY-042 | Subir el bronce (`aws s3 sync`, P15) y migrar el manifiesto a DynamoDB. Probar sin proxy desde la Lambda fetch (D26) y medir un año de plata en la Lambda silver (el riesgo de D18). Al terminar, el riesgo del bronce en un solo disco queda cerrado |
 | UY-043 | `incremental.py` se separa en dos entradas, fetch y silver, que en local se comunican por `silver_pending.json` y en la nube por el ítem `PENDING#silver` del manifiesto (UY-043.2: `years` + `rev`, el borrado condicionado a `rev`). Step Functions las encadena y EventBridge Scheduler las dispara (D27). El incremental local se apaga antes de la primera corrida en la nube (G4) |
-| UY-043.4 | El job de GX de D30 (Glue 5.0, las wheels de UY-026.2) como paso después de Silver, y la medición del arranque sobre el job desplegado (owner, UY-043.3 4a) |
+| UY-043.4 | El job de GX de D30 (Glue 5.0, las wheels de UY-026.2) como paso `ValidateSilver` después de Silver, y la medición del arranque sobre el job desplegado (owner, UY-043.3 4a). Su falla es la de la ejecución (owner, UY-043.4 3a) |
 | UY-044 | Oro en `uy/gold/` con las métricas de UY-032, más la excepción de la Deny de borrado |
 | UY-045 | Alarmas de "sorteo faltante" a partir de `draw_gaps` y el canario |

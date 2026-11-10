@@ -1,6 +1,7 @@
 # The nightly pipeline (UY-043.3.1). DESIGN.md D16, D27; roadmap UY-043.
 #
 #   Defaults -> CheckInput -> Fetch (lambda fetch, mode=incremental) -> Silver (pending + finalize)
+#            -> ValidateSilver (the GX Glue job, dq.tf; UY-043.4)
 #
 # The definition lives in pipeline.asl.json.tftpl so a unit test can render and check it without
 # AWS (tests/unit/sorteos/test_uy_pipeline_asl.py); `make uy-tf-plan` also validates the rendered
@@ -11,16 +12,20 @@
 # UY-043.3.2), which lands together with the switch-off of the local incremental (`make
 # uy-incremental` refuses without UY_LOCAL=1): one writer on the manifest, as G4 requires.
 #
-# No crawler step: lottery_uy_db has no tables yet (they arrive with UY-044). The GX job (D30)
-# becomes a step after Silver in UY-043.4.
+# No crawler step: lottery_uy_db has no tables yet (they arrive with UY-044).
+#
+# ValidateSilver fails the execution when an expectation fails (owner, UY-043.4 3a): the alarm
+# below sends the e-mail and the night counts as a failure for G4. Silver is already written by
+# then; what the gate protects is gold (UY-044), which must not be built on a silver that failed.
 
 locals {
   state_machine_name = "lottery-uy-pipeline-${var.environment}"
   # Step Functions' vended logs: the group name MUST start with /aws/vendedlogs/ (PR-023).
   state_machine_log_group = "/aws/vendedlogs/states/${local.state_machine_name}"
 
-  # fetch: 900 s; silver: 900 s plus one retry after 60 s. Lambda's own service-error retries
-  # are seconds. An hour is above the worst case and still ends a stuck run the same night.
+  # fetch: 900 s; silver: 900 s plus one retry after 60 s; the DQ job: var.dq_timeout_minutes
+  # (10 at most, 600 s). Lambda's own service-error retries are seconds. An hour is above the
+  # worst case (3,360 s) and still ends a stuck run the same night.
   execution_timeout_seconds = 3600
 }
 
@@ -68,6 +73,20 @@ data "aws_iam_policy_document" "pipeline" {
     ]
   }
 
+  # glue:startJobRun.sync: Step Functions starts the run, polls it and, if the execution is
+  # stopped, stops it. Only this job.
+  statement {
+    sid    = "RunSilverDqJob"
+    effect = "Allow"
+    actions = [
+      "glue:StartJobRun",
+      "glue:GetJobRun",
+      "glue:GetJobRuns",
+      "glue:BatchStopJobRun",
+    ]
+    resources = [aws_glue_job.silver_dq.arn]
+  }
+
   # Step Functions delivers its logs through CloudWatch Logs' vended-logs API, whose actions do
   # not support resource-level permissions: "*" is the service's constraint (PR-023), not a
   # shortcut.
@@ -101,8 +120,11 @@ resource "aws_sfn_state_machine" "pipeline" {
   type     = "STANDARD" # up to an hour per run, once a night: Express caps at 5 minutes
 
   definition = templatefile("${path.module}/pipeline.asl.json.tftpl", {
-    fetch_function_arn        = aws_lambda_function.fetch.arn
-    silver_function_arn       = aws_lambda_function.silver.arn
+    fetch_function_arn  = aws_lambda_function.fetch.arn
+    silver_function_arn = aws_lambda_function.silver.arn
+    # The name from the local, not from the resource: it is known at plan time, so `make
+    # uy-tf-plan` can validate the definition before the job exists. depends_on gives the order.
+    dq_job_name               = local.dq_job_name
     execution_timeout_seconds = local.execution_timeout_seconds
   })
 
@@ -117,7 +139,7 @@ resource "aws_sfn_state_machine" "pipeline" {
   # Step Functions checks the role can deliver logs when it creates or updates the machine. The
   # role ARN alone gives no edge to its policy, and master's PR-023 apply failed on exactly that
   # race (AccessDeniedException on the log destination).
-  depends_on = [aws_iam_role_policy.pipeline]
+  depends_on = [aws_iam_role_policy.pipeline, aws_glue_job.silver_dq]
 }
 
 # --- The failure alarm (owner, UY-043.3 3a) -------------------------------------------------
@@ -137,7 +159,7 @@ data "aws_sns_topic" "alerts" {
 
 resource "aws_cloudwatch_metric_alarm" "pipeline_failed" {
   alarm_name          = "${local.state_machine_name}-failed"
-  alarm_description   = "The UY nightly pipeline (${local.state_machine_name}) failed or timed out. Open the execution in the Step Functions console, or ${local.state_machine_log_group}. The next night catches up on its own (UY-043.3)."
+  alarm_description   = "The UY nightly pipeline (${local.state_machine_name}) failed or timed out (a failed silver gate, ValidateSilver, is one way). Open the execution in the Step Functions console, or ${local.state_machine_log_group}. The next night catches up on its own (UY-043.3)."
   comparison_operator = "GreaterThanOrEqualToThreshold"
   threshold           = 1
   evaluation_periods  = 1
