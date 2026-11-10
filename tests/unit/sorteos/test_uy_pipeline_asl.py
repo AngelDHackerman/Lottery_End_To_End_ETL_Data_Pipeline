@@ -149,7 +149,9 @@ def test_the_gate_job_reads_from_wheels_in_s3_and_never_from_pypi():
         'resource "aws_glue_job" "silver_dq"',
     )
     assert re.search(r'glue_version\s*=\s*"5\.0"', job)
-    assert re.search(r'"--python-modules-installer-option"\s*=\s*"--no-index"', job)
+    # --no-deps too: with --no-index alone pip could not see Glue's own modules and the job
+    # died installing (UY-043.4.1, "No matching distribution found for packaging").
+    assert re.search(r'"--python-modules-installer-option"\s*=\s*"--no-index --no-deps"', job)
     assert re.search(r'"--additional-python-modules"\s*=\s*"s3://\$\{aws_s3_object\.dq_zip', job)
     assert "great-expectations==" not in job  # master's ~21 minutes of PyPI at every start
 

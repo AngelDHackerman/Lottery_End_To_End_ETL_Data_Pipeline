@@ -894,6 +894,22 @@ medición del arranque pasan a la Fase 5, sobre el job que se despliega (owner, 
 - **El arranque se mide** con `make uy-dq-run`: la primera línea del script (`UY DQ START`) menos
   el `StartedOn` de la corrida.
 
+**Medido el 2026-11-10 (UY-043.4.1): la hipótesis se cumple.** Sobre el job desplegado
+(`jr_c1e6f324…`): la primera línea del script sale **67 s** después de `StartedOn`, contra ~21
+minutos en `master`. La corrida entera son 113 s de reloj y 104 s facturados (2 DPU: ~$0,025); el
+script tarda 33,6 s y las 6 suites pasan sobre 13.014 sorteos. De esos 67 s, bajar el zip (49 MB)
+son 2 s y la instalación de las 25 wheels unos 5 s: el resto es el arranque de Glue.
+
+**Corrección a P14: hace falta `--no-deps` además de `--no-index`.** La primera corrida murió
+instalando, a los 75 s: `No matching distribution found for packaging` (lo pide `altair`). El
+instalador de Glue corre pip en un entorno donde los módulos que Glue trae no figuran como
+instalados, así que el resolver se frena en el primero que un wheel necesita y que el zip, a
+propósito, no lleva. El zip ya es el cierre completo y fijado del lock menos la base de Glue: pip
+no tiene nada que resolver, y al correr los imports encuentran el `packaging`, el `pandas` y el
+resto de Glue. Lo que `--no-deps` deja de avisar (una dependencia que falte) lo cubre el job
+`uy-dq-glue` de CI, que corre los tests del gate con la base y el zip, y nada más. La
+documentación de Glue no lo dice; lo dijo la corrida.
+
 Las lecciones de `master` que se repiten tal cual:
 
 - **Las expectativas se derivan de los datos** (PR-032). Cada una se corre contra la plata local

@@ -122,6 +122,7 @@ def main(argv: list[str] | None = None, s3=None) -> dict[str, Any]:
         from botocore.config import Config
 
         s3 = boto3.client("s3", config=Config(max_pool_connections=WORKERS))
+    imported = time.monotonic()
 
     with tempfile.TemporaryDirectory(prefix="uy-silver-") as tmp:
         root = Path(tmp)
@@ -138,7 +139,8 @@ def main(argv: list[str] | None = None, s3=None) -> dict[str, Any]:
 
     print(report.text(), flush=True)
     timings = {
-        "download": round(downloaded - began, 1),
+        "imports": round(imported - began, 1),
+        "download": round(downloaded - imported, 1),
         "validate": round(done - downloaded, 1),
         "total": round(done - began, 1),
     }
