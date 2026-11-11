@@ -46,6 +46,8 @@ resource "aws_lambda_function" "fetch" {
       MANIFEST_TABLE = aws_dynamodb_table.manifest.name
       BRONZE_BUCKET  = data.aws_s3_bucket.partitioned.bucket
       BRONZE_PREFIX  = local.raw_prefix
+      # Turns on the nightly metric line (sorteos.core.metrics; alarms.tf, UY-045).
+      METRICS_ENVIRONMENT = var.environment
     }
   }
 

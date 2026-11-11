@@ -8,6 +8,7 @@ would change, while writing nothing anywhere (owner, UY-043.2 a).
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import boto3
@@ -15,7 +16,7 @@ import pytest
 from test_uy_backfill import FakeClient  # pytest puts this directory on sys.path
 from test_uy_incremental import TODAY, a_week
 
-from sorteos.core import bronze
+from sorteos.core import bronze, metrics
 from sorteos.core import manifest as mf
 from sorteos.core import manifest_dynamodb as md
 from sorteos.uy import backfill, lambda_fetch, sources
@@ -152,3 +153,41 @@ def test_the_dry_run_store_reads_through_and_keeps_its_writes(s3):
 def test_a_run_without_max_requests_has_the_default_budget(s3, dynamodb, env, monkeypatch):
     monkeypatch.setattr(lambda_fetch, "DEFAULT_MAX_REQUESTS", 3)
     assert run(s3, dynamodb, a_week(), dry_run=True)["requests"] == 3
+
+
+def emf_lines(capsys) -> list[dict]:
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if "_aws" in line]
+    return [{k: v for k, v in line.items() if k != "_aws"} for line in lines]
+
+
+def test_a_real_night_publishes_its_requests_and_errors(s3, dynamodb, env, monkeypatch, capsys):
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    report = run(s3, dynamodb, a_week())
+    errors = report["by_state"][mf.ERROR]  # this week's extracts are not real pages
+    assert report["requests"] > errors > 0
+    assert emf_lines(capsys) == [
+        {"Environment": "test", "FetchRequests": report["requests"], "FetchErrors": errors}
+    ]
+
+
+def test_the_keys_left_in_error_are_the_canary(s3, dynamodb, env, monkeypatch, capsys):
+    # A site that blocks: every page answers 403. The run does not fail; the count says it.
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    blocked = dict.fromkeys(a_week(), (403, b"<html>403 Forbidden</html>"))
+    report = run(s3, dynamodb, blocked)
+    assert set(report["by_state"]) == {mf.ERROR}
+    assert emf_lines(capsys)[0]["FetchErrors"] == report["requests"] > 0
+
+
+def test_a_dry_run_publishes_no_metric(s3, dynamodb, env, monkeypatch, capsys):
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    run(s3, dynamodb, a_week(), dry_run=True)
+    assert emf_lines(capsys) == []
+
+
+def test_the_counts_come_from_the_report():
+    assert lambda_fetch.fetch_counts({"requests": 9, "by_state": {"draw": 8, "error": 1}}) == {
+        "FetchRequests": 9,
+        "FetchErrors": 1,
+    }
+    assert lambda_fetch.fetch_counts({"requests": 0, "by_state": {}})["FetchErrors"] == 0

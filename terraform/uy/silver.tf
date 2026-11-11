@@ -48,6 +48,8 @@ resource "aws_lambda_function" "silver" {
       SILVER_BUCKET  = data.aws_s3_bucket.partitioned.bucket
       SILVER_PREFIX  = local.silver_prefix
       BRONZE_PREFIX  = local.raw_prefix
+      # Turns on the nightly metric line (sorteos.core.metrics; alarms.tf, UY-045).
+      METRICS_ENVIRONMENT = var.environment
     }
   }
 

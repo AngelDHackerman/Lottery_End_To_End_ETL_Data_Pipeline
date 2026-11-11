@@ -16,6 +16,10 @@ that item (``{"pending": true}``).
 real run would, with the manifest's own code (``DryRunManifest``), but keeps the writes in
 memory: no bronze, no manifest row, no pending year. The report says what would have changed.
 
+**The canary (owner, UY-045 1a)** is the nightly run itself: a real incremental prints one
+Embedded Metric Format line (``core/metrics.py``) with ``FetchRequests`` and ``FetchErrors``,
+the keys it left in ``error``. No request is made for it. A dry run publishes nothing.
+
 **Why a probe first (D26).** UY-005 reached the site without a proxy from CloudShell, which
 leaves from other IPs than a Lambda does. The probe asks the site again for the newest key with
 a draw of each source, keys whose bytes the manifest already holds, and says per key whether
@@ -44,6 +48,7 @@ from datetime import date
 from typing import Any
 
 from sorteos.core import manifest as mf
+from sorteos.core import metrics
 from sorteos.core.bronze import DryRunStore, S3BronzeStore
 from sorteos.core.http_client import FetchError
 from sorteos.core.manifest_dynamodb import DryRunManifest, DynamoManifest, PendingYears
@@ -122,6 +127,16 @@ def run_incremental(
     }
 
 
+def fetch_counts(report: dict) -> dict[str, int]:
+    """The canary (owner, UY-045 1a): the nightly run's own requests, no extra one. A site that
+    blocks or changes leaves keys in ``error`` and the run still succeeds, so the count is what
+    the alarm reads."""
+    return {
+        "FetchRequests": report["requests"],
+        "FetchErrors": report["by_state"].get(mf.ERROR, 0),
+    }
+
+
 def _max_requests(event: dict) -> int:
     value = event.get("max_requests", DEFAULT_MAX_REQUESTS)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
@@ -167,5 +182,7 @@ def _incremental(event: dict, s3, dynamodb, client) -> dict[str, Any]:
     )
     if isinstance(store, DryRunStore):
         report["bronze_not_written"] = sorted(store.written)
+    else:  # a dry run writes nothing, a metric included
+        metrics.publish(fetch_counts(report))
     log.info(json.dumps(report))
     return report
