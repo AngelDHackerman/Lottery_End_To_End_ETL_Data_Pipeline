@@ -514,3 +514,12 @@ def test_the_zip_holds_everything_the_handler_imports():
             for imported in names:
                 top = imported.split(".")[0]
                 assert imported in allowed or top in sys.stdlib_module_names, (name, imported)
+
+
+def test_someone_besides_the_lambda_can_read_what_it_creates():
+    """UY-044.3.1: the first build left six tables only their creator could query."""
+    text = (REPO / "terraform" / "uy" / "gold.tf").read_text("utf-8")
+    block = text[text.index('resource "aws_lakeformation_permissions" "catalog_readers"') :]
+    assert re.search(r'permissions\s*=\s*\["SELECT", "DESCRIBE"\]', block)  # read-only, never ALL
+    assert re.search(r"wildcard\s*=\s*true", block)  # the gold tables are not Terraform's to name
+    assert "for_each = local.catalog_readers" in block

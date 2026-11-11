@@ -110,6 +110,19 @@ aws s3 ls s3://lottery-partitioned-storage-prod/uy/gold/gold_quiniela_repeats/
 Las seis tablas deben apuntar a **la misma** generación. `make uy-gold-build` corre la Lambda a
 mano, fuera de la máquina (es una construcción real: no hay dry run del oro).
 
+## Quién puede consultar el oro
+
+Las tablas de oro las crea el rol de la Lambda, y en esta cuenta Lake Formation le da una tabla
+nueva solo a quien la crea. Ser administrador del data lake permite otorgar permisos, no leer.
+Por eso `gold.tf` otorga `SELECT` y `DESCRIBE` sobre todas las tablas de `lottery_uy_db` (con
+comodín, porque las de oro no las nombra Terraform) a:
+
+- el usuario IAM que aplica el stack (hoy, `angel-adming`), y
+- cada ARN de `var.catalog_reader_arns`.
+
+Si Athena responde `Relation contains no accessible columns`, a quien consulta le falta ese
+grant: se suma su ARN a `catalog_reader_arns` y se aplica.
+
 ## Volver a la generación anterior
 
 Cada tabla recuerda la anterior en `gold.previous_generations`, y sus archivos siguen en S3.

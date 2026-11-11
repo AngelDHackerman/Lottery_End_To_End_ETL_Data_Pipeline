@@ -99,3 +99,9 @@ variable "gold_timeout_seconds" {
     error_message = "gold_timeout_seconds must be 160..180: the builder waits 150 s for Athena, and above 180 the worst case no longer fits the state machine's one-hour timeout."
   }
 }
+
+variable "catalog_reader_arns" {
+  description = "IAM users or roles that may query every table of lottery_uy_db in Athena, besides the IAM user that applies the stack (UY-044.3.1). They still need their own IAM permissions for Athena and lakeformation:GetDataAccess."
+  type        = list(string)
+  default     = []
+}
