@@ -14,13 +14,16 @@ It then prints, per table, what was expected and what was observed.
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
 import duckdb
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from sorteos.core.gold import GoldError, load_queries  # noqa: E402
+
 SQL_DIR = ROOT / "sql" / "uy" / "gold"
 FILE_NAME = "part-0.parquet"
 # The silver tables and whether their path has year= (terraform/uy/silver_tables.json says the
@@ -34,27 +37,11 @@ SILVER = {
     "calendar_events": False,
     "draw_gaps": False,
 }
-_FILE_RE = re.compile(r"^\d{2}_(gold_[a-z0-9_]+)\.sql$")
-
-
-class GoldError(ValueError):
-    pass
 
 
 def queries(sql_dir: Path = SQL_DIR) -> dict[str, str]:
-    """{table: SELECT}, in file order. A file that is not NN_gold_<name>.sql is an error."""
-    found: dict[str, str] = {}
-    for path in sorted(sql_dir.glob("*.sql")):
-        match = _FILE_RE.match(path.name)
-        if not match:
-            raise GoldError(f"{path.name}: expected NN_gold_<name>.sql")
-        text = path.read_text("utf-8").strip().rstrip(";").strip()
-        if not text:
-            raise GoldError(f"{path.name} is empty")
-        found[match.group(1)] = text
-    if not found:
-        raise GoldError(f"no SQL files in {sql_dir}")
-    return found
+    """{table: SELECT}, in file order: the same loader the gold Lambda uses."""
+    return load_queries(sql_dir)
 
 
 def connect(silver: Path) -> duckdb.DuckDBPyConnection:

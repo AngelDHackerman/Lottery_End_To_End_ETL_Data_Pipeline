@@ -86,3 +86,16 @@ variable "athena_scan_limit_bytes" {
     error_message = "athena_scan_limit_bytes must be at least 10485760 (10 MB), Athena's minimum."
   }
 }
+
+# fetch 900 + silver 900 + 60 + 900 + the DQ job 600 = 3,360 s; with 180 the worst case is
+# 3,540 s, still under the state machine's hour.
+variable "gold_timeout_seconds" {
+  description = "Timeout of the gold Lambda, in seconds (UY-044.3)."
+  type        = number
+  default     = 180
+
+  validation {
+    condition     = var.gold_timeout_seconds >= 160 && var.gold_timeout_seconds <= 180
+    error_message = "gold_timeout_seconds must be 160..180: the builder waits 150 s for Athena, and above 180 the worst case no longer fits the state machine's one-hour timeout."
+  }
+}

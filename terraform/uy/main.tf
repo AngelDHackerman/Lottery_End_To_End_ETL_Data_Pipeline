@@ -23,6 +23,8 @@
 # Holds (UY-044.1):
 #   - the seven silver tables, declared with projected partitions, and UY's Athena workgroup
 #     (D31, D32, catalog.tf)
+# Holds (UY-044.3):
+#   - the gold Lambda, its role, its Lake Formation grants and its log group (D33, D35, gold.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here

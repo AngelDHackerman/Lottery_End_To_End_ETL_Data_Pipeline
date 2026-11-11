@@ -1,5 +1,5 @@
 {
-  "Comment": "UY nightly incremental (UY-043.3): fetch, then silver for the years fetch marked, then the GX gate over all of silver (UY-043.4). Input: {\"dry_run\": true|false}; missing means false. Rendered by pipeline.tf, checked by tests/unit/sorteos/test_uy_pipeline_asl.py and, against AWS, by scripts/uy_sfn_validate.py.",
+  "Comment": "UY nightly incremental (UY-043.3): fetch, then silver for the years fetch marked, then the GX gate over all of silver (UY-043.4), then gold (UY-044.3; not in a dry run). Input: {\"dry_run\": true|false}; missing means false. Rendered by pipeline.tf, checked by tests/unit/sorteos/test_uy_pipeline_asl.py and, against AWS, by scripts/uy_sfn_validate.py.",
   "StartAt": "Defaults",
   "TimeoutSeconds": ${execution_timeout_seconds},
   "States": {
@@ -115,6 +115,50 @@
         "billed_seconds.$": "$.ExecutionTime"
       },
       "ResultPath": "$.dq",
+      "Next": "GoldUnlessDryRun"
+    },
+    "GoldUnlessDryRun": {
+      "Comment": "Gold writes (tables, uy/gold/), so a dry run stops here (owner, UY-044.3 4a). It is reached only if ValidateSilver passed: gold is never built on a silver the gate rejected.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.dry_run",
+          "BooleanEquals": true,
+          "Next": "DryRunDone"
+        }
+      ],
+      "Default": "BuildGold"
+    },
+    "DryRunDone": {
+      "Type": "Succeed"
+    },
+    "BuildGold": {
+      "Comment": "The six gold tables (sql/uy/gold/): built beside the published ones, counted, then swapped, all or none (sorteos.core.gold). A failure fails the execution and the alarm mails it; published gold stays last night's (owner, UY-044.3 2a). Retries only Lambda's own service errors: every attempt builds a new generation, so a retry of a failed build would only fail again and leave more to retire.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${gold_function_arn}",
+        "Payload": {
+          "run_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "report.$": "$.Payload"
+      },
+      "ResultPath": "$.gold",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "End": true
     }
   }

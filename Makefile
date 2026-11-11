@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-gold-local uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-dq-run uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-catalog-sync uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-gold-local uy-gold-build uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-dq-run uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-catalog-sync uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -333,6 +333,18 @@ uy-silver-pending: ## Invoke the silver Lambda on the years in PENDING#silver, t
 # aside. Run both on the same day: draw_gaps depends on today's date in Uruguay. From a
 # worktree, point UY_ROOT at the main tree's data/uy (manifest.sqlite + bronze).
 UY_ROOT ?= data/uy
+
+# UY-044.3: the gold Lambda by hand, outside the state machine. A REAL build: it writes a new
+# generation under uy/gold/ and swaps the six tables onto it (there is no dry run of gold).
+UY_GOLD_FUNCTION ?= lottery-uy-gold-prod
+uy-gold-build: ## Invoke the gold Lambda once: build, count, swap and retire the six UY gold tables (UY-044.3; writes uy/gold/)
+	@mkdir -p dist/uy
+	@aws lambda invoke --function-name $(UY_GOLD_FUNCTION) --cli-binary-format raw-in-base64-out \
+	  --cli-read-timeout 200 \
+	  --payload '{"run_id": "manual-$(shell date -u +%Y%m%dT%H%M%SZ)"}' \
+	  dist/uy/gold-build.json --query FunctionError --output text | grep -qx None \
+	  || { cat dist/uy/gold-build.json; echo; echo "The gold Lambda failed (see above)"; exit 1; }
+	@python -m json.tool dist/uy/gold-build.json
 
 # UY-043.3.1: the nightly state machine, started by hand. A real run since UY-043.3.2, when the
 # local incremental was switched off (one writer on the manifest, G4); UY_DRY_RUN=1 asks the site

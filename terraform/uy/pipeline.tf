@@ -2,6 +2,7 @@
 #
 #   Defaults -> CheckInput -> Fetch (lambda fetch, mode=incremental) -> Silver (pending + finalize)
 #            -> ValidateSilver (the GX Glue job, dq.tf; UY-043.4)
+#            -> BuildGold (lambda gold, gold.tf; UY-044.3), skipped in a dry run
 #
 # The definition lives in pipeline.asl.json.tftpl so a unit test can render and check it without
 # AWS (tests/unit/sorteos/test_uy_pipeline_asl.py); `make uy-tf-plan` also validates the rendered
@@ -12,11 +13,12 @@
 # UY-043.3.2), which lands together with the switch-off of the local incremental (`make
 # uy-incremental` refuses without UY_LOCAL=1): one writer on the manifest, as G4 requires.
 #
-# No crawler step: lottery_uy_db has no tables yet (they arrive with UY-044).
+# No crawler step: the silver tables are declared with projected partitions (catalog.tf, D31).
 #
 # ValidateSilver fails the execution when an expectation fails (owner, UY-043.4 3a): the alarm
 # below sends the e-mail and the night counts as a failure for G4. Silver is already written by
-# then; what the gate protects is gold (UY-044), which must not be built on a silver that failed.
+# then; what the gate protects is gold, which is never built on a silver that failed. BuildGold
+# fails the execution the same way (owner, UY-044.3 2a): published gold stays last night's.
 
 locals {
   state_machine_name = "lottery-uy-pipeline-${var.environment}"
@@ -24,8 +26,9 @@ locals {
   state_machine_log_group = "/aws/vendedlogs/states/${local.state_machine_name}"
 
   # fetch: 900 s; silver: 900 s plus one retry after 60 s; the DQ job: var.dq_timeout_minutes
-  # (10 at most, 600 s). Lambda's own service-error retries are seconds. An hour is above the
-  # worst case (3,360 s) and still ends a stuck run the same night.
+  # (10 at most, 600 s); gold: var.gold_timeout_seconds (180 at most). Lambda's own
+  # service-error retries are seconds. An hour is above the worst case (3,540 s) and still
+  # ends a stuck run the same night.
   execution_timeout_seconds = 3600
 }
 
@@ -70,6 +73,8 @@ data "aws_iam_policy_document" "pipeline" {
       "${aws_lambda_function.fetch.arn}:*",
       aws_lambda_function.silver.arn,
       "${aws_lambda_function.silver.arn}:*",
+      aws_lambda_function.gold.arn,
+      "${aws_lambda_function.gold.arn}:*",
     ]
   }
 
@@ -122,6 +127,9 @@ resource "aws_sfn_state_machine" "pipeline" {
   definition = templatefile("${path.module}/pipeline.asl.json.tftpl", {
     fetch_function_arn  = aws_lambda_function.fetch.arn
     silver_function_arn = aws_lambda_function.silver.arn
+    # Written out, not read from the resource, for the same reason as dq_job_name below: a
+    # new function's ARN is unknown at plan time and the definition could not be validated.
+    gold_function_arn = "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:${local.gold_function_name}"
     # The name from the local, not from the resource: it is known at plan time, so `make
     # uy-tf-plan` can validate the definition before the job exists. depends_on gives the order.
     dq_job_name               = local.dq_job_name
@@ -139,7 +147,7 @@ resource "aws_sfn_state_machine" "pipeline" {
   # Step Functions checks the role can deliver logs when it creates or updates the machine. The
   # role ARN alone gives no edge to its policy, and master's PR-023 apply failed on exactly that
   # race (AccessDeniedException on the log destination).
-  depends_on = [aws_iam_role_policy.pipeline, aws_glue_job.silver_dq]
+  depends_on = [aws_iam_role_policy.pipeline, aws_glue_job.silver_dq, aws_lambda_function.gold]
 }
 
 # --- The failure alarm (owner, UY-043.3 3a) -------------------------------------------------

@@ -24,6 +24,8 @@ TIMEOUT = 3600  # pipeline.tf, local.execution_timeout_seconds
 FETCH_ARN = "arn:aws:lambda:us-east-1:111111111111:function:lottery-uy-fetch-test"
 SILVER_ARN = "arn:aws:lambda:us-east-1:111111111111:function:lottery-uy-silver-test"
 DQ_JOB = "lottery-uy-silver-dq-test"
+GOLD_ARN = "arn:aws:lambda:us-east-1:111111111111:function:lottery-uy-gold-test"
+GOLD_TIMEOUT = 180  # variables.tf, gold_timeout_seconds: 180 at most
 DQ_TIMEOUT = 600  # variables.tf, dq_timeout_minutes: 10 at most
 LAMBDA_SERVICE_ERRORS = {
     "Lambda.ServiceException",
@@ -47,6 +49,7 @@ def asl() -> dict:
         "fetch_function_arn": FETCH_ARN,
         "silver_function_arn": SILVER_ARN,
         "dq_job_name": DQ_JOB,
+        "gold_function_arn": GOLD_ARN,
         "execution_timeout_seconds": str(TIMEOUT),
     }
     # templatefile() would fail on an unknown variable; so does this.
@@ -120,10 +123,14 @@ def test_silver_retries_anything_once_after_the_service_errors(asl):
     assert retry[-1]["MaxAttempts"] == 1
 
 
-def test_the_gate_is_the_last_step_and_its_failure_is_the_executions(asl):
+def test_the_gate_comes_before_gold_and_its_failure_is_the_executions(asl):
     """Owner, UY-043.4 3a: a failed gate ends the run FAILED, and the alarm mails it."""
     gate = asl["States"]["ValidateSilver"]
-    assert gate["End"] is True
+    # Gold is reachable only through the gate: never built on a silver that failed it.
+    assert gate["Next"] == "GoldUnlessDryRun"
+    assert [n for n, s in asl["States"].items() if s.get("Next") == "GoldUnlessDryRun"] == [
+        "ValidateSilver"
+    ]
     # .sync waits for the job; without it the state would succeed as soon as the run started.
     assert gate["Resource"] == "arn:aws:states:::glue:startJobRun.sync"
     assert gate["Parameters"] == {
@@ -157,11 +164,42 @@ def test_the_gate_job_reads_from_wheels_in_s3_and_never_from_pypi():
 
 
 def test_the_execution_timeout_covers_the_worst_case(asl):
-    # fetch 900 s, silver 900 s twice with 60 s between, then the DQ job's own timeout.
+    # fetch 900 s, silver 900 s twice with 60 s between, the DQ job's own timeout, then gold's.
     assert asl["TimeoutSeconds"] == TIMEOUT
-    assert TIMEOUT > 900 + 900 + 60 + 900 + DQ_TIMEOUT
+    assert TIMEOUT > 900 + 900 + 60 + 900 + DQ_TIMEOUT + GOLD_TIMEOUT
     variables = (REPO / "terraform" / "uy" / "variables.tf").read_text("utf-8")
     assert "var.dq_timeout_minutes <= 10" in _block(variables, 'variable "dq_timeout_minutes"')
+    assert "var.gold_timeout_seconds <= 180" in _block(variables, 'variable "gold_timeout_seconds"')
+
+
+def test_gold_is_the_last_step_and_a_dry_run_never_reaches_it(asl):
+    """Owner, UY-044.3: 2a a failed gold fails the execution, 4a a dry run skips it."""
+    states = asl["States"]
+    choice = states["GoldUnlessDryRun"]
+    assert choice["Choices"] == [
+        {"Variable": "$.dry_run", "BooleanEquals": True, "Next": "DryRunDone"}
+    ]
+    assert choice["Default"] == "BuildGold"
+    assert states["DryRunDone"] == {"Type": "Succeed"}
+
+    gold = states["BuildGold"]
+    assert gold["End"] is True
+    assert gold["Parameters"] == {
+        "FunctionName": GOLD_ARN,
+        "Payload": {"run_id.$": "$$.Execution.Name"},  # no dry_run: the Lambda refuses one
+    }
+    assert gold["ResultPath"] == "$.gold"
+    # Nothing swallows the failure; only errors of the Lambda service itself are retried.
+    assert "Catch" not in gold
+    assert {e for r in gold["Retry"] for e in r["ErrorEquals"]} == LAMBDA_SERVICE_ERRORS
+
+
+def test_the_gold_arn_in_the_definition_is_known_at_plan_time():
+    """A new function's ARN is unknown until apply, and uy_sfn_validate refuses such a plan."""
+    pipeline = (REPO / "terraform" / "uy" / "pipeline.tf").read_text("utf-8")
+    line = re.search(r"gold_function_arn\s*=\s*(.+)", pipeline).group(1)
+    assert "aws_lambda_function.gold" not in line and "local.gold_function_name" in line
+    assert "aws_lambda_function.gold" in re.search(r"depends_on = \[(.+)\]", pipeline).group(1)
 
 
 # --- scripts/uy_sfn_validate.py -----------------------------------------------------------
