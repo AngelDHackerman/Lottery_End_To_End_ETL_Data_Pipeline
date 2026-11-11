@@ -10,7 +10,7 @@
 # That order has never been run from zero — the stack was built by importing a running
 # pipeline (PR-004 onward). See roadmap.md PR-040.
 
-.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-dq-run uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-catalog-sync uy-tf-init uy-tf-plan uy-deploy
+.PHONY: bootstrap secrets lock lock-upgrade build tf-init deploy upload-glue test dq dq-sync destroy lint fmt tf-plan lineage-views uy-backfill uy-pilot uy-report uy-golden-urls uy-properties uy-incremental uy-silver uy-reconcile uy-estadisticas uy-dq uy-gold-local uy-dq-sync uy-dq-lock uy-dq-lock-upgrade uy-dq-build uy-dq-run uy-bronze-sync uy-bronze-check uy-manifest-migrate uy-manifest-check uy-fetch-lock uy-fetch-build uy-fetch-check uy-fetch-probe uy-fetch-incremental uy-silver-pending uy-silver-lock uy-silver-image uy-silver-local uy-silver-push uy-silver-invoke uy-silver-backfill uy-silver-reconcile uy-sfn-run uy-catalog-sync uy-tf-init uy-tf-plan uy-deploy
 
 # Glue's three artifacts are the only deploy inputs Terraform does not upload (see
 # scripts/build_glue_package.sh and build_dq_package.sh). Same default as those scripts.
@@ -175,6 +175,12 @@ uy-estadisticas: ## Ask ver_estadisticas for the site's own counts, into bronze,
 
 uy-dq: ## Validate local UY silver against its Great Expectations suites (UY-026; read-only)
 	PYTHONPATH=src python -m sorteos.uy.dq.runner --silver $(UY_SILVER)
+
+# UY-032 / UY-044.2: gold is SQL written once, for Athena (sql/uy/gold/), and run here as it is
+# with DuckDB over the local silver. From a worktree, point UY_SILVER at the main tree's.
+UY_GOLD ?= data/uy/gold
+uy-gold-local: ## Build local UY gold with DuckDB from sql/uy/gold/ and print expected vs observed (UY-044.2; no AWS)
+	python scripts/uy_gold_local.py --silver $(UY_SILVER) --out $(UY_GOLD)
 
 # UY-042.1: local bronze to S3 (P15: uy/raw/ + the path under data/uy/bronze/). These two DO
 # touch AWS, with whatever AWS_PROFILE is set. From a worktree, point UY_BRONZE at the main

@@ -56,6 +56,9 @@ dev = [
     # UY-020. Keep in step with the "uy" extra below: CI installs only `.[dev]`.
     "pyyaml",
     "pdfplumber",
+    # UY-044.2 (D34). Runs sql/uy/gold/ locally and in the tests: the SQL is written for
+    # Athena and DuckDB reads it as it is. Not a runtime dependency of any Lambda or job.
+    "duckdb",
 ]
 # UY-020 (docs/uruguay/DESIGN.md, P4). The Uruguay package: pyyaml reads its YAML config and
 # pdfplumber will read the pozos PDF (UY-024). No pydantic: the YAML is validated by
