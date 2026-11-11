@@ -101,3 +101,13 @@ output "athena" {
     silver_tables = sort([for t in aws_glue_catalog_table.silver : t.name])
   }
 }
+
+output "gold_function" {
+  description = "The gold Lambda (UY-044.3), its role (the one the bucket's delete-Deny must exempt under uy/gold/) and its log group."
+  value = {
+    name      = aws_lambda_function.gold.function_name
+    role_arn  = aws_iam_role.gold_lambda.arn
+    prefix    = "s3://${data.aws_s3_bucket.partitioned.bucket}/${local.gold_prefix}"
+    log_group = aws_cloudwatch_log_group.gold.name
+  }
+}

@@ -6,6 +6,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    # UY-044.3: the gold Lambda's zip (gold.tf), as the main stack builds its small Lambdas.
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 
