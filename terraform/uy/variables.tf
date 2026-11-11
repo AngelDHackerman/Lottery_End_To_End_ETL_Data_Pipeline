@@ -72,3 +72,17 @@ variable "dq_timeout_minutes" {
     error_message = "dq_timeout_minutes must be 2..10: above 10 the worst case no longer fits the state machine's one-hour timeout."
   }
 }
+
+# All of UY silver is under 5 MB, so 100 MB is 20 times a full scan of every table: room to
+# grow for decades, and a runaway query (a cross join, the wrong database) stops early.
+# Athena's minimum is 10 MB.
+variable "athena_scan_limit_bytes" {
+  description = "Per-query scan limit of the UY Athena workgroup (UY-044.1)."
+  type        = number
+  default     = 104857600
+
+  validation {
+    condition     = var.athena_scan_limit_bytes >= 10485760
+    error_message = "athena_scan_limit_bytes must be at least 10485760 (10 MB), Athena's minimum."
+  }
+}
