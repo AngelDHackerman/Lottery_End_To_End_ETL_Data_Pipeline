@@ -403,6 +403,10 @@ def test_athena_that_never_answers_is_stopped(world):
 def test_bad_inputs(world):
     with pytest.raises(gold.GoldError, match="no gold queries"):
         world.builder.run({}, run_id="x")
+    for name in ("silver_draws", "gold_a; DROP TABLE x", 'gold_"a'):
+        with pytest.raises(gold.GoldError, match="not gold table names"):
+            world.builder.run({name: "SELECT 1"}, run_id="x")
+    assert world.athena.sql == {}
     with pytest.raises(gold.GoldError, match="bad generation"):
         world.builder.run(QUERIES, run_id="x", generation="tonight")
     with pytest.raises(gold.GoldError, match="refusing to delete"):

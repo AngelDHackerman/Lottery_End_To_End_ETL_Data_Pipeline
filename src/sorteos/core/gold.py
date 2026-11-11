@@ -42,6 +42,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _FILE_RE = re.compile(r"^\d{2}_(gold_[a-z0-9_]+)\.sql$")
+_TABLE_RE = re.compile(r"^gold_[a-z0-9_]+$")
 _GENERATION_RE = re.compile(r"^\d{8}T\d{6}Z$")
 _RUN_PREFIX = "run="
 _PREVIOUS = "gold.previous_generations"
@@ -195,9 +196,11 @@ class Builder:
         return done
 
     def _counts(self, staging: Mapping[str, str]) -> dict[str, int]:
-        sql = "\nUNION ALL\n".join(
+        # Not user input: run() only lets through table names that are gold_<a-z0-9_>, and the
+        # staging names are built from them and a timestamp.
+        sql = "\nUNION ALL\n".join(  # nosec B608
             f"SELECT '{table}' AS table_name, count(*) AS row_count "  # noqa: S608
-            f'FROM "{self.target.database}"."{name}"'
+            f'FROM "{self.target.database}"."{name}"'  # nosec B608
             for table, name in staging.items()
         )
         query_id = self._start(sql)
@@ -326,6 +329,9 @@ class Builder:
     ) -> dict:
         if not queries:
             raise GoldError("no gold queries")
+        bad = sorted(table for table in queries if not _TABLE_RE.match(table))
+        if bad:
+            raise GoldError(f"not gold table names: {bad}")
         generation = generation or new_generation()
         if not _GENERATION_RE.match(generation):
             raise GoldError(f"bad generation {generation!r}")
