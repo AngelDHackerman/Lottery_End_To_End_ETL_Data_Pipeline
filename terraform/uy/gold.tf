@@ -208,9 +208,15 @@ resource "aws_lakeformation_permissions" "gold_reads_silver" {
   }
 }
 
+# ALTER and DROP are here because Lake Formation reports them: this was applied with
+# CREATE_TABLE and DESCRIBE alone, and after the first build the grant read back with all four
+# (2026-11-11), so the next plan wanted to replace it, forever. Declaring what is there settles
+# it (master's PR-013a lesson: an LF grant is what LF says it is). They give the role nothing
+# it can use: its IAM policy has no glue:UpdateDatabase or DeleteDatabase, and limits table
+# changes to gold_* and stg_gold_*.
 resource "aws_lakeformation_permissions" "gold_creates_tables" {
   principal   = aws_iam_role.gold_lambda.arn
-  permissions = ["CREATE_TABLE", "DESCRIBE"]
+  permissions = ["ALTER", "CREATE_TABLE", "DESCRIBE", "DROP"]
 
   database {
     name = aws_glue_catalog_database.uy.name
@@ -255,4 +261,37 @@ resource "aws_lambda_function" "gold" {
     aws_lakeformation_permissions.gold_reads_silver,
     aws_lakeformation_permissions.gold_creates_tables,
   ]
+}
+
+# --- Who can read lottery_uy_db in Athena (UY-044.3.1) -------------------------------------
+#
+# The gold tables are created by the Lambda's role, and the account's Lake Formation settings
+# give a new table to its creator alone (CreateTableDefaultPermissions is empty). So the first
+# build left six tables nobody else could query, the data lake administrators included:
+# Athena answered "Relation contains no accessible columns". Being an administrator lets a
+# principal GRANT, it does not let it SELECT.
+#
+# A table wildcard, because the gold tables are not Terraform's to name: it covers the six of
+# today and any the SQL folder adds, and silver too. Read-only, and explicit (never ALL).
+#
+# The readers: whoever applies this stack, when that is an IAM user (the owner; an assumed
+# role's session ARN is not a principal Lake Formation accepts), plus var.catalog_reader_arns.
+locals {
+  deployer_arn = data.aws_caller_identity.current.arn
+  catalog_readers = toset(concat(
+    var.catalog_reader_arns,
+    can(regex(":user/", local.deployer_arn)) ? [local.deployer_arn] : [],
+  ))
+}
+
+resource "aws_lakeformation_permissions" "catalog_readers" {
+  for_each = local.catalog_readers
+
+  principal   = each.value
+  permissions = ["SELECT", "DESCRIBE"]
+
+  table {
+    database_name = aws_glue_catalog_database.uy.name
+    wildcard      = true
+  }
 }
