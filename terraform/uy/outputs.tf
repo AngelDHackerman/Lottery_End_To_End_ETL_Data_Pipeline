@@ -92,3 +92,12 @@ output "dq_job" {
     log_group = "/aws-glue/jobs/output"
   }
 }
+
+output "athena" {
+  description = "UY's Athena workgroup and the silver tables it reads (UY-044.1)."
+  value = {
+    workgroup     = aws_athena_workgroup.uy.name
+    results       = aws_athena_workgroup.uy.configuration[0].result_configuration[0].output_location
+    silver_tables = sort([for t in aws_glue_catalog_table.silver : t.name])
+  }
+}

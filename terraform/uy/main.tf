@@ -20,6 +20,9 @@
 #   - the EventBridge Scheduler that starts it at 23:30 Montevideo, and its role (D27, pipeline.tf)
 # Holds (UY-043.4):
 #   - the silver gate: the GX Glue 5.0 job and its two artifacts in S3 (D20, D30, dq.tf)
+# Holds (UY-044.1):
+#   - the seven silver tables, declared with projected partitions, and UY's Athena workgroup
+#     (D31, D32, catalog.tf)
 #
 # Left alone on purpose: the account-wide Lake Formation settings (data lake admins). Santa
 # Lucía does not manage them either; it is one object per account, and declaring it here
