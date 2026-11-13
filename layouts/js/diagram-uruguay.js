@@ -273,7 +273,7 @@
   const tabs = Array.from(document.querySelectorAll("[role=tab]"));
 
   function show(key, focus) {
-    const view = VIEWS[key] || VIEWS.local;
+    const view = VIEWS[key] || VIEWS.nube;
     tabs.forEach(t => {
       const on = t.dataset.view === view.key;
       t.setAttribute("aria-selected", String(on));
@@ -294,5 +294,5 @@
   });
   window.addEventListener("hashchange", () => show(location.hash.slice(1)));
 
-  show(location.hash.slice(1) || "local");
+  show(location.hash.slice(1) || "nube");
 })(window.DIAGRAM_UY);
