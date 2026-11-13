@@ -74,6 +74,7 @@ In this project I tried to answer and discover insights about **"Loteria Santa L
    - [Transform Phase](#transform-phase)
    - [Results](#results)
    - [Future Steps](#future-steps)
+   - [Uruguay extension (DNLQ)](#uruguay-extension-dnlq)
 4. [Requisites](#requisites)
 5. [Insights and Findings from Visualizations EDA 2024 - 01/2025](./eda_2024-01_2025.md)
 6. [Technologies and Tools Used](#technologies-and-tools-used-🛠️)
@@ -151,6 +152,78 @@ Each stage will eventually run inside its own **AWS Lambda** function, but you c
 ### Conclusion
 
 This automated ETL project demonstrates expertise in data extraction, transformation, and storage while showcasing potential for advanced analytics and visualization. It is a robust solution for managing lottery data efficiently.
+
+
+## Uruguay extension (DNLQ)
+
+The same repository also ingests the official draws of Uruguay's **Dirección Nacional de Loterías
+y Quinielas** (`www.loteria.gub.uy`): **5 de Oro** (with Revancha), **Quiniela** (Vespertina and
+Nocturna) and **Tómbola**. It is a second pipeline with its own code, data prefix and Terraform
+stack, so nothing in the Santa Lucía pipeline depends on it. Like the rest of the project, it is
+about ingesting an undocumented source, backfilling it and checking its quality. It does not try
+to predict anything.
+
+| | Santa Lucía (Guatemala) | Uruguay (DNLQ) |
+|---|---|---|
+| History | Only the latest draw is online, so the lake grows from the first scrape | The site keeps every day since 2006: about 13,000 draws backfilled |
+| Schedule | Weekly | Nightly at 23:30 `America/Montevideo` |
+| Access | Through a scraping proxy (Cloudflare) | Direct, at one request per second with an identifiable User-Agent |
+| Code | `src/loteria/` | `src/sorteos/core/` (country-agnostic) and `src/sorteos/uy/` |
+| Infrastructure | `terraform/` | `terraform/uy/` (separate state) |
+| Data | `raw/`, `silver/`, `gold/` | `uy/raw/`, `uy/silver/`, `uy/gold/` in the same bucket, database `lottery_uy_db` |
+
+### How it runs
+
+An EventBridge Scheduler starts the Step Functions state machine `lottery-uy-pipeline-prod` every
+night:
+
+1. **Fetch** (Lambda). Asks the site only for what is new or still open and stores the pages
+   byte for byte in `uy/raw/`. A DynamoDB table (the manifest) records what each page showed, so
+   a page that has settled is never requested again.
+2. **Silver** (Lambda, container image). Parses the results page and the per-draw extract,
+   compares the two sources field by field, and rewrites the Parquet files of the years that
+   changed. A draw that does not parse goes to a quarantine table, not to the data.
+3. **Validate** (Glue 5.0 job). Great Expectations runs over the whole silver layer. A failed
+   suite fails the execution.
+4. **Gold** (Lambda). Six Athena tables are built next to the published ones and swapped in
+   together only if all six have rows.
+
+Draws that should have happened and did not are detected from the site's own "next draw"
+announcements and written to a `draw_gaps` table. CloudWatch alarms cover a failed run, an open
+gap, quarantined rows, fetch errors and two days without a successful run.
+
+### Privacy decision
+
+Under some draws the site links PDF files named `*_DET_INVALIDAS_*`. They list cancelled
+telephone bets and include a column that appears to hold national identity numbers (cédulas).
+Uruguay has a personal data protection law, **Ley N.º 18.331**. This project draws no legal
+conclusion about those files or about the site. It simply does not touch them:
+
+- Any URL that matches `DET_INVALIDAS` is **never requested, downloaded, parsed, stored or
+  logged**. The HTTP client refuses it before the request leaves, including when a redirect ends
+  there, and logs only the pattern, not the URL.
+- The rule lives in code (`src/sorteos/uy/privacy.py`), not in configuration, so a mistake in a
+  YAML file cannot switch it off. The client cannot be built without a blocklist.
+- Tests fail if a request matches the pattern, and a scanner fails the build if a test fixture
+  contains such a link or an identity-number column. Fixtures are redacted with
+  `scripts/uy_redact_fixture.py` before they are committed.
+- Winning coupon numbers do not identify a person, but they are kept in the raw layer only. The
+  silver layer stores how many coupons won each prize, and the committed fixtures carry fake
+  coupon numbers.
+
+We found no terms of use, legal notice or privacy policy on the site (checked on 2026-10-14; see
+Q9 in the findings below).
+
+### Where to read more
+
+- [`roadmap-uruguay.md`](./roadmap-uruguay.md): the plan, PR by PR, with what each one measured.
+- [`docs/uruguay/FINDINGS.md`](./docs/uruguay/FINDINGS.md): what the exploration of the site found.
+- [`docs/uruguay/DESIGN.md`](./docs/uruguay/DESIGN.md): the design decisions and why.
+- [`sql/uy/gold/`](./sql/uy/gold/): the gold tables and the metrics behind them.
+- Runbooks: [`UY-044-gold.md`](./docs/runbooks/UY-044-gold.md) and
+  [`UY-045-alarmas.md`](./docs/runbooks/UY-045-alarmas.md).
+
+These documents are written in Spanish.
 
 
 ## **Technologies and Tools Used 🛠️** [Go Back ⬆️](#table-of-contents)
