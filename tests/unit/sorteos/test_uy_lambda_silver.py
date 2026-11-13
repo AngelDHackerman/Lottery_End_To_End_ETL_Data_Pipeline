@@ -9,6 +9,7 @@ The build itself is tested in test_uy_silver.py.
 from __future__ import annotations
 
 import io
+import json
 import shutil
 from datetime import date
 
@@ -18,6 +19,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from sorteos.core import manifest as mf
+from sorteos.core import metrics
 from sorteos.core import silver as core_silver
 from sorteos.core.manifest_dynamodb import DynamoManifest, PendingYears
 from sorteos.uy import build_silver
@@ -145,7 +147,69 @@ def test_finalize_rewrites_the_gaps_and_fails_on_quarantine(s3, env, monkeypatch
     monkeypatch.setattr(build_silver, "rebuild", lambda *a: pytest.fail("no years were given"))
     report = ls.handler({"finalize": True}, s3=s3)
     assert report["ok"] is ok
-    assert report["gaps"] == {"rows": 1 if ok else None, "quarantine": 0 if ok else 3}
+    assert report["gaps"] == {
+        "rows": 1 if ok else None,
+        "open": 0 if ok else None,
+        "quarantine": 0 if ok else 3,
+    }
+
+
+def emf_lines(capsys) -> list[dict]:
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if "_aws" in line]
+    return [{k: v for k, v in line.items() if k != "_aws"} for line in lines]
+
+
+def finalize_with(monkeypatch, rows, quarantine=0):
+    monkeypatch.setattr(
+        build_silver,
+        "detect_gaps",
+        lambda out, run, today: build_silver.GapReport(rows=rows, quarantine=quarantine),
+    )
+
+
+GAP_ROWS = [{"status": "open"}, {"status": "explained"}, {"status": "open"}]
+
+
+def test_a_real_finalize_publishes_the_open_gaps_and_the_quarantine(s3, env, monkeypatch, capsys):
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    finalize_with(monkeypatch, GAP_ROWS)
+    report = ls.handler({"finalize": True}, s3=s3)
+    assert report["gaps"] == {"rows": 3, "open": 2, "quarantine": 0}
+    assert emf_lines(capsys) == [
+        {"Environment": "test", "SilverQuarantineRows": 0, "OpenDrawGaps": 2}
+    ]
+
+
+def test_no_gap_is_published_as_zero_not_left_out(s3, env, monkeypatch, capsys):
+    # The alarm tells 0 from "nothing ran" only if a clean night publishes its 0.
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    finalize_with(monkeypatch, [{"status": "explained"}])
+    ls.handler({"finalize": True}, s3=s3)
+    assert emf_lines(capsys)[0]["OpenDrawGaps"] == 0
+
+
+def test_with_quarantine_only_the_quarantine_is_published(s3, env, monkeypatch, capsys):
+    # draw_gaps was not rewritten: an open count would be last night's, passed off as tonight's.
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    finalize_with(monkeypatch, None, quarantine=3)
+    ls.handler({"finalize": True}, s3=s3)
+    assert emf_lines(capsys) == [{"Environment": "test", "SilverQuarantineRows": 3}]
+
+
+def test_a_dry_run_and_a_run_without_finalize_publish_nothing(s3, env, monkeypatch, capsys):
+    monkeypatch.setenv(metrics.ENVIRONMENT_VARIABLE, "test")
+    finalize_with(monkeypatch, GAP_ROWS)
+    ls.handler({"finalize": True, "dry_run": True}, s3=s3)
+    monkeypatch.setattr(build_silver, "rebuild", fake_rebuild(lambda root: None))
+    ls.handler({"years": [2016]}, s3=s3)
+    assert emf_lines(capsys) == []
+
+
+def test_without_its_environment_the_function_publishes_nothing(s3, env, monkeypatch, capsys):
+    monkeypatch.delenv(metrics.ENVIRONMENT_VARIABLE, raising=False)
+    finalize_with(monkeypatch, GAP_ROWS)
+    ls.handler({"finalize": True}, s3=s3)
+    assert emf_lines(capsys) == []
 
 
 @pytest.mark.parametrize(

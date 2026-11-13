@@ -105,3 +105,14 @@ variable "catalog_reader_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "no_success_alarm_days" {
+  description = "Days without a successful execution before the dead-man alarm fires (UY-045; owner, 3a). At least 2: one daily bucket can be empty on a normal night. At most 7: CloudWatch evaluates no more than 7 days."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.no_success_alarm_days >= 2 && var.no_success_alarm_days <= 7 && floor(var.no_success_alarm_days) == var.no_success_alarm_days
+    error_message = "no_success_alarm_days must be a whole number from 2 to 7."
+  }
+}

@@ -111,3 +111,11 @@ output "gold_function" {
     log_group = aws_cloudwatch_log_group.gold.name
   }
 }
+
+output "alarms" {
+  description = "The alarms on nights that do not fail (UY-045); the failure alarm is in state_machine."
+  value = sort(concat(
+    [for a in aws_cloudwatch_metric_alarm.nightly_count : a.alarm_name],
+    [aws_cloudwatch_metric_alarm.pipeline_no_success.alarm_name],
+  ))
+}

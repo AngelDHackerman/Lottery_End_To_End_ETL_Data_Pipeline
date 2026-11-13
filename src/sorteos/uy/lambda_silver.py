@@ -36,6 +36,12 @@ UY-043.2 2a). No pending year is a normal night: only ``finalize`` runs. A dry r
 item and leaves it. ``years`` given by hand (the backfill, a manual rebuild) never touch it,
 and an event with both is refused.
 
+**The metrics (UY-045).** A real ``finalize`` prints one Embedded Metric Format line
+(``core/metrics.py``): ``OpenDrawGaps``, the rows of ``draw_gaps`` still ``open``, and
+``SilverQuarantineRows``. With quarantine rows ``draw_gaps`` is not rewritten, ``ok`` is false
+and the execution still succeeds: the quarantine alarm is what says so. A dry run publishes
+nothing.
+
 Years run in the order given and each one uploads only what it wrote, so separate invocations
 for separate years do not undo each other. ``finalize`` reads every year's draws, so it runs
 after the years it should see.
@@ -56,7 +62,9 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from sorteos.core import gaps as gaps_rule
 from sorteos.core import manifest as mf
+from sorteos.core import metrics
 from sorteos.core import silver as core_silver
 from sorteos.core.bronze import BRONZE_ROOT, BronzeStore
 from sorteos.core.manifest_dynamodb import DynamoManifest, ManifestSnapshot, PendingYears
@@ -166,6 +174,19 @@ def upload(client, bucket: str, prefix: str, root: Path, put: list[str], empty: 
         client.put_object(Bucket=bucket, Key=prefix + rel, Body=empty_parquet(rel))
 
 
+def open_gaps(rows: list[dict]) -> int:
+    return sum(1 for row in rows if row.get("status") == gaps_rule.OPEN)
+
+
+def gap_counts(gaps: dict) -> dict[str, int]:
+    """What the nightly alarms read (UY-045). With quarantine rows ``draw_gaps`` was not
+    rewritten, so there is no open count to publish: the quarantine alarm speaks instead."""
+    counts = {"SilverQuarantineRows": gaps["quarantine"]}
+    if gaps["open"] is not None:
+        counts["OpenDrawGaps"] = gaps["open"]
+    return counts
+
+
 def _years(event: dict) -> list[int]:
     years = event.get("years") or []
     if not isinstance(years, list) or not all(
@@ -245,6 +266,7 @@ def handler(event: dict | None, context: Any = None, s3=None, dynamodb=None) -> 
         timings["gaps"] = time.perf_counter() - started
         report["gaps"] = {
             "rows": None if gaps.rows is None else len(gaps.rows),
+            "open": None if gaps.rows is None else open_gaps(gaps.rows),
             "quarantine": gaps.quarantine,
         }
 
@@ -260,6 +282,8 @@ def handler(event: dict | None, context: Any = None, s3=None, dynamodb=None) -> 
             # After the upload only: a run that died before it leaves the years for the next.
             "cleared": False if dry_run else pending.done(seen),
         }
+    if finalize and not dry_run:  # a dry run writes nothing, a metric included
+        metrics.publish(gap_counts(report["gaps"]))
     report |= {
         "put": put,
         "emptied": empty,
