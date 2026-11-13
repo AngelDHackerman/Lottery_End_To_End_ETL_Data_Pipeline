@@ -1,0 +1,188 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "min_value": 1
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "count",
+        "max_value": 20.0,
+        "min_value": 20.0,
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "quiniela",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "positions_ok",
+        "value_set": [
+          true
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "count",
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "tombola",
+          "type": "comparison"
+        },
+        "value_set": [
+          0,
+          20
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "ascending",
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "tombola",
+          "type": "comparison"
+        },
+        "value_set": [
+          true
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "repeats",
+        "max_value": 0.0,
+        "min_value": 0.0,
+        "row_condition": {
+          "conditions": [
+            {
+              "column": {
+                "name": "ball_type"
+              },
+              "operator": "==",
+              "parameter": "tombola",
+              "type": "comparison"
+            },
+            {
+              "column": {
+                "name": "draw_date"
+              },
+              "operator": ">=",
+              "parameter": "2007-01-01",
+              "type": "comparison"
+            }
+          ],
+          "type": "and"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "count",
+        "max_value": 5.0,
+        "min_value": 5.0,
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "oro",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "count",
+        "max_value": 1.0,
+        "min_value": 1.0,
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "extra",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "count",
+        "max_value": 5.0,
+        "min_value": 5.0,
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "revancha",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "clashes",
+        "max_value": 0.0,
+        "min_value": 0.0,
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "extra",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.20.0"
+  },
+  "name": "uy_draw_shapes",
+  "notes": null
+}

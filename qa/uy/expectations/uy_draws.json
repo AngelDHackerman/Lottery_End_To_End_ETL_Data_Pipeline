@@ -1,0 +1,233 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "min_value": 1
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column_list": [
+          "country",
+          "operator",
+          "game",
+          "draw_date"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_compound_columns_to_be_unique"
+    },
+    {
+      "kwargs": {
+        "column": "game",
+        "value_set": [
+          "quiniela_vespertina",
+          "quiniela_nocturna",
+          "5_de_oro"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "weekday",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "quiniela_nocturna",
+          "type": "comparison"
+        },
+        "value_set": [
+          6
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "weekday",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "quiniela_vespertina",
+          "type": "comparison"
+        },
+        "value_set": [
+          5,
+          6
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "draw_number",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "NOT_IN",
+          "parameter": [
+            "5_de_oro"
+          ],
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "draw_number",
+        "row_condition": {
+          "conditions": [
+            {
+              "column": {
+                "name": "game"
+              },
+              "operator": "==",
+              "parameter": "5_de_oro",
+              "type": "comparison"
+            },
+            {
+              "column": {
+                "name": "out_of_sequence"
+              },
+              "operator": "==",
+              "parameter": false,
+              "type": "comparison"
+            }
+          ],
+          "type": "and"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_unique"
+    },
+    {
+      "kwargs": {
+        "column": "draw_number",
+        "row_condition": {
+          "column": {
+            "name": "draw_date"
+          },
+          "operator": "<",
+          "parameter": "2016-06-01",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "started_local",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "5_de_oro",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "first_ball_local",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "5_de_oro",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "ended_local",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "5_de_oro",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "ingested_at"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "run_id"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "source_key"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "source_sha256"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "parser_version"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.20.0"
+  },
+  "name": "uy_draws",
+  "notes": null
+}

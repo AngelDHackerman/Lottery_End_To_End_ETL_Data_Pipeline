@@ -1,0 +1,31 @@
+/* Extensión Uruguay — lo que diagram.css no tiene. Se carga DESPUÉS de diagram.css
+   y usa sus mismos tokens, así que los dos diagramas se leen como una familia y el
+   modo oscuro funciona sin repetir la paleta. */
+
+/* ---------- pestañas ---------- */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.tabs [role=tab]{background:none;border:none;border-bottom:3px solid transparent;border-radius:0;
+                 padding:10px 18px 9px;font-size:14px;font-weight:700;color:var(--muted);
+                 margin-bottom:-1px}
+.tabs [role=tab]:hover{color:var(--ink);border-bottom-color:var(--rule)}
+.tabs [role=tab][aria-selected="true"]{color:var(--ink);border-bottom-color:var(--flow)}
+.tabs .tabnote{margin-left:auto;align-self:center;font-family:var(--mono);font-size:10.5px;
+               letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:0 4px}
+
+/* ---------- aristas bloqueadas ---------- */
+.edge.blocked{stroke:var(--breach);stroke-width:2.2;stroke-dasharray:5 4}
+.xmark{stroke:var(--breach);stroke-width:3;stroke-linecap:round}
+
+/* ---------- chips con estado dentro de una caja ---------- */
+.chipbox{fill:var(--surface2);stroke:var(--flow);stroke-width:1.2}
+.chipbox.pend{stroke:var(--pending);stroke-dasharray:4 3}
+.chipk{font-family:var(--mono);font-size:10.5px;font-weight:700;fill:var(--flow)}
+.chipk.pend{fill:var(--pending)}
+.chipv{font-family:var(--mono);font-size:9px;fill:var(--muted)}
+
+/* El panel lateral queda en la misma columna que en el diagrama de Santa Lucía. */
+.runbar{min-height:58px}
+.dbody h3{font-size:13px;margin:14px 0 6px;font-family:var(--mono);letter-spacing:.06em;
+          text-transform:uppercase;color:var(--muted);font-weight:500}
+td.tag{font-family:var(--mono);font-size:11px;white-space:nowrap;font-weight:700}
+td.tag.v{color:var(--flow)} td.tag.o{color:var(--pending)} td.tag.h{color:var(--muted)}

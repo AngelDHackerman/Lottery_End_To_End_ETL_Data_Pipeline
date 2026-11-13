@@ -1,0 +1,436 @@
+"""UY-027.1: the incremental and ``uy-silver`` — against a fake client and fixture pages."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from datetime import date, timedelta
+
+import pyarrow.parquet as pq
+import pytest
+from test_uy_backfill import (  # pytest puts this directory on sys.path
+    DAY,
+    EMPTY_DAY,
+    POZOS,
+    UY,
+    FakeClient,
+    extract,
+    job,
+    july_2016,
+    root_logger_restored,  # noqa: F401 (a fixture)
+)
+from test_uy_silver import Lake
+
+from sorteos.core import manifest as mf
+from sorteos.uy import backfill, build_silver, incremental, sources
+
+TODAY = date(2016, 7, 7)  # DAY (2016-07-06) is a draw day of all three games
+NOW = "2026-10-29T00:00:00+00:00"
+
+
+@pytest.fixture
+def stores(tmp_path):
+    lake = Lake(tmp_path)
+    yield lake.bronze, lake.manifest
+    lake.manifest.close()
+
+
+def a_week(today: date = TODAY) -> dict:
+    """july_2016() plus empty results pages for the rest of the 7-day window.
+
+    Its fake extracts and pozos PDF answer 404 here: as ``draw`` they would not parse and
+    would send the three draws to quarantine (owner, UY-025 2a), and silver would be empty.
+    """
+    pages = july_2016()
+    for source in sources.EXTRACTOS_PHP:
+        pages[source.url(DAY)] = (404, b"not found")
+    pages[POZOS] = (404, b"not found")
+    for back in range(incremental.WINDOW_DAYS):
+        pages.setdefault(sources.RESULTADOS.url(today - timedelta(days=back)), (200, EMPTY_DAY))
+    return pages
+
+
+# --- what the backfill reports as changed -------------------------------------------------
+
+
+def test_every_new_key_is_changed_and_a_second_run_changes_nothing(stores):
+    client = FakeClient(july_2016())
+    stats = job(client, stores).run(date(2016, 7, 5), date(2016, 7, 7))
+    assert stats.changed == {
+        ("resultados", date(2016, 7, 5)),
+        ("resultados", DAY),
+        ("resultados", date(2016, 7, 7)),
+        *((s.name, DAY) for s in sources.EXTRACTOS_PHP),
+        ("pozos_5_de_oro", DAY),
+    }
+    assert job(client, stores).run(date(2016, 7, 5), date(2016, 7, 7)).changed == set()
+
+
+def test_the_same_failure_again_is_no_change_until_it_closes_the_key(stores):
+    pages = july_2016()
+    pages[POZOS] = (403, b"<html><body>403 Forbidden</body></html>")
+    client = FakeClient(pages)
+    runs = [job(client, stores, srcs="resultados,pozos").run(DAY, DAY) for _ in range(3)]
+    assert ("pozos_5_de_oro", DAY) in runs[0].changed  # new: error
+    assert runs[1].changed == set()  # error again, same body
+    assert runs[2].changed == {("pozos_5_de_oro", DAY)}  # error -> missing (D11)
+
+
+PAGE = (UY / "resultados_2016-07-06.html").read_bytes()
+
+
+def refetch(stores, content: bytes) -> backfill.RunStats:
+    """Fetch the 2016-07-06 results page, then fetch it again as ``content``."""
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, content)
+    return job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+
+
+def bronze_page(stores) -> bytes:
+    store, manifest = stores
+    return store.read(manifest.get("resultados", DAY)["bronze_key"])
+
+
+def test_a_refetch_that_parses_the_same_keeps_the_page_in_bronze(stores):
+    # Each fetch of ver_resultados carries its own "today" box: other bytes, same draws.
+    later = PAGE.replace(b"Domingo 4 de Octubre de 2026", b"Lunes 5 de Octubre de 2026")
+    assert later != PAGE
+    stats = refetch(stores, later)
+    assert stats.changed == set() and stats.requests == 1
+    row = stores[1].get("resultados", DAY)
+    assert bronze_page(stores) == PAGE  # bronze is the first page: silver's lineage holds
+    assert row["content_sha256"] == hashlib.sha256(PAGE).hexdigest()
+    assert row["attempts"] == 2  # the fetch is still in the history
+
+
+def test_a_refetch_with_other_numbers_is_a_change(stores):
+    later = PAGE.replace(b"316                    </div>", b"317                    </div>", 1)
+    assert later != PAGE
+    assert refetch(stores, later).changed == {("resultados", DAY)}
+    assert bronze_page(stores) == later
+
+
+def test_a_pozos_link_that_appears_is_a_change(stores):
+    # The parser does not read it, but the manifest keeps it and the pozos PDF depends on it.
+    client = FakeClient(july_2016())
+    before = PAGE.replace(b"RES_INFORMACION_DE_POZOS", b"RES_OTRA_COSA")
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, before)
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    assert "pozos_url" not in stores[1].get("resultados", DAY)["extra"]
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, PAGE)
+    stats = job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+    assert stats.changed == {("resultados", DAY)}
+    assert stores[1].get("resultados", DAY)["extra"]["pozos_url"] == POZOS
+    assert bronze_page(stores) == PAGE
+
+
+def test_a_bronze_page_that_is_not_the_manifests_is_replaced(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    store, manifest = stores
+    store.write(manifest.get("resultados", DAY)["bronze_key"], b"<html>damaged</html>")
+    stats = job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+    assert stats.changed == set()  # same bytes as the manifest's: nothing moved for silver
+    assert bronze_page(stores) == PAGE  # but bronze is the page again
+
+
+def test_an_old_page_that_cannot_be_read_is_replaced(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    store, manifest = stores
+    (store.root / manifest.get("resultados", DAY)["bronze_key"]).unlink()
+    later = PAGE.replace(b"Domingo 4 de Octubre de 2026", b"Lunes 5 de Octubre de 2026")
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, later)
+    stats = job(client, stores, srcs="resultados", refresh=True).run(DAY, DAY)
+    assert stats.changed == {("resultados", DAY)}  # the safe side: silver rewrites the year
+    assert bronze_page(stores) == later
+
+
+def test_a_page_the_parser_rejects_compares_by_its_reason():
+    assert backfill.parsed_page(EMPTY_DAY, DAY) == "PageError: no game blocks"
+    assert backfill.parsed_page(PAGE, DAY) == backfill.parsed_page(PAGE + b"\n", DAY)
+
+
+def test_only_the_results_page_is_compared_by_its_parse(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados,extractos").run(DAY, DAY)
+    php = sources.EXTRACTOS_PHP[0]
+    client.pages[php.url(DAY)] = (200, extract(DAY) + b"\n")
+    stats = job(client, stores, srcs="resultados,extractos", refresh=True).run(DAY, DAY)
+    assert stats.changed == {(php.name, DAY)}
+
+
+def test_run_keys_asks_for_that_key_only(stores):
+    # An old open extract must not bring the extract PDFs of its day with it (D19).
+    day = date(2018, 12, 29)
+    page = (UY / f"resultados_{day}.html").read_bytes()
+    client = FakeClient({sources.RESULTADOS.url(day): (200, page)})
+    job(client, stores, srcs="resultados").run(day, day)
+    assert "quiniela_nocturna" in stores[1].get("resultados", day)["games"]
+    php = next(s for s in sources.EXTRACTOS_PHP if s.game == "quiniela_nocturna")
+    stores[1].record(mf.Record(php.name, day, php.url(day), mf.ERROR, NOW, detail="timeout"))
+    client.pages[php.url(day)] = (200, b"<html><body>EXTRACTO OFICIAL 29/12/2018</body></html>")
+    client.calls.clear()
+
+    stats = job(client, stores, srcs=incremental.SOURCES).run_keys([(php.name, day)])
+    assert client.calls == [php.url(day)]
+    assert stats.changed == {(php.name, day)}
+
+
+def test_run_keys_skips_a_key_closed_in_between_and_stops_at_the_budget(stores):
+    client = FakeClient(july_2016())
+    job(client, stores, srcs="resultados").run(DAY, DAY)
+    keys = [("resultados", DAY), *((s.name, DAY) for s in sources.EXTRACTOS_PHP)]
+    stats = job(client, stores, max_requests=1).run_keys(keys)
+    assert stats.skipped == 1 and stats.requests == 1
+
+
+# --- a 5 de Oro page still waiting for its pozos link (UY-043.2.2) -------------------------
+
+NO_LINK = PAGE.replace(b"RES_INFORMACION_DE_POZOS", b"RES_OTRA_COSA")
+LATER = DAY + timedelta(days=10)  # past the settle and outside the 7-day window
+
+
+def stored_without_link(stores):
+    client = FakeClient(july_2016())
+    client.pages[sources.RESULTADOS.url(DAY)] = (200, NO_LINK)
+    job(client, stores, today=DAY + timedelta(days=1), srcs="resultados,pozos").run(DAY, DAY)
+    assert "pozos_url" not in stores[1].get("resultados", DAY)["extra"]
+    assert stores[1].get("pozos_5_de_oro", DAY) is None
+
+
+def ten_days_later(page: bytes) -> FakeClient:
+    """The window of LATER (it starts the day after the last draw, DAY) with nothing new, and
+    DAY's results page as ``page``."""
+    pages = {
+        sources.RESULTADOS.url(DAY + timedelta(days=n)): (200, EMPTY_DAY) for n in range(1, 11)
+    }
+    pages[sources.RESULTADOS.url(DAY)] = (200, page)
+    pages[POZOS] = (200, b"%PDF-1.4 pozos")
+    return FakeClient(pages)
+
+
+def test_a_link_that_appears_after_the_window_is_found_and_its_pdf_fetched(stores):
+    stored_without_link(stores)
+    client = ten_days_later(PAGE)
+    fetched = incremental.fetch_step(client, *stores, LATER)
+    assert fetched.start == DAY + timedelta(days=1)  # DAY is before the window
+    assert fetched.awaiting_pozos == (DAY,)
+    assert {("resultados", DAY), ("pozos_5_de_oro", DAY)} <= fetched.stats.changed
+    assert stores[1].get("pozos_5_de_oro", DAY)["state"] == mf.DRAW
+    assert fetched.years == {2016}
+    # Found: the next night does not ask for it again.
+    client = ten_days_later(PAGE)
+    assert incremental.fetch_step(client, *stores, LATER).awaiting_pozos == ()
+    assert sources.RESULTADOS.url(DAY) not in client.calls
+
+
+def test_a_page_still_without_link_is_asked_again_and_nothing_else(stores):
+    stored_without_link(stores)
+    client = ten_days_later(NO_LINK)
+    fetched = incremental.fetch_step(client, *stores, LATER)
+    assert fetched.awaiting_pozos == (DAY,)
+    assert client.calls.count(sources.RESULTADOS.url(DAY)) == 1
+    assert POZOS not in client.calls  # no link, no PDF; and no extract of DAY (D19)
+    assert not any(s.url(DAY) in client.calls for s in sources.EXTRACTOS_PHP)
+    assert ("resultados", DAY) not in fetched.stats.changed
+
+
+def test_the_wait_for_pozos_ends_after_14_days(stores):
+    stored_without_link(stores)
+    for age, waiting in ((3, True), (13, True), (14, False)):
+        j = job(FakeClient({}), stores, today=DAY + timedelta(days=age))
+        assert j.awaiting_pozos(DAY) is waiting, age
+
+
+def test_only_a_5_de_oro_draw_without_link_waits_for_pozos(stores):
+    _, m = stores
+    today = DAY + timedelta(days=5)
+    days = [DAY - timedelta(days=n) for n in range(4)]
+    m.record(mf.Record("resultados", days[0], "u", mf.DRAW, NOW, games=("5_de_oro",)))
+    m.record(mf.Record("resultados", days[1], "u", mf.DRAW, NOW, games=("quiniela_nocturna",)))
+    m.record(
+        mf.Record(
+            "resultados", days[2], "u", mf.DRAW, NOW, games=("5_de_oro",), extra={"pozos_url": "x"}
+        )
+    )
+    m.record(mf.Record("resultados", days[3], "u", mf.NO_DRAW, NOW))
+    j = job(FakeClient({}), stores, today=today)
+    assert [j.awaiting_pozos(d) for d in days] == [True, False, False, False]
+    assert job(FakeClient({}), stores, today=today, srcs="resultados").awaiting_pozos(days[0]) is (
+        False  # a run that does not fetch pozos has no reason to ask the page again
+    )
+
+
+# --- the window ---------------------------------------------------------------------------
+
+
+def test_the_window_is_the_last_7_days(stores):
+    assert incremental.window_start(stores[1], TODAY) == date(2016, 7, 1)  # empty manifest
+    stores[1].record(mf.Record("resultados", date(2016, 7, 3), "u", mf.DRAW, NOW))
+    assert incremental.window_start(stores[1], TODAY) == date(2016, 7, 1)
+
+
+def test_the_window_reaches_back_to_the_day_after_the_last_draw(stores):
+    stores[1].record(mf.Record("resultados", date(2016, 6, 20), "u", mf.DRAW, NOW))
+    assert incremental.window_start(stores[1], TODAY) == date(2016, 6, 21)
+
+
+# --- main ---------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def today(monkeypatch):
+    monkeypatch.setattr(backfill, "today_in_uruguay", lambda: TODAY)
+
+
+def run_main(tmp_path, client, *extra):
+    argv = ["--root", str(tmp_path), "--silver", str(tmp_path / "silver"), *extra]
+    return incremental.main(argv, client=client)
+
+
+@pytest.mark.usefixtures("today", "root_logger_restored")
+def test_main_fetches_the_window_and_old_open_keys_then_rewrites_silver(tmp_path, capsys):
+    old = date(2016, 3, 15)
+    m = mf.SqliteManifest(tmp_path / "manifest.sqlite")
+    m.record(mf.Record("resultados", old, sources.RESULTADOS.url(old), mf.ERROR, NOW))
+    m.close()
+    client = FakeClient({**a_week(), sources.RESULTADOS.url(old): (200, EMPTY_DAY)})
+
+    assert run_main(tmp_path, client) == 0
+    window = [sources.RESULTADOS.url(TODAY - timedelta(days=b)) for b in range(7)]
+    assert set(window) <= set(client.calls)
+    assert client.calls[-1] == sources.RESULTADOS.url(old)  # the open key, after the window
+    assert len(client.calls) == 7 + 3 + 1 + 1  # 7 days, 3 extracts, 1 pozos, 1 open key
+    err = capsys.readouterr().err
+    assert "window 2016-07-01 .. 2016-07-07, open keys before it: 1" in err
+    assert "changed resultados 2016-03-15" in err
+
+    draws = pq.read_table(tmp_path / "silver" / "draws").to_pylist()
+    assert {(d["game"], d["draw_date"]) for d in draws} == {
+        (g, DAY) for g in ("quiniela_vespertina", "quiniela_nocturna", "5_de_oro")
+    }
+    assert {d["run_id"][:15] for d in draws} == {"uy-incremental-"}
+    assert not (tmp_path / incremental.PENDING).exists()
+
+
+@pytest.mark.usefixtures("today", "root_logger_restored")
+def test_a_run_with_nothing_new_leaves_silver_alone(tmp_path, capsys):
+    client = FakeClient(a_week())
+    run_main(tmp_path, client)
+    capsys.readouterr()
+    first = len(client.calls)
+    assert run_main(tmp_path, client) == 0
+    # Back come the 2 empty days not settled yet (not_yet_published), the draw day (still
+    # within the settle days, so it may grow), the 3 extracts and the pozos PDF in error.
+    # The settled empty days are final; the same pages again are no change.
+    assert len(client.calls) - first == 2 + 1 + 3 + 1
+    assert "silver: nothing changed" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("today", "root_logger_restored")
+def test_years_left_pending_by_a_failed_silver_are_rewritten_next_time(
+    tmp_path, monkeypatch, capsys
+):
+    client = FakeClient(a_week())
+    real = build_silver.rebuild
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(build_silver, "rebuild", broken)
+    with pytest.raises(RuntimeError):
+        run_main(tmp_path, client)
+    assert json.loads((tmp_path / incremental.PENDING).read_text()) == [2016]
+
+    monkeypatch.setattr(build_silver, "rebuild", real)
+    capsys.readouterr()
+    run_main(tmp_path, client)
+    err = capsys.readouterr().err
+    assert "changed 0" in err and "silver: nothing changed" not in err
+    assert (tmp_path / "silver" / "draws").exists()
+    assert not (tmp_path / incremental.PENDING).exists()
+
+
+@pytest.mark.usefixtures("today", "root_logger_restored")
+def test_main_builds_its_client_through_the_privacy_module(tmp_path, monkeypatch):
+    built = []
+
+    def polite_client(**kwargs):
+        built.append(kwargs)
+        return FakeClient(a_week())
+
+    monkeypatch.setattr(backfill.privacy, "polite_client", polite_client)
+    assert incremental.main(["--root", str(tmp_path), "--max-requests", "1"]) == 0
+    assert built == [{}]
+
+
+# --- uy-silver ----------------------------------------------------------------------------
+
+
+def test_rebuild_writes_each_year_and_counts_its_rows_and_flags(tmp_path):
+    lake = Lake(tmp_path)
+    lake.fixture("resultados", date(2006, 12, 6))  # pozo_plata_equals_oro
+    lake.fixture("resultados", date(2016, 7, 6))
+    run = build_silver.new_run("silver")
+    counts = build_silver.rebuild(lake.manifest, lake.bronze, tmp_path / "s", [2006, 2016], run)
+    lake.manifest.close()
+
+    assert [c.year for c in counts] == [2006, 2016]
+    assert counts[1].draws == 3 and counts[1].quarantine == 0
+    assert counts[0].flags["pozo_plata_equals_oro"] == 1
+    assert (tmp_path / "s" / "game_rules").exists()  # the reference tables come with it
+    assert all(c.seconds > 0 for c in counts)  # D18: a year must fit in a 15-minute Lambda
+    text = build_silver.format_counts(counts)
+    assert "flag pozo_plata_equals_oro: 1" in text
+    *_, total, slowest, _ = text.splitlines()
+    assert total.split()[0] == "all"
+    assert slowest.startswith("slowest year: ")
+
+
+def test_a_year_without_draws_loses_its_partition(tmp_path):
+    lake = Lake(tmp_path)
+    lake.fixture("resultados", date(2016, 7, 6))
+    run = build_silver.new_run("silver")
+    build_silver.rebuild(lake.manifest, lake.bronze, tmp_path / "s", [2016], run)
+    lake.manifest.record(mf.Record("resultados", date(2016, 7, 6), "u", mf.NO_DRAW, NOW))
+    build_silver.rebuild(lake.manifest, lake.bronze, tmp_path / "s", [2016], run)
+    lake.manifest.close()
+    assert not list((tmp_path / "s" / "draws").rglob("*.parquet"))
+
+
+def test_new_run_names_the_kind_and_the_time():
+    run = build_silver.new_run("silver")
+    assert run.run_id == f"uy-silver-{run.ingested_at:%Y%m%dT%H%M%SZ}"
+
+
+def test_all_years_spans_the_manifest(tmp_path):
+    lake = Lake(tmp_path)
+    assert build_silver.all_years(lake.manifest) == []
+    lake.manifest.record(mf.Record("resultados", date(2006, 8, 11), "u", mf.DRAW, NOW))
+    lake.manifest.record(mf.Record("resultados", date(2009, 1, 2), "u", mf.DRAW, NOW))
+    assert build_silver.all_years(lake.manifest) == [2006, 2007, 2008, 2009]
+    lake.manifest.close()
+
+
+def test_parse_years():
+    assert build_silver.parse_years("2016") == [2016]
+    assert build_silver.parse_years("2026, 2014-2016,2015") == [2014, 2015, 2016, 2026]
+    for bad in ("", "dos mil", "2016-x", ","):
+        with pytest.raises(argparse.ArgumentTypeError):
+            build_silver.parse_years(bad)
+
+
+@pytest.mark.usefixtures("root_logger_restored")
+def test_silver_main_defaults_to_every_year(tmp_path, capsys):
+    lake = Lake(tmp_path)
+    lake.fixture("resultados", date(2016, 7, 6))
+    lake.manifest.close()
+    out = tmp_path / "s"
+    argv = ["--root", str(tmp_path), "--silver", str(out)]
+    assert build_silver.main(argv) == 0
+    assert "2016       3" in capsys.readouterr().err
+    assert build_silver.main([*argv, "--years", "2015"]) == 0
+    assert "2015       0" in capsys.readouterr().err

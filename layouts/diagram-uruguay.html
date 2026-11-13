@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extensión Uruguay</title>
+<link rel="stylesheet" href="css/diagram.css">
+<link rel="stylesheet" href="css/diagram-uruguay.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="meta" id="h-meta"></p>
+    <h1 id="h-title">Extensión Uruguay</h1>
+    <p id="h-lede"></p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Vista del diagrama">
+    <button role="tab" data-view="nube" aria-selected="true">1 · Uruguay: la corrida nocturna</button>
+    <button role="tab" data-view="paises" aria-selected="false">2 · Los dos países</button>
+    <span class="tabnote">hermano de <a href="diagram.html">diagram.html</a> · Santa Lucía</span>
+  </div>
+
+  <div class="bar">
+    <button id="play" class="primary">▶ Reproducir</button>
+    <div class="sep"></div>
+    <button id="tgl-a" aria-pressed="false"></button>
+    <button id="tgl-b" aria-pressed="false"></button>
+    <div class="keys" id="keys"></div>
+  </div>
+
+  <div class="runbar" id="runbar" aria-live="polite">
+    <span class="step" id="runstep">EN REPOSO</span>
+    <span id="runtext"></span>
+  </div>
+
+  <div class="stage">
+    <div class="canvas">
+      <svg id="map" viewBox="0 0 1400 850" role="img"></svg>
+    </div>
+
+    <aside class="panel" id="panel">
+      <span class="chip" id="p-chip">seleccioná una pieza</span>
+      <h2 id="p-title">Cómo leer esto</h2>
+      <p id="p-desc"></p>
+      <dl id="p-dl"></dl>
+      <div id="p-warn"></div>
+      <p class="hint" id="p-hint">Atajo: <b>Esc</b> limpia la selección.</p>
+    </aside>
+  </div>
+
+  <details data-view-only="nube" open>
+    <summary>Lo que se proponía el 4 de octubre y lo que se construyó</summary>
+    <div class="dbody">
+      <p class="hint">La primera versión de este diagrama era una propuesta, de cuando solo existía el
+        scraper local. Ocho piezas salieron distintas, cada una por algo que se midió o se
+        encontró en el camino. El porqué completo está en <code>docs/uruguay/DESIGN.md</code>.</p>
+      <table>
+        <tr><th>Pieza</th><th>La propuesta</th><th>Lo desplegado</th><th>Por qué cambió</th></tr>
+        <tr><td>Horario</td><td>tres disparadores por día</td>
+          <td>uno, a las 23:30 de Montevideo</td>
+          <td>A esa hora ya cerraron todos los sorteos, y una sola corrida diaria son menos
+            peticiones al sitio.</td></tr>
+        <tr><td>Prefijo en S3</td><td><code>country=uy/</code> dentro de cada capa</td>
+          <td><code>uy/raw/</code>, <code>uy/silver/</code>, <code>uy/gold/</code></td>
+          <td>El transform de Santa Lucía lista todo <code>raw/</code> y su contador de objetos
+            vigila las tres capas: Uruguay tenía que quedar fuera de esos prefijos.</td></tr>
+        <tr><td>Terraform</td><td>módulos nuevos en el mismo estado</td>
+          <td>un stack aparte, <code>terraform/uy/</code></td>
+          <td>En el stack compartido, un <code>make deploy</code> hecho desde master habría
+            destruido lo de Uruguay antes del merge.</td></tr>
+        <tr><td>Athena</td><td>el workgroup de Santa Lucía</td>
+          <td><code>lottery-uy-wg</code>, con tope de 100 MB</td>
+          <td>Un tope de lectura propio, y ningún cambio en el workgroup de Santa Lucía.</td></tr>
+        <tr><td>Manifiesto</td><td>DynamoDB o Parquet en S3</td>
+          <td>DynamoDB, una sola tabla</td>
+          <td>Cada petición escribe un estado y una línea de log; un índice ralo lista solo las
+            claves abiertas.</td></tr>
+        <tr><td>Transform</td><td>Glue Python Shell o Lambda</td>
+          <td>Lambda con imagen de contenedor</td>
+          <td>Python Shell se queda en 3.9, y las dependencias pesan 222 MB: no entran en un zip
+            de Lambda.</td></tr>
+        <tr><td>Particiones</td><td>registradas por API o por un crawler</td>
+          <td>proyección de particiones</td>
+          <td>No hay nada que registrar ni que esperar entre la plata y el gate.</td></tr>
+        <tr><td>Acceso al sitio</td><td>sin probar desde AWS</td>
+          <td>directo, sin proxy</td>
+          <td>Se probó desde la Lambda: 8 de 8 respuestas en HTTP 200.</td></tr>
+      </table>
+    </div>
+  </details>
+
+  <details data-view-only="paises" open>
+    <summary>Santa Lucía y Uruguay, pieza por pieza</summary>
+    <div class="dbody">
+      <p class="hint">El criterio del merge es uno solo: <b>nada de Santa Lucía cambia</b>. Su
+        <code>terraform plan</code> no muestra cambios, su suite sigue en ≥98 % y su tubería del
+        jueves corre igual.</p>
+      <table>
+        <tr><th>Pieza</th><th>Santa Lucía</th><th>Uruguay</th></tr>
+        <tr><td>Fuente</td><td>loteria.org.gt, por un proxy con salida en Guatemala</td>
+          <td>www.loteria.gub.uy, directo, a una petición por segundo</td></tr>
+        <tr><td>Historia</td><td>solo el último sorteo está en línea: crece desde el primer scrape</td>
+          <td>cada día desde el 2006-08-11: 13.021 sorteos</td></tr>
+        <tr><td>Cadencia</td><td>semanal, jueves 18:00 UTC</td>
+          <td>cada noche, 23:30 de Montevideo</td></tr>
+        <tr><td>Código</td><td><code>src/loteria/</code></td>
+          <td><code>src/sorteos/core/</code> (sin país) y <code>src/sorteos/uy/</code></td></tr>
+        <tr><td>Extracción</td><td>Lambda</td>
+          <td>Lambda, con un manifiesto en DynamoDB que evita volver a pedir lo firme</td></tr>
+        <tr><td>Transform</td><td>Glue Python Shell 3.9 y dos crawlers</td>
+          <td>Lambda con imagen de contenedor, sin crawlers</td></tr>
+        <tr><td>Gate de calidad</td><td>Glue 5.0 + GX, 29 expectativas</td>
+          <td>Glue 5.0 + GX, 6 suites</td></tr>
+        <tr><td>Oro</td><td>7 tablas, CTAS al lado + swap</td>
+          <td>6 tablas, todas o ninguna, el mismo swap</td></tr>
+        <tr><td>Lago</td><td><code>raw/</code>, <code>silver/</code>, <code>gold/</code>, <code>quarantine/</code></td>
+          <td><code>uy/</code> en el mismo bucket</td></tr>
+        <tr><td>Catálogo</td><td><code>lottery_santalucia_db</code></td>
+          <td><code>lottery_uy_db</code></td></tr>
+        <tr><td>Athena</td><td><code>lottery-wg</code></td>
+          <td><code>lottery-uy-wg</code></td></tr>
+        <tr><td>Alarmas</td><td>9, al topic <code>loteria-alerts-prod</code></td>
+          <td>5, al mismo topic</td></tr>
+        <tr><td>Terraform</td><td><code>terraform/</code> · <code>make deploy</code></td>
+          <td><code>terraform/uy/</code> · <code>make uy-deploy</code></td></tr>
+        <tr><td>CI</td><td>el mismo <code>ci.yml</code></td>
+          <td>el mismo, más dos jobs para sus artefactos</td></tr>
+      </table>
+    </div>
+  </details>
+
+  <p class="hint">Plan completo y estado de cada paso: <code>roadmap-uruguay.md</code>. Lo que se encontró
+    al explorar el sitio: <code>docs/uruguay/FINDINGS.md</code>.</p>
+</div>
+
+<script src="js/diagram-uruguay.data.js"></script>
+<script src="js/diagram-uruguay.js"></script>
+</body>
+</html>

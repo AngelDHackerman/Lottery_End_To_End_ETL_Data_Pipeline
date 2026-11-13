@@ -1,0 +1,157 @@
+{
+  "expectations": [
+    {
+      "kwargs": {
+        "min_value": 1
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    },
+    {
+      "kwargs": {
+        "column": "ball_type",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "quiniela_vespertina",
+          "type": "comparison"
+        },
+        "value_set": [
+          "quiniela",
+          "tombola"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "ball_type",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "quiniela_nocturna",
+          "type": "comparison"
+        },
+        "value_set": [
+          "quiniela",
+          "tombola"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "ball_type",
+        "row_condition": {
+          "column": {
+            "name": "game"
+          },
+          "operator": "==",
+          "parameter": "5_de_oro",
+          "type": "comparison"
+        },
+        "value_set": [
+          "oro",
+          "extra",
+          "revancha"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "kwargs": {
+        "column": "number",
+        "regex": "^\\d{3}$",
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "==",
+          "parameter": "quiniela",
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_match_regex"
+    },
+    {
+      "kwargs": {
+        "column": "number",
+        "regex": "^\\d{2}$",
+        "row_condition": {
+          "column": {
+            "name": "ball_type"
+          },
+          "operator": "IN",
+          "parameter": [
+            "tombola",
+            "oro",
+            "extra",
+            "revancha"
+          ],
+          "type": "comparison"
+        }
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_match_regex"
+    },
+    {
+      "kwargs": {
+        "column": "ingested_at"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "run_id"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "source_key"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "source_sha256"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "kwargs": {
+        "column": "parser_version"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.20.0"
+  },
+  "name": "uy_draw_numbers",
+  "notes": null
+}

@@ -1,0 +1,165 @@
+{
+  "Comment": "UY nightly incremental (UY-043.3): fetch, then silver for the years fetch marked, then the GX gate over all of silver (UY-043.4), then gold (UY-044.3; not in a dry run). Input: {\"dry_run\": true|false}; missing means false. Rendered by pipeline.tf, checked by tests/unit/sorteos/test_uy_pipeline_asl.py and, against AWS, by scripts/uy_sfn_validate.py.",
+  "StartAt": "Defaults",
+  "TimeoutSeconds": ${execution_timeout_seconds},
+  "States": {
+    "Defaults": {
+      "Comment": "A console start with {} must behave like the schedule's {\"dry_run\": false}, so the input is merged over the defaults. Anything else the input carries is kept and ignored.",
+      "Type": "Pass",
+      "Parameters": {
+        "input.$": "States.JsonMerge(States.StringToJson('{\"dry_run\": false}'), $, false)"
+      },
+      "OutputPath": "$.input",
+      "Next": "CheckInput"
+    },
+    "CheckInput": {
+      "Comment": "The Lambdas read dry_run with bool(), so the string \"false\" would be a dry run and 1 a real one. Only a JSON boolean gets through.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.dry_run",
+          "IsBoolean": true,
+          "Next": "Fetch"
+        }
+      ],
+      "Default": "BadInput"
+    },
+    "BadInput": {
+      "Type": "Fail",
+      "Error": "BadInput",
+      "Cause": "dry_run must be true or false (a JSON boolean). Nothing was fetched."
+    },
+    "Fetch": {
+      "Comment": "Retries only Lambda's own service errors (the function never ran). An error of the function itself is not retried: a second try would ask the site again for up to 400 pages, and the next night catches up anyway (window_start, owner UY-043.3 3a).",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fetch_function_arn}",
+        "Payload": {
+          "mode": "incremental",
+          "dry_run.$": "$.dry_run"
+        }
+      },
+      "ResultSelector": {
+        "report.$": "$.Payload"
+      },
+      "ResultPath": "$.fetch",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Silver"
+    },
+    "Silver": {
+      "Comment": "Always runs: with no pending year it only rewrites draw_gaps (~2 s), so no Choice is needed. One retry of anything: it is idempotent, and it clears PENDING#silver only if rev did not move (UY-043.2).",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${silver_function_arn}",
+        "Payload": {
+          "pending": true,
+          "finalize": true,
+          "dry_run.$": "$.dry_run"
+        }
+      },
+      "ResultSelector": {
+        "report.$": "$.Payload"
+      },
+      "ResultPath": "$.silver",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 1
+        }
+      ],
+      "Next": "ValidateSilver"
+    },
+    "ValidateSilver": {
+      "Comment": "The GX gate (D30): a Glue 5.0 job that reads all of uy/silver/ and writes nothing, so it also runs in a dry run, over the silver that is there. .sync waits for the job, and a failed expectation fails the job, this state and the execution (owner, UY-043.4 3a): the alarm mails it. No Retry: the same silver gives the same verdict. The verdict itself is in /aws-glue/jobs/output, stream = job_run_id.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${dq_job_name}",
+        "Arguments": {
+          "--RUN_ID.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "job_run_id.$": "$.Id",
+        "state.$": "$.JobRunState",
+        "started_on.$": "$.StartedOn",
+        "completed_on.$": "$.CompletedOn",
+        "billed_seconds.$": "$.ExecutionTime"
+      },
+      "ResultPath": "$.dq",
+      "Next": "GoldUnlessDryRun"
+    },
+    "GoldUnlessDryRun": {
+      "Comment": "Gold writes (tables, uy/gold/), so a dry run stops here (owner, UY-044.3 4a). It is reached only if ValidateSilver passed: gold is never built on a silver the gate rejected.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.dry_run",
+          "BooleanEquals": true,
+          "Next": "DryRunDone"
+        }
+      ],
+      "Default": "BuildGold"
+    },
+    "DryRunDone": {
+      "Type": "Succeed"
+    },
+    "BuildGold": {
+      "Comment": "The six gold tables (sql/uy/gold/): built beside the published ones, counted, then swapped, all or none (sorteos.core.gold). A failure fails the execution and the alarm mails it; published gold stays last night's (owner, UY-044.3 2a). Retries only Lambda's own service errors: every attempt builds a new generation, so a retry of a failed build would only fail again and leave more to retire.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${gold_function_arn}",
+        "Payload": {
+          "run_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "report.$": "$.Payload"
+      },
+      "ResultPath": "$.gold",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "End": true
+    }
+  }
+}
