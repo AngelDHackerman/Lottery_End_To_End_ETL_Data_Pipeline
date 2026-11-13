@@ -216,6 +216,8 @@ Q9 in the findings below).
 
 ### Where to read more
 
+- [`layouts/diagram-uruguay.html`](./layouts/diagram-uruguay.html): an interactive diagram of the
+  nightly run and of what the two pipelines share. It opens in any browser, with no server.
 - [`roadmap-uruguay.md`](./roadmap-uruguay.md): the plan, PR by PR, with what each one measured.
 - [`docs/uruguay/FINDINGS.md`](./docs/uruguay/FINDINGS.md): what the exploration of the site found.
 - [`docs/uruguay/DESIGN.md`](./docs/uruguay/DESIGN.md): the design decisions and why.

@@ -1,165 +1,201 @@
 /* Extensión Uruguay — datos de los dos diagramas.
    El render vive en diagram-uruguay.js; este archivo solo describe. Se expone como
-   window.DIAGRAM_UY = {local, nube}, una entrada por pestaña.
+   window.DIAGRAM_UY = {nube, paises}, una entrada por pestaña.
 
-   Lo marcado "funciona hoy" se verificó el 2026-10-04: sondeo de ~60 URLs a 1 req/s,
-   dos pilotos (2016-07-01..14 y 2025-09-10..20, 95 peticiones, 0 errores) y el backfill
-   completo arrancado ese mismo día. Lo marcado "planificado" es el roadmap
-   (roadmap-uruguay.md), no algo que exista. La vista "nube" es una PROPUESTA: las
-   decisiones de UY-040 (bucket o prefijo, manifiesto, proxy) siguen abiertas, y cada
-   caja que depende de ellas lo dice. */
+   Reescrito en UY-050.3 (2026-11-13). La versión del 4 de octubre mostraba el scraper
+   local y una PROPUESTA de nube; las dos quedaron viejas. Ahora las dos pestañas
+   describen lo desplegado:
+
+   - "nube": la corrida nocturna de Uruguay, pieza por pieza.
+   - "paises": Santa Lucía y Uruguay lado a lado, con lo que comparten y lo que no.
+
+   Los nombres, tiempos y límites salen de terraform/uy/ (pipeline.tf, fetch.tf,
+   silver.tf, dq.tf, gold.tf, alarms.tf, catalog.tf, manifest.tf, ecr.tf). Los conteos
+   se leyeron de la cuenta el 2026-11-13, después de la corrida programada del 12 de
+   noviembre: filas de plata por Athena (lottery-uy-wg), objetos de uy/raw/ por S3,
+   alarmas por CloudWatch, tablas por Glue y la salida de esa ejecución de Step
+   Functions. Lo de Santa Lucía se releyó el mismo día: 9 alarmas, 12 tablas y 2
+   vistas, y la regla del jueves. */
 (function (global) {
   "use strict";
 
   /* ================================================================
-     VISTA 1 — LOCAL (beta): lo que corre en la máquina del owner
-     ================================================================ */
-  const local = {
-    key: "local",
-    tab: "Local · beta",
-    title: "Extensión Uruguay — en local",
-    lede: "Cómo funciona hoy, en la máquina del owner: el scraper baja el crudo a bronce y el manifiesto decide qué ya no hace falta pedir. Lo punteado en ámbar es lo que sigue en el roadmap. Hacé clic en una pieza para ver sus nombres reales.",
-    meta: ["rama loteria-uruguaya-test", "solo local", "4 oct 2026"],
-    viewBox: "0 0 1400 850",
-    play: "▶ Reproducir una corrida del backfill",
-    STATE_LABEL: {ok: "funciona hoy", pend: "planificado", bad: "bloqueado a propósito", off: "no se toca aún"},
-    legend: [["ok", "Funciona hoy"], ["pend", "Planificado (UY-NNN)"], ["bad", "Bloqueado a propósito"], ["off", "No se toca hasta el merge"]],
-
-    ZONES: [
-      {x:24, y:20,  w:1352, h:112, cls:"gh",  label:"INTERNET · DNLQ, MINISTERIO DE ECONOMÍA Y FINANZAS", color:"var(--soft)"},
-      {x:24, y:156, w:1352, h:556, cls:"aws", label:"LA MÁQUINA DEL OWNER · WSL · data/uy/ (gitignored)", color:"var(--ink)"},
-      {x:24, y:736, w:1352, h:96,  cls:"vpc", label:"GITHUB", color:"var(--off)"}
-    ],
-
-    NODES: [
-      {id:"site", x:420, y:44, w:330, h:72, st:"ok", t:"www.loteria.gub.uy", s:["nginx · HTML del servidor, sin JS", "sin Cloudflare: 200 en ~0,1 s"],
-       title:"La fuente", desc:"El sitio de la Dirección Nacional de Loterías y Quinielas. Renderiza todo en el servidor, responde directo, sin proxy ni sala de espera, y su robots.txt no restringe a nadie. Es lo opuesto a Santa Lucía.",
-       kv:{"Página diaria":"ver_resultados.php?vdia=&vmes=&vano=", "Primer dato":"2006-08-11 (por bisección; el selector dice 2007)", "Día sin sorteo":"HTTP 200, ~45,9 KB, sin bloques de juego", "Encoding":"UTF-8 declarado y real", "Desde AWS":"sin probar (UY-005)"},
-       warn:{k:"p", t:"Responde 200 incluso cuando no hubo sorteo, así que el código de estado no dice nada: lo decide el contenido. Y el HTML se regenera desde su base con la plantilla de hoy —un extracto de 2007 cita un decreto de 2019—, así que bronce guarda «la página tal como se sirvió el día X», nunca el documento original."}},
-
-      {id:"priv", x:1010, y:44, w:340, h:72, st:"bad", t:"*_DET_INVALIDAS_*.PDF", s:["cédulas de identidad · apuestas anuladas", "nunca se piden"],
-       title:"Lo que no se toca", desc:"PDFs que la DNLQ publica junto a cada sorteo desde 2016, con una columna «Cédula Id.». La página de resultados los enlaza; el scraper nunca sigue un enlace por su cuenta y el cliente HTTP rechaza el patrón antes de abrir un socket.",
-       kv:{"Patrón":"DET_INVALIDAS (sin distinguir mayúsculas, decodificado)", "Dónde vive":"src/sorteos/uy/privacy.py, en código y nunca en un YAML; el cliente no se puede crear sin blocklist", "Dónde se revisa":"la URL pedida y cada salto de redirección", "Si se intenta":"BlockedURLError, y el log nombra el patrón, no la URL", "Fixtures":"los href se reemplazan; un test escanea la carpeta", "Ley":"18.331 de Uruguay (sin conclusión legal)"},
-       warn:{k:"b", t:"Lo único permitido de esa carpeta es RES_INFORMACION_DE_POZOS, y por allowlist, no por «no está bloqueado»: la misma fila de enlaces trae los dos, y una regla más floja tomaría el equivocado el día que el sitio los reordene."}},
-
-      {id:"cli", x:48, y:196, w:220, h:84, st:"ok", t:"backfill CLI", s:["make uy-backfill · uy-pilot", "día por día, reanudable", "--max-requests · --refresh"],
-       title:"El que camina el calendario", desc:"python -m sorteos.uy.backfill. Recorre el rango día por día: primero la página consolidada, que descubre qué juegos hubo, y solo después los extractos de esos juegos. Se puede cortar en cualquier momento; la siguiente corrida sigue donde quedó.",
-       kv:{"Módulo":"src/sorteos/uy/backfill.py", "URLs":"de site.yaml y games/*.yaml; las 20.612 del manifiesto salen idénticas (make uy-golden-urls)", "Por defecto":"2006-08-01 → hoy en Montevideo", "Fuentes":"resultados · extractos (+ pdf · pozos)", "Nunca pide":"un día que en Uruguay aún no pasó", "Rango completo":"~7.400 días + un extracto por juego sorteado"}},
-
-      {id:"client", x:420, y:196, w:330, h:84, st:"ok", t:"PoliteClient", s:["1 req/s global · backoff 429/5xx", "User-Agent con contacto (el repo)", "blocklist antes del socket"],
-       title:"La única puerta a la red", desc:"Todo lo que sale del paquete pasa por aquí. Un limitador compartido por el proceso entero (dos clientes no duplican el ritmo), reintentos con espera creciente y jitter, Retry-After respetado, y las redirecciones seguidas a mano para poder revisar cada salto.",
-       kv:{"Módulo":"src/sorteos/core/http_client.py", "Ritmo":"1 req/s; menos de 1 s se rechaza en el constructor", "Reintenta":"429 · 500 · 502 · 503 · 504 · fallas de transporte", "Contacto":"URL del repo, configurable con LOTERIA_UY_CONTACT", "Caché":"ninguna aquí: es el manifiesto"}},
-
-      {id:"classify", x:420, y:330, w:330, h:84, st:"ok", t:"classify.py", s:["MostrarExtracto('<código>', fecha)", "+ imágenes de cabecera como 2.ª señal", "draw · empty · error"],
-       title:"¿Hubo sorteo?", desc:"No es el parser: no saca números. Responde lo que el manifiesto necesita. La señal principal es la tabla de ruteo del propio sitio: cada bloque llama a MostrarExtracto con un código de juego y la fecha. Un código con otra fecha es un error, nunca un sorteo.",
-       kv:{"Códigos":"3 vespertina · 4 nocturna · 5 5 de Oro · 2 Kini · 1, 6–26 Lotería", "2.ª señal":"cabezal_quinielas_*, logo_5deoro, logo_kini", "Extracto PHP":"fecha dd/mm/aaaa; la plantilla vacía imprime //", "PDF":"%PDF con 200; 404 = no hay", "Versión":"CLASSIFIER_VERSION 2026-10-04"}},
-
-      {id:"manifest", x:48, y:330, w:220, h:84, st:"ok", t:"manifest.sqlite", s:["la caché: estado por fuente y día", "draw · no_draw · not_yet_published", "missing · error · + fetch_log"],
-       title:"La memoria del scraper", desc:"Una fila por (fuente, día) con el estado, el hash del contenido, la URL, Last-Modified y los intentos, más un log de cada petición. Es la caché, no bronce: un día sin sorteo no deja nada en bronce pero sí una fila, y esa fila es la que evita volver a pedirlo.",
-       kv:{"Finales":"draw · no_draw · missing (no se vuelven a pedir)", "Se reintentan":"not_yet_published (vacío y de hace < 3 días) · error", "missing":"la página diaria lista el juego y su extracto vino vacío", "Prueba":"segunda pasada del piloto: 0 peticiones, 42 omitidas"}},
-
-      {id:"bronze", x:830, y:304, w:520, h:136, st:"ok", t:"bronce · data/uy/bronze/country=uy/", s:[],
-       chips:[{k:"resultados", v:"diaria · 2006→", st:"ok"}, {k:"extractos PHP", v:"por juego · 2006→", st:"ok"}, {k:"PDF firmados", v:"2018-11-30→", st:"ok"}, {k:"pozos 5 de Oro", v:"PDF · 2016→", st:"ok"}],
-       title:"Bronce — el crudo, intacto", desc:"Los bytes exactamente como llegaron, solo de sorteos reales. Las rutas copian la futura llave de S3 —source=<fuente>/year=<año>/<fuente>_<fecha>.<ext>—, así que subir a la nube cambia el backend y no las rutas. Cada escritura es atómica: un .tmp y un replace.",
-       kv:{"Fuentes por defecto":"resultados + los 3 extractos PHP", "Opcionales":"--sources pdf,pozos (los PDF pesan ~300 KB)", "Piloto":"95 peticiones, 9,3 MB, 0 errores", "Juegos v1":"5 de Oro · Quiniela vespertina · Quiniela nocturna", "Se registran también":"Lotería y Kini, si la página los lista"}},
-
-      {id:"parsers", x:48, y:480, w:220, h:84, st:"pend", t:"Parsers por época", s:["2006–2016-06 · 2016-07→", "extractos HTML y PDF", "UY-022 … UY-024"],
-       title:"Del crudo a filas", desc:"Un parser por época de layout y por fuente, configurado por un YAML por juego. Las fronteras de época salen de los datos de bronce, no del brief.",
-       kv:{"Montos":"un parser por fuente: 42.501.146,34 vs 35,409,043.86 → Decimal", "Fecha":"la de la URL manda; el encabezado («Setiembre») solo valida", "Ruido":"gif_trasparente · separador · Número del Premio", "Ojo":"«Vacío» ≠ «Sin Aciertos»"}},
-
-      {id:"silver", x:300, y:480, w:260, h:84, st:"pend", t:"Plata local (Parquet)", s:["draws · draw_numbers · prizes", "draw_timing · game_rules", "calendar_events · UY-025"],
-       title:"El esquema canónico", desc:"Formato largo para los números (tipo de bolilla, posición y número como texto con ceros), montos en Decimal, reglas con vigencia y los paros y traslados como dimensión con la URL de su resolución.",
-       kv:{"Validaciones":"Próximo sorteo · continuidad del n.º de sorteo · Tómbola ⊇ últimas 2 cifras", "Columna":"is_replacement en la Tómbola", "Linaje":"run_id · ingested_at · source_key (patrón de PR-045)", "Horas":"locales + America/Montevideo (hubo horario de verano hasta 2015)"}},
-
-      {id:"dq", x:590, y:480, w:200, h:84, st:"pend", t:"Gate GX", s:["expectativas derivadas", "de los datos reales", "UY-026"],
-       title:"El laboratorio", desc:"Suites de Great Expectations para la plata de Uruguay. Se derivan del backfill y no se inventan: es la lección de PR-032, donde las expectativas escritas a priori habrían fallado sobre datos reales.",
-       kv:{"Ejemplos":"20 números por Quiniela · 20 distintos en Tómbola", "No es error":"un número repetido en la Quiniela (~17% de los sorteos)", "Rango 5 de Oro":"sin hardcodear hasta confirmarlo (game_rules)"}},
-
-      {id:"gold", x:820, y:480, w:260, h:84, st:"pend", t:"Oro local · DuckDB", s:["chi² por dígito y por posición", "repetidos ~17% · Tómbola ~1,8", "UY-032"],
-       title:"La auditoría de aleatoriedad", desc:"Métricas descriptivas, nunca predicción: cada una dice qué esperaba y qué observó. SQL escrito para que corra igual en Athena (Trino) cuando suba a la nube.",
-       kv:{"Quiniela":"uniformidad de los 1.000 números, total y por posición", "Tómbola":"reemplazos por sorteo vs ~1,8 esperado", "5 de Oro":"frecuencias dentro de cada versión de reglas", "Pozos":"vacantes, crecimiento, ajuste por inflación (después)"}},
-
-      {id:"report", x:1110, y:480, w:240, h:84, st:"pend", t:"Notebook / reporte", s:["esperado vs observado", "para el portafolio"],
-       title:"El que lo lee", desc:"El entregable del análisis local: un notebook o reporte que muestra cada métrica con su expectativa teórica y su intervalo. Es el consumidor que Santa Lucía nunca tuvo."},
-
-      {id:"quar", x:300, y:600, w:260, h:76, st:"pend", t:"quarantine/", s:["filas que el parser rechaza", "contadas y clasificadas (PR-044)"],
-       title:"Lo que no se entendió", desc:"El mismo patrón que Santa Lucía: nada se descarta en silencio. Una página que el parser no entiende va aquí con su motivo, y la corrida sigue."},
-
-      {id:"tests", x:820, y:600, w:530, h:76, st:"ok", t:"pytest · 255 tests · sorteos al 100%", s:["fixtures reales con los href de privacidad reemplazados", "un escáner falla si un fixture nombra DET_INVALIDAS o «cédula»"],
-       title:"La red de seguridad", desc:"255 tests sin red: un cliente falso responde desde páginas reales del 4 de octubre. Cubren la blocklist (mayúsculas, %5F, doble codificación, redirecciones), los reintentos, la clasificación de cada tipo de página y el backfill de punta a punta.",
-       kv:{"Suite completa":"565 tests · cobertura total 99,28 % (gate 98)", "Fixtures":"tests/fixtures/uy/ · 8 páginas · README con su origen", "Script":"scripts/uy_redact_fixture.py", "Lint":"ruff check + format en verde"}},
-
-      {id:"branch", x:48, y:770, w:420, h:52, st:"ok", t:"rama loteria-uruguaya-test", s:["PRs feat/UY-NNN → la rama · nunca apilados"],
-       title:"El master de la beta", desc:"Todo PR de Uruguay sale de esta rama y vuelve a ella. master se trae hacia aquí con merge (no rebase) cuando cambia algo compartido."},
-
-      {id:"ci", x:500, y:770, w:380, h:52, st:"ok", t:"ci.yml (el mismo de master)", s:["lint · test · gate 98 sobre loteria + sorteos"],
-       title:"Un solo CI", desc:"El CI corre en cualquier pull_request, así que los PRs hacia la rama beta quedan cubiertos sin tocar ci.yml. El gate de cobertura mide los dos paquetes juntos."},
-
-      {id:"master", x:930, y:770, w:420, h:52, st:"off", t:"master · Lotería Santa Lucía", s:["no se toca hasta UY-050"],
-       title:"El proyecto principal", desc:"Durante la beta, ni src/loteria/, ni terraform/, ni roadmap.md. Los scripts de build copian solo src/loteria, así que nada de sorteos puede colarse en un artefacto de Santa Lucía ni redesplegarlo."}
-    ],
-
-    EDGES: [
-      {a:"cli", b:"client", lab:"URL por fuente y día", lx:276, ly:230},
-      {a:"client", b:"site", from:"t", to:"b", lab:"GET · 1 req/s", lx:592, ly:150},
-      {a:"client", b:"priv", k:"blocked", from:"r", to:"b", ap:[750, 224], via:[[1180, 224]], bp:[1180, 116], xm:[1180, 170], lab:"rechazado antes del socket", lx:860, ly:216},
-      {a:"client", b:"classify", from:"b", to:"t", lab:"bytes + cabeceras", lx:592, ly:310},
-      {a:"classify", b:"manifest", from:"l", to:"r", lab:"estado", lx:300, ly:364},
-      {a:"cli", b:"manifest", from:"b", to:"t", lab:"¿ya es final?", lx:166, ly:310},
-      {a:"classify", b:"bronze", lab:"solo sorteos", lx:756, ly:364},
-      {a:"bronze", b:"parsers", k:"pend", from:"b", to:"t", ap:[900, 440], via:[[900, 458], [158, 458]], bp:[158, 480]},
-      {a:"parsers", b:"silver", k:"pend"},
-      {a:"silver", b:"dq", k:"pend"},
-      {a:"dq", b:"gold", k:"pend"},
-      {a:"gold", b:"report", k:"pend"},
-      {a:"parsers", b:"quar", k:"pend", from:"b", to:"l", ap:[158, 564], via:[[158, 638]], bp:[300, 638]},
-      {a:"branch", b:"ci"},
-      {a:"ci", b:"master", k:"blocked", xm:[905, 796], lab:"merge en UY-050", lx:868, ly:764}
-    ],
-
-    NOTES: [
-      {x:590, y:628, t:"Lo ámbar es el roadmap:", color:"var(--pending)", weight:700},
-      {x:590, y:644, t:"nada de eso existe aún.", color:"var(--pending)", weight:700}
-    ],
-
-    RUN: [
-      {id:"cli", t:"make uy-backfill arranca en 2006-08-01, unos días antes del primer dato real (11 de agosto de 2006, encontrado por bisección), para que el propio manifiesto registre dónde empieza la historia."},
-      {id:"manifest", t:"Antes de cada petición, el manifiesto responde: si ese día y esa fuente ya están en un estado final, no se pide nada. Una segunda pasada sobre el piloto hizo 0 peticiones."},
-      {id:"client", t:"El cliente revisa la URL contra la blocklist, espera su turno —un segundo entre peticiones, para todo el proceso— y la pide con un User-Agent que dice quién es y dónde encontrar el proyecto."},
-      {id:"site", t:"El sitio contesta en ~0,1 s, sin proxy. Siempre 200, haya habido sorteo o no: por eso el código de estado no decide nada."},
-      {id:"priv", t:"La página trae enlaces a los PDF con cédulas. El scraper no sigue enlaces por su cuenta, y si alguien lo intentara el cliente lo rechaza antes de abrir el socket."},
-      {id:"classify", t:"El clasificador busca los MostrarExtracto('<código>', fecha) de la página: cada uno es un juego sorteado ese día. Las imágenes de cabecera se cotejan como segunda señal; si no coinciden, queda una advertencia."},
-      {id:"bronze", t:"Si hubo sorteo, los bytes van a bronce tal cual, en una ruta que ya tiene la forma de su futura llave de S3. Si no, no se escribe nada."},
-      {id:"manifest", t:"El manifiesto guarda el veredicto, el hash y los juegos. Con eso, el backfill pide el extracto de cada juego listado —y solo de esos— y vuelve a empezar con el día siguiente."},
-      {id:"parsers", t:"Lo que sigue es el roadmap: parsers por época convierten el crudo en filas…"},
-      {id:"silver", t:"…una plata canónica con reglas con vigencia y calendario de paros…"},
-      {id:"dq", t:"…un gate de calidad con expectativas sacadas de los datos…"},
-      {id:"gold", t:"…y la auditoría de aleatoriedad: cada métrica con su valor esperado al lado."},
-      {id:"report", t:"Al final, alguien que lo lee. Cuando esto esté verde en local (gate G3), recién entonces se sube a la nube."}
-    ],
-
-    toggles: [
-      {label: "Resaltar lo que ya funciona", ids: ["site", "priv", "cli", "client", "classify", "manifest", "bronze", "tests", "branch", "ci"]},
-      {label: "Resaltar lo planificado", ids: ["parsers", "silver", "dq", "gold", "report", "quar"]}
-    ],
-
-    IDLE: {chip: "seleccioná una pieza", title: "Cómo leer esto",
-           desc: "Verde es código que corre hoy y se probó contra el sitio real. Ámbar punteado es el roadmap. Rojo es algo bloqueado a propósito. Pasá el mouse para ver las conexiones."}
-  };
-
-  /* ================================================================
-     VISTA 2 — NUBE, después del merge (UY-050): la propuesta
+     VISTA 1 — LA CORRIDA NOCTURNA DE URUGUAY, tal como está desplegada
      ================================================================ */
   const nube = {
     key: "nube",
-    tab: "Nube · tras el merge",
-    title: "Santa Lucía + Uruguay — en la nube",
-    lede: "La propuesta para después del merge. Los dos países comparten la cuenta, el lago, el catálogo, Athena, los permisos, la observabilidad y el CI, y cada uno tiene su propia tubería, porque la cadencia y la fuente no se parecen en nada. Lo ámbar no existe todavía y lo rojo es un riesgo sin verificar.",
-    meta: ["cuenta 913524903233", "us-east-1", "propuesta · UY-040…UY-050"],
+    tab: "Uruguay · la corrida nocturna",
+    title: "Extensión Uruguay — la corrida nocturna",
+    lede: "Lo que corre cada noche a las 23:30 de Montevideo: una máquina de estados con cuatro pasos que pide al sitio solo lo nuevo, reescribe la plata del año, la valida y publica el oro. Todo lo verde está desplegado. Hacé clic en una pieza para ver sus nombres reales.",
+    meta: ["cuenta 913524903233", "us-east-1", "13.021 sorteos · 2006-08-11 → 2026-11-12", "13 nov 2026"],
     viewBox: "0 0 1400 850",
-    play: "▶ Reproducir un miércoles en la nube",
-    STATE_LABEL: {ok: "desplegado hoy", pend: "planificado (UY)", bad: "riesgo sin verificar", off: "aplazado"},
-    legend: [["ok", "Desplegado hoy (Santa Lucía)"], ["pend", "Nuevo de Uruguay, planificado"], ["bad", "Riesgo sin verificar"], ["off", "Aplazado"]],
+    play: "▶ Reproducir la corrida del 12 de noviembre",
+    STATE_LABEL: {ok: "desplegado", pend: "pendiente", bad: "bloqueado a propósito", off: "aplazado"},
+    legend: [["ok", "Desplegado y corriendo"], ["bad", "Bloqueado a propósito"]],
+
+    ZONES: [
+      {x:24, y:20,  w:1352, h:112, cls:"gh",  label:"INTERNET · DNLQ, MINISTERIO DE ECONOMÍA Y FINANZAS", color:"var(--soft)"},
+      {x:24, y:156, w:1352, h:556, cls:"aws", label:"CUENTA AWS · 913524903233 · us-east-1 · stack terraform/uy/", color:"var(--ink)"},
+      {x:24, y:736, w:1352, h:96,  cls:"vpc", label:"GITHUB · LA MÁQUINA DEL OWNER", color:"var(--off)"}
+    ],
+
+    NODES: [
+      {id:"site", x:420, y:44, w:330, h:72, st:"ok", t:"www.loteria.gub.uy", s:["nginx · HTML del servidor, sin JS", "directo, sin proxy: 200 en menos de 1 s"],
+       title:"La fuente", desc:"El sitio de la Dirección Nacional de Loterías y Quinielas. Renderiza todo en el servidor y responde directo, sin proxy ni sala de espera, también desde una Lambda en us-east-1. Es lo opuesto a Santa Lucía.",
+       kv:{"Página diaria":"ver_resultados.php?vdia=&vmes=&vano=", "Extractos":"una página PHP por juego y un PDF desde el 2018-11-30", "Pozos del 5 de Oro":"un PDF por sorteo desde el 2016-06-01; trae el número de sorteo", "Primer dato":"2006-08-11", "Desde AWS":"8 de 8 peticiones en HTTP 200 desde la Lambda (2026-11-04)"},
+       warn:{k:"p", t:"Responde 200 incluso cuando no hubo sorteo, así que el código de estado no dice nada: lo decide el contenido. Y la página diaria lleva incrustada la hora de la consulta, así que sus bytes cambian en cada petición aunque diga lo mismo: lo que se compara es la página ya parseada."}},
+
+      {id:"priv", x:1010, y:44, w:340, h:72, st:"bad", t:"*_DET_INVALIDAS_*.PDF", s:["cédulas de identidad · apuestas anuladas", "nunca se piden"],
+       title:"Lo que no se toca", desc:"PDFs que la DNLQ publica junto a cada sorteo desde 2016, con una columna «Cédula Id.». La página de resultados los enlaza; el scraper nunca sigue un enlace por su cuenta y el cliente HTTP rechaza el patrón antes de abrir un socket.",
+       kv:{"Patrón":"DET_INVALIDAS (sin distinguir mayúsculas, decodificado)", "Dónde vive":"src/sorteos/uy/privacy.py, en código y nunca en un YAML; el cliente no se puede crear sin blocklist", "Dónde se revisa":"la URL pedida y cada salto de redirección", "Si se intenta":"BlockedURLError, y el log nombra el patrón, no la URL", "Fixtures":"los href se reemplazan; un test escanea la carpeta", "Ley":"N.º 18.331 de Uruguay (sin conclusión legal)"},
+       warn:{k:"b", t:"Lo único permitido de esa carpeta es RES_INFORMACION_DE_POZOS, y por allowlist, no por «no está bloqueado»: la misma fila de enlaces trae los dos, y una regla más floja tomaría el equivocado el día que el sitio los reordene."}},
+
+      /* --- la cadena de la noche --- */
+      {id:"sched", x:48, y:196, w:176, h:84, st:"ok", t:"EventBridge Scheduler", s:["23:30 America/Montevideo", "todas las noches", "0 reintentos"],
+       title:"El disparador", desc:"Un solo horario por día, en hora de Uruguay, después de que cerró el último sorteo (la Nocturna termina hacia las 21:20 y el 5 de Oro hacia las 22:30). No reintenta: si la corrida falla, la de la noche siguiente recoge lo que quedó abierto.",
+       kv:{"Nombre":"lottery-uy-nightly-prod", "Expresión":"cron(30 23 * * ? *) · America/Montevideo", "Reintentos":"0", "Primera corrida programada":"2026-11-09"}},
+
+      {id:"sfn", x:272, y:196, w:176, h:84, st:"ok", t:"Step Functions", s:["lottery-uy-pipeline-prod", "4 pasos · tope de 1 hora", "logs ALL"],
+       title:"El orquestador", desc:"Fetch → Silver → ValidateSilver → BuildGold. Ningún paso atrapa su propio error: si algo falla, la ejecución termina en FAILED y eso es lo que mira la alarma. Con dry_run la corrida le pregunta al sitio y valida, pero no escribe nada ni construye el oro.",
+       kv:{"Estados":"Defaults · CheckInput · Fetch · Silver · ValidateSilver · GoldUnlessDryRun · BuildGold", "Tope":"3.600 s; el peor caso de los cuatro pasos entra", "Reintentos":"errores del servicio Lambda 3 veces; Silver, además, 1 vez ante cualquier error", "Logs":"/aws/vendedlogs/states/lottery-uy-pipeline-prod · 365 días", "Corrida del 12 nov":"SUCCEEDED en 3 min 33 s"}},
+
+      {id:"fetch", x:496, y:196, w:176, h:84, st:"ok", t:"Fetch", s:["Lambda 3.12 · zip", "pide solo lo nuevo", "1 petición por segundo"],
+       title:"El que le pregunta al sitio", desc:"Recorre los días desde el último que ya tiene. Antes de cada petición el manifiesto responde si esa página ya quedó firme; si es así, no se pide. Guarda los bytes tal como llegaron y anota en el manifiesto qué mostró cada página.",
+       kv:{"Función":"lottery-uy-fetch-prod · 256 MB · 900 s", "Ventana":"los últimos 7 días más toda clave que siga abierta", "Se vuelve a pedir":"la página de resultados de los últimos 3 días, y hasta 14 días si al 5 de Oro le falta el PDF de pozos", "Tope":"400 peticiones por corrida", "Corrida del 12 nov":"10 peticiones, 26 omitidas"},
+       warn:{k:"p", t:"Una página de resultados pedida a media tarde ya dice «sorteo» pero solo trae la Vespertina. Por eso las páginas recientes se vuelven a pedir aunque estén en estado final: si no, la Nocturna nunca se descubriría."}},
+
+      {id:"silver", x:720, y:196, w:176, h:84, st:"ok", t:"Silver", s:["Lambda · imagen de ECR", "parsea y compara 2 fuentes", "reescribe el año tocado"],
+       title:"Del crudo a filas", desc:"Parsea la página de resultados y el extracto de cada juego, los compara campo por campo y reescribe los Parquet de los años que cambiaron. Un sorteo que no se puede leer va a cuarentena y no a los datos. Al final recalcula los sorteos que faltan.",
+       kv:{"Función":"lottery-uy-silver-prod · 2.048 MB · 900 s", "Por qué imagen":"sus dependencias pesan 222 MB; el límite de un zip es 250 MB", "Qué años":"los que Fetch dejó anotados en el ítem PENDING#silver del manifiesto", "Linaje":"cada fila lleva la clave y el hash de la página de la que salió", "Corrida del 12 nov":"2026 = 560 sorteos, 0 en cuarentena, 42 s de construcción"}},
+
+      {id:"dq", x:944, y:196, w:176, h:84, st:"ok", t:"ValidateSilver", s:["Glue 5.0 · 2 × G.1X", "Great Expectations", "6 suites"],
+       title:"El gate de calidad", desc:"Baja toda la plata y corre las seis suites. Si una falla, el job falla, el paso falla y el oro no se construye. Las expectativas salieron de los datos reales del backfill, no se inventaron.",
+       kv:{"Job":"lottery-uy-silver-dq-prod · tope de 10 min", "GX":"llega como wheels en un zip (uy/dq/); no se instala desde PyPI", "Arranque":"el script empieza entre 46 y 67 s después de pedido el job", "Veredicto":"/aws-glue/jobs/output, un stream por corrida", "Corrida del 12 nov":"SUCCEEDED · 95 s facturados"}},
+
+      {id:"gold", x:1168, y:196, w:176, h:84, st:"ok", t:"BuildGold", s:["Lambda 3.12 · Athena", "6 tablas, todas o ninguna", "swap atómico"],
+       title:"El oro", desc:"Construye las seis tablas al lado de las publicadas, cuenta sus filas y solo si las seis tienen datos las cambia todas juntas. Guarda la generación viva y la anterior; lo demás se borra.",
+       kv:{"Función":"lottery-uy-gold-prod · 256 MB · 180 s", "Tablas":"digit_frequency · quiniela_repeats · tombola_replacements · 5_de_oro_frequency · pool_dynamics · punctuality", "Dónde":"uy/gold/<tabla>/run=<generación UTC>/", "Corrida del 12 nov":"generación 20261113T023323Z; retiró la 20261111T143255Z"},
+       warn:{k:"p", t:"El bucket niega todo borrado salvo a tres identidades. El rol de esta Lambda es una de ellas, y una segunda regla lo limita a uy/gold/. Sin esa excepción el oro nuevo se publica igual, pero el retiro de la generación vieja falla."}},
+
+      /* --- dónde quedan los datos --- */
+      {id:"manifest", x:48, y:330, w:300, h:84, st:"ok", t:"DynamoDB · el manifiesto", s:["lottery-uy-manifest-prod", "un estado por fuente y día + el log", "draw · no_draw · missing · error"],
+       title:"La memoria del scraper", desc:"Un ítem por (fuente, día) con el estado, el hash, la URL y los intentos, más un ítem por cada petición hecha. Es lo que evita volver a pedir lo que ya quedó firme. Un índice ralo lista solo las claves abiertas.",
+       kv:{"Clave":"pk <fuente>#<fecha> · sk STATE o LOG#…", "Finales":"draw · no_draw · missing", "Se reintentan":"not_yet_published · error (3 fallas iguales → missing)", "Protección":"recuperación a un punto en el tiempo, sin borrado de la tabla", "Tamaño":"~43.600 ítems"}},
+
+      {id:"s3", x:400, y:330, w:560, h:110, st:"ok", t:"S3 · lottery-partitioned-storage-prod · uy/", s:[],
+       chips:[{k:"uy/raw/", v:"21.295 objetos · 1,06 GB", st:"ok"}, {k:"uy/silver/", v:"7 tablas · Parquet", st:"ok"}, {k:"uy/gold/", v:"6 tablas · viva + 1", st:"ok"}],
+       title:"El lago — un prefijo dentro del bucket de datos", desc:"Uruguay vive bajo uy/ en el mismo bucket que Santa Lucía, que ya tenía versionado y la negación de borrado. El prefijo va arriba (uy/raw/ y no raw/uy/) porque el transform de Santa Lucía lista todo raw/ y su contador de objetos vigila raw/, silver/ y gold/.",
+       kv:{"Bronce":"los bytes tal como llegaron; las llaves copian las rutas del disco local", "Plata":"particiones country / game / year; el año tocado se reescribe entero", "Sin borrados":"una partición que desaparece se reemplaza por un Parquet vacío", "Además":"uy/dq/ guarda el zip de wheels del job de GX"}},
+
+      {id:"athena", x:1012, y:330, w:338, h:110, st:"ok", t:"Athena · lottery-uy-wg", s:["workgroup propio de Uruguay", "tope de 100 MB leídos por consulta", "CTAS al lado, después el swap"],
+       title:"El motor", desc:"Un workgroup solo para Uruguay, con un tope de lectura por consulta. El SQL del oro es el mismo que se prueba en local con DuckDB: seis SELECT que el constructor envuelve en un CTAS.",
+       kv:{"Resultados":"lottery-athena-results-prod/uy/", "SQL":"sql/uy/gold/NN_gold_<nombre>.sql", "Prueba local":"make uy-gold-local (DuckDB, menos de 1 s)", "Corrida del 12 nov":"entre 1,8 y 3,6 s por tabla"}},
+
+      {id:"gaps", x:400, y:480, w:270, h:84, st:"ok", t:"draw_gaps", s:["sorteos esperados que no llegaron", "4 filas, las 4 explicadas", "0 abiertas"],
+       title:"Lo que debió sortearse y no", desc:"El detector usa el anuncio «Próximo sorteo» de cada extracto y, si no sirve, el calendario de la semana. Un hueco queda explicado cuando un evento del calendario oficial (paro, duelo, traslado) cae dentro de su ventana; si no, queda abierto.",
+       kv:{"Regla":"el anuncio vale si cae entre 1 y 14 días después; si no, el calendario", "Acierto histórico":"99,8 % en 5 de Oro y más de 99,9 % en la Quiniela", "Un sorteo adelantado":"no es un hueco y nunca alarma", "Código":"src/sorteos/core/gaps.py"}},
+
+      {id:"quar", x:690, y:480, w:270, h:84, st:"ok", t:"quarantine", s:["lo que el parser no pudo leer", "0 filas en toda la historia"],
+       title:"Lo que no se entendió", desc:"Nada se descarta en silencio. Un sorteo con una fuente presente pero ilegible va entero a esta tabla con su motivo. Con cuarentena, la corrida sigue pero no recalcula los huecos, y la alarma avisa.",
+       kv:{"Tabla":"silver_quarantine", "Hoy":"0 filas sobre 13.021 sorteos", "Lo dudoso pero legible":"no se aparta: lleva una marca en dq_flags (9 marcas, catálogo cerrado)"}},
+
+      {id:"cat", x:1012, y:480, w:338, h:84, st:"ok", t:"Glue Data Catalog · lottery_uy_db", s:["7 tablas de plata en Terraform", "6 de oro, que crea la Lambda", "particiones por proyección: sin crawler"],
+       title:"El catálogo", desc:"Las tablas de plata se declaran en Terraform a partir del esquema del código, y sus particiones se calculan por proyección: no hay crawler que adivine columnas ni que haya que esperar. Las de oro las crea y las cambia la Lambda.",
+       kv:{"Plata":"draws · draw_numbers · prizes · quarantine · game_rules · calendar_events · draw_gaps", "Filas hoy":"13.021 sorteos · 460.384 números · 6.252 premios", "Esquema":"terraform/uy/silver_tables.json (make uy-catalog-sync)", "Quién lee el oro":"Lake Formation da una tabla nueva solo a quien la crea; el stack otorga SELECT a los lectores"}},
+
+      /* --- operación --- */
+      {id:"obs", x:48, y:600, w:800, h:76, st:"ok", t:"CloudWatch · 5 alarmas", s:["corrida fallida · hueco abierto · filas en cuarentena · errores de fetch · 2 días sin éxito", "las métricas salen de la propia corrida: no hay un canario aparte que le pida nada al sitio"],
+       title:"Las noches que no fallan también avisan", desc:"Una corrida puede terminar bien y aun así necesitar a alguien: un sitio que bloquea deja claves en error, un sorteo que no llega deja un hueco abierto. Fetch y Silver imprimen sus conteos como métricas y cuatro alarmas los miran; la quinta mira si la máquina falló.",
+       kv:{"Alarmas":"lottery-uy-pipeline-prod-failed · lottery-uy-open-draw-gaps-prod · lottery-uy-silver-quarantine-prod · lottery-uy-fetch-errors-prod · lottery-uy-pipeline-prod-no-success-2d", "Métricas":"espacio Loteria/UY: FetchRequests · FetchErrors · OpenDrawGaps · SilverQuarantineRows", "En un dry run":"no se emite ninguna métrica"},
+       warn:{k:"p", t:"Las cuatro alarmas nuevas se desplegaron el 12 de noviembre, después de la corrida de esa noche. Reciben su primer dato con la corrida del 13."}},
+
+      {id:"sns", x:872, y:600, w:200, h:76, st:"ok", t:"SNS → correo", s:["loteria-alerts-prod", "el mismo de Santa Lucía"],
+       title:"Las alertas", desc:"El topic es el de Santa Lucía, leído como dato desde el stack de Uruguay. El nombre de cada alarma dice de qué país es."},
+
+      {id:"tf", x:1096, y:600, w:254, h:76, st:"ok", t:"Terraform · terraform/uy/", s:["stack y estado propios", "el plan se niega a destruir"],
+       title:"Un stack aparte", desc:"Los recursos de Uruguay viven en su propio stack, con su propio estado en el mismo bucket de estados. Si estuvieran en el stack principal, un make deploy hecho desde master los destruiría mientras la rama de Uruguay no estuviera fusionada.",
+       kv:{"Estado":"uy/terraform.tfstate", "Comandos":"make uy-tf-plan → make uy-deploy (aplica el plan guardado)", "Guardas":"el plan falla ante cualquier destroy o replace, y valida la máquina de estados ya renderizada"}},
+
+      /* --- abajo --- */
+      {id:"local", x:48, y:770, w:380, h:52, st:"ok", t:"El backfill local · 2006 → 2026", s:["subió una sola vez; el local quedó congelado"],
+       title:"De dónde salió la historia", desc:"Los veinte años se bajaron del sitio una sola vez, desde la máquina del owner y a una petición por segundo. Ese bronce y su manifiesto se copiaron a la nube tal cual, sin volver a pedirle nada al sitio. Desde entonces hay un solo manifiesto: el de DynamoDB.",
+       kv:{"Bronce":"21.239 archivos subidos y verificados uno por uno (tamaño y MD5)", "Manifiesto":"21.726 estados y 21.803 líneas de log migrados", "Plata":"21 años reconstruidos en la nube; las 7 tablas iguales a las locales", "Hoy":"make uy-incremental se niega a correr sin UY_LOCAL=1"}},
+
+      {id:"ci", x:460, y:770, w:438, h:52, st:"ok", t:"ci.yml · el mismo, con dos jobs de Uruguay", s:["la imagen de plata se construye · el zip de GX se prueba en Python 3.11"],
+       title:"Un solo CI", desc:"Corre en todo pull request. Además de lint, tests y los escáneres, dos jobs cuidan lo propio de Uruguay: que la imagen de Silver se construya e importe, y que el zip de wheels del job de GX funcione en el Python de Glue 5.0.",
+       kv:{"Cobertura":"el gate de 98 % mide loteria y sorteos juntos", "Además":"la build comprueba que el zip de Fetch no importe nada que no lleve dentro"}},
+
+      {id:"owner", x:930, y:770, w:420, h:52, st:"ok", t:"El owner · make uy-tf-plan → uy-deploy", s:["nada llega a producción sin un plan leído"],
+       title:"El puente humano", desc:"Igual que en Santa Lucía: fusionar un PR no despliega nada. Alguien corre el plan, lo lee y aplica ese mismo plan guardado."}
+    ],
+
+    EDGES: [
+      {a:"sched", b:"sfn"}, {a:"sfn", b:"fetch"}, {a:"fetch", b:"silver"}, {a:"silver", b:"dq"}, {a:"dq", b:"gold"},
+      {a:"fetch", b:"site", from:"t", to:"b", ap:[584, 196], bp:[584, 116], lab:"GET · 1 req/s", lx:476, ly:150},
+      {a:"fetch", b:"priv", k:"blocked", from:"t", to:"b", ap:[640, 196], via:[[640, 172], [1180, 172]], bp:[1180, 116], xm:[1180, 144], lab:"rechazado antes del socket", lx:840, ly:166},
+      {a:"fetch", b:"manifest", from:"b", to:"t", ap:[520, 280], via:[[520, 304], [198, 304]], bp:[198, 330], lab:"¿ya quedó firme?", lx:210, ly:298},
+      {a:"fetch", b:"s3", from:"b", to:"t", ap:[620, 280], bp:[620, 330], lab:"uy/raw/", lx:628, ly:312},
+      {a:"silver", b:"s3", from:"b", to:"t", ap:[808, 280], bp:[808, 330], lab:"uy/silver/", lx:816, ly:312},
+      {a:"s3", b:"dq", from:"t", to:"b", ap:[930, 330], via:[[930, 304], [1032, 304]], bp:[1032, 280], lab:"lee la plata", lx:940, ly:298},
+      {a:"gold", b:"athena", from:"b", to:"t", ap:[1256, 280], bp:[1256, 330], lab:"6 CTAS", lx:1264, ly:312},
+      {a:"athena", b:"s3", from:"l", to:"r", ap:[1012, 385], bp:[960, 385]},
+      {a:"athena", b:"cat", from:"b", to:"t", ap:[1181, 440], bp:[1181, 480], lab:"swap", lx:1189, ly:466},
+      {a:"s3", b:"gaps", from:"b", to:"t", ap:[535, 440], bp:[535, 480]},
+      {a:"s3", b:"quar", from:"b", to:"t", ap:[825, 440], bp:[825, 480]},
+      {a:"gaps", b:"obs", from:"b", to:"t", ap:[535, 564], bp:[535, 600], lab:"OpenDrawGaps", lx:543, ly:588},
+      {a:"quar", b:"obs", from:"b", to:"t", ap:[825, 564], bp:[825, 600], lab:"SilverQuarantineRows", lx:690, ly:588},
+      {a:"obs", b:"sns"},
+      {a:"local", b:"s3", k:"manual", from:"l", to:"l", ap:[48, 796], via:[[36, 796], [36, 458], [374, 458], [374, 385]], bp:[400, 385], lab:"una vez", lx:52, ly:728},
+      {a:"owner", b:"tf", k:"manual", from:"t", to:"b", ap:[1223, 770], bp:[1223, 676], lab:"plan → apply", lx:1231, ly:728}
+    ],
+
+    NOTES: [
+      {x:48, y:322, t:"DÓNDE QUEDA", color:"var(--soft)", weight:700},
+      {x:48, y:592, t:"QUIÉN AVISA · CÓMO SE DESPLIEGA", color:"var(--soft)", weight:700},
+      {x:48, y:500, t:"ECR · lottery-uy-silver-prod", color:"var(--muted)", weight:700},
+      {x:48, y:516, t:"la imagen de Silver; etiquetas inmutables,", color:"var(--muted)"},
+      {x:48, y:532, t:"una por hash del código; se guardan 5", color:"var(--muted)"}
+    ],
+
+    RUN: [
+      {id:"sched", t:"12 de noviembre, 23:30 en Montevideo. El Scheduler arranca la máquina de estados. Los sorteos del día ya cerraron: la Vespertina, la Nocturna y, miércoles y domingos, el 5 de Oro."},
+      {id:"sfn", t:"La máquina conduce cuatro pasos. Ninguno atrapa su propio error: si uno falla, la ejecución falla y la alarma lo dice."},
+      {id:"fetch", t:"Fetch recorre del 6 al 12 de noviembre. De 36 claves posibles, 26 ya estaban firmes en el manifiesto y no se pidieron."},
+      {id:"manifest", t:"El manifiesto es la memoria: qué mostró cada página y cuándo. Una página firme no se vuelve a pedir nunca; una reciente, sí, porque todavía puede crecer."},
+      {id:"site", t:"Diez peticiones, una por segundo, con un User-Agent que dice quién es. El sitio responde directo, sin proxy."},
+      {id:"priv", t:"La página enlaza PDFs con cédulas. El scraper no sigue enlaces por su cuenta, y el cliente rechaza ese patrón antes de abrir el socket."},
+      {id:"s3", t:"Cambiaron cinco claves, las cinco del 12 de noviembre: la página de resultados y los dos extractos de la Quiniela, con sus PDF. Los bytes van a uy/raw/ tal como llegaron."},
+      {id:"silver", t:"Silver lee qué años quedaron pendientes —solo 2026— y reescribe ese año: 560 sorteos, ninguno en cuarentena."},
+      {id:"gaps", t:"Con la plata nueva recalcula los sorteos que faltan: cuatro huecos en veinte años, los cuatro explicados por el calendario oficial. Ninguno abierto."},
+      {id:"dq", t:"El job de Glue corre las seis suites de Great Expectations sobre toda la plata. Pasan: 95 segundos facturados."},
+      {id:"gold", t:"BuildGold construye las seis tablas al lado de las publicadas y cuenta sus filas."},
+      {id:"athena", t:"Athena tarda entre 1,8 y 3,6 segundos por tabla. Las seis tienen datos…"},
+      {id:"cat", t:"…así que el catálogo cambia las seis juntas a la generación nueva. Se retira la más vieja; quedan la viva y la anterior."},
+      {id:"obs", t:"3 minutos y 33 segundos después, SUCCEEDED. Ninguna alarma se movió. A la noche siguiente, lo mismo."}
+    ],
+
+    toggles: [
+      {label: "Resaltar la corrida nocturna", ids: ["site", "sched", "sfn", "fetch", "silver", "dq", "gold"]},
+      {label: "Resaltar dónde quedan los datos", ids: ["manifest", "s3", "athena", "cat", "gaps", "quar"]}
+    ],
+
+    IDLE: {chip: "seleccioná una pieza", title: "Cómo leer esto",
+           desc: "Arriba, el sitio. En la primera fila, los pasos de cada noche, de izquierda a derecha. Debajo, dónde queda cada cosa, y al pie quién avisa y cómo se despliega. Verde es lo desplegado; rojo, lo bloqueado a propósito. Pasá el mouse para ver las conexiones."}
+  };
+
+  /* ================================================================
+     VISTA 2 — LOS DOS PAÍSES: qué comparten y qué no
+     ================================================================ */
+  const paises = {
+    key: "paises",
+    tab: "Los dos países",
+    title: "Santa Lucía + Uruguay — qué comparten y qué no",
+    lede: "Dos tuberías en la misma cuenta. Comparten el bucket de datos, el catálogo, los permisos, el topic de alertas y el CI. No comparten ni el código, ni el horario, ni el stack de Terraform, ni el workgroup de Athena: la fuente y la cadencia no se parecen en nada.",
+    meta: ["cuenta 913524903233", "us-east-1", "las dos desplegadas", "13 nov 2026"],
+    viewBox: "0 0 1400 850",
+    play: "▶ Reproducir una semana",
+    STATE_LABEL: {ok: "desplegado", pend: "pendiente", bad: "bloqueado a propósito", off: "aplazado"},
+    legend: [["ok", "Desplegado"], ["off", "Aplazado"]],
 
     ZONES: [
       {x:24, y:20,  w:1352, h:100, cls:"gh",  label:"INTERNET", color:"var(--soft)"},
@@ -169,84 +205,79 @@
     ],
 
     NODES: [
-      {id:"sl_site", x:140, y:40, w:330, h:64, st:"ok", t:"loteria.org.gt", s:["tras Cloudflare · vía scrape.do (GT)"],
-       title:"La fuente de Santa Lucía", desc:"Sin cambios. Un sorteo por semana, detrás de Cloudflare, al que solo se llega con un proxy residencial guatemalteco.",
-       kv:{"Acceso":"scrape.do geoCode=GT&super=true", "Cadencia":"semanal"}},
+      {id:"sl_site", x:140, y:40, w:330, h:64, st:"ok", t:"loteria.org.gt", s:["tras Cloudflare · vía un proxy (GT)"],
+       title:"La fuente de Santa Lucía", desc:"Un sorteo por semana, detrás de Cloudflare, al que solo se llega con un proxy residencial guatemalteco. Solo muestra el último sorteo: lo que no se bajó a tiempo, se perdió.",
+       kv:{"Acceso":"scrape.do con salida en Guatemala", "Cadencia":"semanal", "Historia":"crece desde el primer scrape"}},
 
-      {id:"uy_site", x:600, y:40, w:330, h:64, st:"bad", t:"www.loteria.gub.uy", s:["directo desde la casa · ¿y desde AWS?"],
-       title:"La fuente de Uruguay — sin probar desde AWS", desc:"Desde la máquina del owner responde directo y sin proxy. Desde una IP de AWS nadie lo ha probado, y Santa Lucía enseñó que eso puede cambiar todo el diseño del extractor.",
-       kv:{"Verificación":"UY-005 · una petición desde CloudShell us-east-1", "Si bloquea":"probar sa-east-1 antes de pensar en un proxy", "Cadencia":"Quiniela de lunes a sábado (sábado solo nocturna) · 5 de Oro mié y dom"},
-       warn:{k:"b", t:"Es la única incógnita capaz de cambiar la forma de la tubería. Por eso UY-005 está en la fase de exploración y no en la de deploy."}},
+      {id:"uy_site", x:600, y:40, w:330, h:64, st:"ok", t:"www.loteria.gub.uy", s:["directo, sin proxy · 1 petición por segundo"],
+       title:"La fuente de Uruguay", desc:"Responde directo, también desde AWS, y guarda cada día desde 2006. Por eso Uruguay tuvo un backfill de veinte años y Santa Lucía no.",
+       kv:{"Acceso":"directo; 8 de 8 en HTTP 200 desde la Lambda", "Cadencia":"Quiniela de lunes a sábado (el sábado, solo Nocturna) · 5 de Oro miércoles y domingo", "Historia":"desde el 2006-08-11"}},
 
       /* --- carril Santa Lucía --- */
       {id:"sl_eb", x:48, y:206, w:150, h:60, st:"ok", t:"EventBridge", s:["jueves 18:00 UTC"],
-       title:"Disparador de Santa Lucía", desc:"Sin cambios: lottery-etl-weekly-trigger-prod."},
+       title:"Disparador de Santa Lucía", desc:"lottery-etl-weekly-trigger-prod, una regla semanal: cron(0 18 ? * THU *)."},
       {id:"sl_sfn", x:220, y:206, w:170, h:60, st:"ok", t:"Step Functions", s:["lottery-etl-pipeline-prod"],
-       title:"Orquestador de Santa Lucía", desc:"Sin cambios. Nueve estados, el gate de calidad entre los crawlers y Gold."},
-      {id:"sl_ext", x:412, y:206, w:150, h:60, st:"ok", t:"Extractor", s:["Lambda · scrape.do"],
-       title:"Extractor de Santa Lucía", desc:"lottery-extractor-prod. Sin cambios por el merge."},
+       title:"Orquestador de Santa Lucía", desc:"Su propia máquina de estados, con el gate de calidad entre los crawlers y Gold."},
+      {id:"sl_ext", x:412, y:206, w:150, h:60, st:"ok", t:"Extractor", s:["Lambda · proxy"],
+       title:"Extractor de Santa Lucía", desc:"lottery-extractor-prod. Código en src/loteria/."},
       {id:"sl_tr", x:590, y:206, w:160, h:60, st:"ok", t:"Transformer", s:["Glue pythonshell 3.9"],
        title:"Transformer de Santa Lucía", desc:"lottery-transform-prod. Escribe silver/ y quarantine/."},
       {id:"sl_cr", x:772, y:206, w:150, h:60, st:"ok", t:"Crawlers ×2", s:["registran particiones"],
-       title:"Crawlers de Santa Lucía", desc:"Solo registran particiones: el esquema de silver vive en Terraform desde PR-045.2."},
-      {id:"sl_dq", x:944, y:206, w:170, h:60, st:"ok", t:"Gate GX", s:["28 expectativas"],
+       title:"Crawlers de Santa Lucía", desc:"Solo registran particiones: el esquema de silver vive en Terraform. Uruguay no tiene crawlers: sus particiones se calculan por proyección."},
+      {id:"sl_dq", x:944, y:206, w:170, h:60, st:"ok", t:"Gate GX", s:["29 expectativas"],
        title:"Gate de Santa Lucía", desc:"Glue 5.0 + Great Expectations. Si falla, Gold no se construye."},
       {id:"sl_gold", x:1136, y:206, w:214, h:60, st:"ok", t:"Gold · 7 tablas", s:["CTAS al lado + swap"],
-       title:"Gold de Santa Lucía", desc:"Build beside + swap atómico, verificado en producción el 25 de septiembre."},
+       title:"Gold de Santa Lucía", desc:"Construye al lado y hace un swap atómico. Es el patrón que el oro de Uruguay copió."},
 
       /* --- capa compartida --- */
       {id:"s3", x:48, y:326, w:512, h:110, st:"ok", t:"S3 · lottery-partitioned-storage-prod", s:[],
-       chips:[{k:"raw/", v:"SL", st:"ok"}, {k:"silver/", v:"SL", st:"ok"}, {k:"gold/", v:"SL", st:"ok"}, {k:"quarantine/", v:"SL", st:"ok"}, {k:"country=uy/", v:"nuevo", st:"pend"}],
-       title:"El lago — compartido", desc:"La propuesta es reutilizar el bucket con un prefijo por país, porque ya tiene versionado, el Deny de borrado y prevent_destroy. La alternativa es un bucket propio. Lo decide UY-040.",
-       kv:{"Uruguay escribiría":"country=uy/{bronze,silver,quarantine,gold}/", "Bronce inicial":"se sube desde el disco local (UY-042), no se vuelve a scrapear", "Ojo":"el Deny de PR-002 exime solo a la raíz y al rol de gold-purge"},
-       warn:{k:"p", t:"Si se comparte el bucket, la retención de Gold de Uruguay necesita su propio rol exento en el Deny, o no va a poder borrar nada. Exactamente lo que costó PR-042.2."}},
+       chips:[{k:"raw/", v:"SL", st:"ok"}, {k:"silver/", v:"SL", st:"ok"}, {k:"gold/", v:"SL", st:"ok"}, {k:"quarantine/", v:"SL", st:"ok"}, {k:"uy/", v:"UY", st:"ok"}],
+       title:"El lago — compartido", desc:"Un solo bucket de datos; las capas son prefijos. Uruguay entra con un prefijo arriba de todo, uy/, para que nada de Santa Lucía lo liste ni lo cuente por accidente.",
+       kv:{"Uruguay escribe":"uy/raw/ · uy/silver/ · uy/gold/ · uy/dq/", "Protección común":"versionado y una negación de borrado para todos", "Quién puede borrar":"la raíz, el rol de purga de Gold de Santa Lucía y el rol del oro de Uruguay (este, solo bajo uy/gold/)"}},
 
-      {id:"cat", x:600, y:326, w:330, h:110, st:"ok", t:"Glue Data Catalog", s:["lottery_santalucia_db · 12 + 2 vistas", "+ lottery_uy_db (nueva)", "esquemas UY en Terraform desde el día 1"],
-       title:"El catálogo — dos bases", desc:"Uruguay tiene su propia base. Sus tablas de plata se declaran en Terraform desde el principio, en vez de crawlearse y después importarse: la lección de PR-045.2, que tuvo que importar 118 particiones porque los crawlers no podían evolucionar el esquema.",
-       kv:{"Base nueva":"lottery_uy_db (nombre a decidir en UY-010)", "Tablas":"draws · draw_numbers · prizes · draw_timing · game_rules · calendar_events"}},
+      {id:"cat", x:600, y:326, w:330, h:110, st:"ok", t:"Glue Data Catalog", s:["lottery_santalucia_db · 12 tablas + 2 vistas", "lottery_uy_db · 7 de plata + 6 de oro", "una base por país"],
+       title:"El catálogo — compartido, dos bases", desc:"El mismo catálogo y las mismas reglas, con una base por país. Los permisos de Santa Lucía son comodines sobre sus tablas, así que una base aparte no los toca.",
+       kv:{"Santa Lucía":"esquema en Terraform, particiones por crawler", "Uruguay":"esquema en Terraform, particiones por proyección"}},
 
-      {id:"athena", x:954, y:326, w:396, h:110, st:"ok", t:"Athena · lottery-wg", s:["un workgroup, dos bases", "CTAS al lado + swap, igual en ambos", "piso de 10 MiB por consulta"],
-       title:"El motor — compartido", desc:"El mismo workgroup y el mismo patrón de publicación atómica. El costo no cambia de escala: Athena cobra un mínimo de 10 MiB por consulta y Uruguay es chico (PR-043.1).",
-       kv:{"Uruguay agrega":"las tablas de oro de la auditoría", "SQL":"el mismo que se probó en local con DuckDB (UY-032)"}},
+      {id:"athena", x:954, y:326, w:396, h:110, st:"ok", t:"Athena · dos workgroups", s:["lottery-wg · Santa Lucía", "lottery-uy-wg · Uruguay, tope de 100 MB", "el mismo patrón: CTAS al lado + swap"],
+       title:"El motor — mismo servicio, workgroups aparte", desc:"Cada país tiene su workgroup. El de Uruguay vive en su stack y lleva un tope de lectura por consulta. El costo no cambia de escala: Athena cobra un mínimo de 10 MiB por consulta y las dos historias son chicas.",
+       kv:{"Resultados":"el mismo bucket de resultados; Uruguay bajo uy/"}},
 
       /* --- carril Uruguay --- */
-      {id:"uy_eb", x:48, y:496, w:150, h:60, st:"pend", t:"EventBridge ×3", s:["America/Montevideo"],
-       title:"Disparadores de Uruguay", desc:"Tres horarios en hora de Uruguay: Quiniela después de ~15:30 y ~21:30, y el 5 de Oro después de ~22:30 los miércoles y domingos. Más una revisión al día siguiente por feriados y traslados.",
-       kv:{"Por qué 3":"la cadencia uruguaya es diaria, la guatemalteca semanal", "Zona":"America/Montevideo (sin horario de verano desde 2015)"}},
-      {id:"uy_sfn", x:220, y:496, w:170, h:60, st:"pend", t:"Step Functions", s:["lottery-uy-pipeline"],
-       title:"Orquestador de Uruguay", desc:"Una máquina propia. Las lecciones de Santa Lucía vienen incluidas: el Retry cubre el error que de verdad ocurre (PR-047), y el ASL se valida ya renderizado.", kv:{"Roadmap":"UY-043"}},
-      {id:"uy_ext", x:412, y:496, w:150, h:60, st:"pend", t:"Extractor UY", s:["Lambda 3.12 · directo"],
-       title:"El mismo scraper de hoy, en Lambda", desc:"El código que hoy corre en local: el cliente, el clasificador y el manifiesto. Cambian el backend de bronce (disco → S3) y el del manifiesto. Una corrida incremental son de 1 a 3 peticiones, muy lejos del límite de Lambda.",
-       kv:{"Manifiesto":"tabla DynamoDB o Parquet en S3 (UY-040)", "Blocklist":"la misma, con su test", "Runtime":"3.12: el extractor no hereda el techo de 3.9 de Glue"},
-       warn:{k:"p", t:"Si UY-005 encuentra que el sitio bloquea IPs de AWS, esta caja cambia: proxy o región. Por eso se prueba primero."}},
-      {id:"uy_tr", x:590, y:496, w:160, h:60, st:"pend", t:"Parsers → plata", s:["por época · YAML"],
-       title:"Transform de Uruguay", desc:"Los parsers de UY-022…024. Si el runtime es Glue Python Shell, son 3.9 y el guard de ruff de PR-050 tiene que cubrirlos. Si es Lambda, no. Lo decide UY-010.", kv:{"Roadmap":"UY-040 · UY-042"}},
-      {id:"uy_part", x:772, y:496, w:150, h:60, st:"pend", t:"Particiones", s:["sin crawler de esquema"],
-       title:"Registro de particiones", desc:"Esquema en Terraform y particiones por API o por un crawler que solo registra carpetas. Nunca un crawler que infiere el esquema."},
-      {id:"uy_dq", x:944, y:496, w:170, h:60, st:"pend", t:"Gate GX UY", s:["suites de UY-026"],
-       title:"Gate de Uruguay", desc:"Las suites que se derivaron en local, ahora antes de cada oro. Si falla, el oro no se publica."},
-      {id:"uy_gold", x:1136, y:496, w:214, h:60, st:"pend", t:"Oro UY", s:["aleatoriedad · pozos"],
-       title:"Oro de Uruguay", desc:"Las métricas de UY-032 publicadas con el swap atómico de PR-042: TableInput como allowlist y las acciones singulares de partición en IAM.", kv:{"Roadmap":"UY-044"}},
+      {id:"uy_eb", x:48, y:496, w:150, h:60, st:"ok", t:"Scheduler", s:["23:30 Montevideo"],
+       title:"Disparador de Uruguay", desc:"lottery-uy-nightly-prod, todas las noches en hora de Uruguay. Un solo horario basta: a las 23:30 ya cerraron todos los sorteos del día.",
+       kv:{"Por qué no es semanal":"allá se sortea casi todos los días"}},
+      {id:"uy_sfn", x:220, y:496, w:170, h:60, st:"ok", t:"Step Functions", s:["lottery-uy-pipeline-prod"],
+       title:"Orquestador de Uruguay", desc:"Una máquina propia de cuatro pasos. El detalle está en la otra pestaña."},
+      {id:"uy_ext", x:412, y:496, w:150, h:60, st:"ok", t:"Fetch", s:["Lambda 3.12 · directo"],
+       title:"El scraper de Uruguay", desc:"lottery-uy-fetch-prod. Código en src/sorteos/. Su memoria es una tabla de DynamoDB, no el bucket."},
+      {id:"uy_tr", x:590, y:496, w:332, h:60, st:"ok", t:"Silver", s:["Lambda · imagen de ECR · sin crawler"],
+       title:"La plata de Uruguay", desc:"lottery-uy-silver-prod. Parsea, compara dos fuentes y reescribe el año tocado. No hay crawler después: las particiones se calculan por proyección."},
+      {id:"uy_dq", x:944, y:496, w:170, h:60, st:"ok", t:"Gate GX", s:["6 suites"],
+       title:"Gate de Uruguay", desc:"lottery-uy-silver-dq-prod, Glue 5.0. Si falla, el oro no se construye."},
+      {id:"uy_gold", x:1136, y:496, w:214, h:60, st:"ok", t:"Oro · 6 tablas", s:["todas o ninguna + swap"],
+       title:"Oro de Uruguay", desc:"lottery-uy-gold-prod. Una sola Lambda construye las seis tablas y las cambia juntas."},
 
-      /* --- operación compartida --- */
-      {id:"lf", x:48, y:612, w:300, h:76, st:"ok", t:"Lake Formation + IAM", s:["+ grants para lottery_uy_db", "ALTER en las TABLAS, no en la base"],
-       title:"Las dos puertas — compartidas", desc:"Los grants nuevos para la base de Uruguay se escriben con las lecciones del 24 de septiembre: ALTER sobre las tablas (no solo sobre la base), permisos explícitos (nunca ALL) y lakeformation:GetDataAccess en IAM.", kv:{"Roadmap":"UY-041"}},
-      {id:"obs", x:372, y:612, w:320, h:76, st:"ok", t:"CloudWatch", s:["9 alarmas de SL + «sorteo UY faltante»", "canary de gub.uy (UY-045)"],
-       title:"Observabilidad — compartida", desc:"Una alarma nueva por sorteo esperado que no llegó, a partir del calendario oficial. Cuidado con la trampa conocida: la evaluación tiene un tope de 7 días, y 0 no es lo mismo que «sin dato».", kv:{"Roadmap":"UY-045"}},
+      /* --- operación --- */
+      {id:"lf", x:48, y:612, w:300, h:76, st:"ok", t:"Lake Formation + IAM", s:["las mismas dos puertas", "permisos por base y por rol"],
+       title:"Los permisos — compartidos", desc:"Leer una tabla exige las dos cosas en los dos países: el permiso de Lake Formation y el de IAM. Cada tubería tiene sus propios roles; ninguno de Uruguay puede escribir fuera de uy/."},
+      {id:"obs", x:372, y:612, w:320, h:76, st:"ok", t:"CloudWatch", s:["9 alarmas de Santa Lucía", "5 alarmas de Uruguay"],
+       title:"Observabilidad — mismo servicio, alarmas propias", desc:"Cada país declara sus alarmas en su stack. Las de Uruguay se llaman lottery-uy-…; las de Santa Lucía, loteria-…"},
       {id:"sns", x:716, y:612, w:200, h:76, st:"ok", t:"SNS → correo", s:["loteria-alerts-prod"],
-       title:"Las alertas — compartidas", desc:"El mismo topic. Los mensajes dicen de qué país es la alerta."},
-      {id:"tfstate", x:940, y:612, w:200, h:76, st:"ok", t:"Terraform", s:["un estado · módulos", "reutilizados"],
-       title:"Un solo estado", desc:"Uruguay entra como módulos nuevos en el mismo stack. Criterio del merge: el plan no toca ningún recurso de Santa Lucía, solo agrega."},
-      {id:"code", x:1164, y:612, w:186, h:76, st:"ok", t:"lambda-code-zip-prod", s:["artefactos de", "ambos países"],
-       title:"Bucket de código", desc:"make deploy sube los artefactos de los dos. El de Uruguay se construye aparte, así que un cambio en sorteos no redespliega a Santa Lucía."},
+       title:"Las alertas — compartidas", desc:"Un solo topic y un solo correo. El nombre de la alarma dice de qué país es."},
+      {id:"tfstate", x:940, y:612, w:200, h:76, st:"ok", t:"Terraform", s:["dos stacks, dos estados", "terraform/ · terraform/uy/"],
+       title:"Dos stacks", desc:"Los estados viven en el mismo bucket con llaves distintas. Un make deploy de Santa Lucía no ve los recursos de Uruguay, y al revés.",
+       kv:{"Estados":"main/terraform.tfstate · uy/terraform.tfstate"}},
+      {id:"only", x:1164, y:612, w:186, h:76, st:"ok", t:"Solo Uruguay", s:["DynamoDB · el manifiesto", "ECR · la imagen de Silver"],
+       title:"Lo que Santa Lucía no tiene", desc:"Una tabla de DynamoDB que recuerda qué mostró cada página, y un repositorio de ECR para la imagen de Silver, cuyas dependencias no entran en un zip."},
 
       /* --- abajo --- */
-      {id:"owner", x:48, y:766, w:300, h:56, st:"pend", t:"El owner · make deploy", s:["+ subida única del bronce local"],
-       title:"El puente humano", desc:"Igual que hoy: build → apply → upload. La única novedad es una subida de una sola vez: el bronce que el backfill local juntó durante la beta pasa a S3 tal cual, sin volver a pedirle nada al sitio.", kv:{"Roadmap":"UY-042"}},
-      {id:"ci", x:372, y:766, w:300, h:56, st:"ok", t:"ci.yml + canaries", s:["un CI · un canary por país"],
-       title:"Un CI para los dos", desc:"El mismo ci.yml; el canary de Uruguay se suma al de Santa Lucía."},
+      {id:"owner", x:48, y:766, w:300, h:56, st:"ok", t:"El owner", s:["make deploy · make uy-deploy"],
+       title:"El puente humano", desc:"Un comando por stack. En los dos, fusionar un PR no despliega nada: alguien lee el plan y lo aplica."},
+      {id:"ci", x:372, y:766, w:300, h:56, st:"ok", t:"ci.yml", s:["un CI para los dos"],
+       title:"Un CI para los dos", desc:"El mismo workflow. El gate de cobertura mide los dos paquetes juntos, y dos jobs cuidan los artefactos de Uruguay."},
       {id:"consumer", x:736, y:766, w:614, h:56, st:"off", t:"Comparativo entre países · QuickSight / API", s:["aplazado: primero que cada país sea confiable por separado"],
-       title:"El grifo que todavía falta", desc:"Con dos países aparece por primera vez algo que comparar. Sigue aplazado: primero cada país tiene que ser confiable por separado."}
+       title:"El grifo que todavía falta", desc:"Con dos países aparece por primera vez algo que comparar. Sigue aplazado."}
     ],
 
     EDGES: [
@@ -258,47 +289,45 @@
       {a:"sl_cr", b:"cat", from:"b", to:"t", ap:[847, 266], bp:[847, 326]},
       {a:"sl_gold", b:"athena", from:"b", to:"t", ap:[1243, 266], bp:[1243, 326], lab:"CTAS → swap", lx:1250, ly:300},
 
-      {a:"uy_eb", b:"uy_sfn", k:"pend"}, {a:"uy_sfn", b:"uy_ext", k:"pend"}, {a:"uy_ext", b:"uy_tr", k:"pend"},
-      {a:"uy_tr", b:"uy_part", k:"pend"}, {a:"uy_part", b:"uy_dq", k:"pend"}, {a:"uy_dq", b:"uy_gold", k:"pend"},
-      {a:"uy_ext", b:"uy_site", k:"pend", from:"t", to:"b", ap:[550, 496], via:[[550, 470], [575, 470], [575, 128], [765, 128]], bp:[765, 104], lab:"3×/día · 1 req/s", lx:590, ly:144},
-      {a:"uy_ext", b:"s3", k:"pend", from:"t", to:"b", ap:[487, 496], bp:[487, 436], lab:"country=uy/", lx:400, ly:470},
-      {a:"uy_part", b:"cat", k:"pend", from:"t", to:"b", ap:[847, 496], bp:[847, 436]},
-      {a:"uy_gold", b:"athena", k:"pend", from:"t", to:"b", ap:[1243, 496], bp:[1243, 436], lab:"CTAS → swap", lx:1250, ly:474},
+      {a:"uy_eb", b:"uy_sfn"}, {a:"uy_sfn", b:"uy_ext"}, {a:"uy_ext", b:"uy_tr"},
+      {a:"uy_tr", b:"uy_dq"}, {a:"uy_dq", b:"uy_gold"},
+      {a:"uy_ext", b:"uy_site", from:"t", to:"b", ap:[550, 496], via:[[550, 470], [575, 470], [575, 128], [765, 128]], bp:[765, 104], lab:"cada noche · 1 req/s", lx:590, ly:144},
+      {a:"uy_ext", b:"s3", from:"t", to:"b", ap:[487, 496], bp:[487, 436], lab:"uy/raw/", lx:424, ly:470},
+      {a:"uy_tr", b:"s3", from:"t", to:"b", ap:[620, 496], via:[[620, 466], [540, 466]], bp:[540, 436], lab:"uy/silver/", lx:626, ly:482},
+      {a:"uy_gold", b:"athena", from:"t", to:"b", ap:[1243, 496], bp:[1243, 436], lab:"CTAS → swap", lx:1250, ly:474},
 
-      {a:"obs", b:"sns"},
-      {a:"owner", b:"s3", k:"manual", from:"l", to:"l", ap:[48, 794], via:[[36, 794], [36, 381]], bp:[48, 381], lab:"una vez", lx:52, ly:722}
+      {a:"obs", b:"sns"}
     ],
 
     NOTES: [
-      {x:48, y:196, t:"SANTA LUCÍA · semanal · desplegado", color:"var(--flow)", weight:700},
-      {x:48, y:486, t:"URUGUAY · diario · planificado (UY-040 … UY-045)", color:"var(--pending)", weight:700},
-      {x:48, y:318, t:"COMPARTIDO · lago, catálogo, motor", color:"var(--soft)", weight:700},
-      {x:48, y:602, t:"COMPARTIDO · permisos, observabilidad, despliegue", color:"var(--soft)", weight:700}
+      {x:48, y:196, t:"SANTA LUCÍA · semanal · src/loteria · terraform/", color:"var(--flow)", weight:700},
+      {x:48, y:486, t:"URUGUAY · cada noche · src/sorteos · terraform/uy/", color:"var(--flow)", weight:700},
+      {x:48, y:318, t:"COMPARTIDO · lago y catálogo", color:"var(--soft)", weight:700},
+      {x:48, y:602, t:"OPERACIÓN · qué es común y qué es de cada uno", color:"var(--soft)", weight:700}
     ],
 
     RUN: [
-      {id:"uy_eb", t:"Un miércoles a las ~15:30 en Montevideo, el primer disparador de Uruguay arranca su máquina. Santa Lucía no se entera: su disparador es el del jueves."},
-      {id:"uy_sfn", t:"La máquina de Uruguay conduce su propia cadena, con el Retry escrito para el error que de verdad ocurre."},
-      {id:"uy_ext", t:"El extractor consulta el manifiesto y pide solo lo que falta: la página del día y el extracto de la Quiniela vespertina. A 1 req/s, con la misma blocklist que en local."},
-      {id:"uy_site", t:"El sitio responde. Si desde AWS no respondiera, el diseño cambia, y por eso UY-005 lo prueba antes de escribir una línea de Terraform."},
-      {id:"s3", t:"El crudo cae en country=uy/bronze/ del mismo lago. Los años de historia ya están ahí: subieron una sola vez desde el disco local (UY-042)."},
-      {id:"uy_tr", t:"Los parsers por época producen la plata canónica; lo que no entienden va a cuarentena con su motivo."},
-      {id:"uy_part", t:"La partición nueva se registra en una tabla cuyo esquema declara Terraform. Ningún crawler adivina columnas."},
-      {id:"uy_dq", t:"El gate valida la plata de Uruguay. Si falla, el oro no se toca y el correo dice qué expectativa falló."},
-      {id:"athena", t:"Athena construye el oro de Uruguay al lado del publicado, en el mismo workgroup que Santa Lucía…"},
-      {id:"uy_gold", t:"…y un swap atómico lo publica. A las ~21:30 se repite con la nocturna, y a las ~22:30 con el 5 de Oro."},
-      {id:"cat", t:"El catálogo tiene dos bases, una por país, gobernadas por las mismas dos puertas de permisos."},
-      {id:"obs", t:"Si un sorteo esperado no llegó, la alarma nueva lo dice. El jueves, la tubería de Santa Lucía corre igual que siempre: el merge no le cambió nada."}
+      {id:"uy_eb", t:"Cualquier noche a las 23:30 de Montevideo arranca la tubería de Uruguay. Santa Lucía no se entera."},
+      {id:"uy_ext", t:"Fetch le pide al sitio uruguayo solo lo nuevo, directo y a una petición por segundo."},
+      {id:"s3", t:"El crudo cae bajo uy/ en el mismo bucket donde vive Santa Lucía, cada uno en sus prefijos."},
+      {id:"uy_tr", t:"Silver reescribe el año tocado. No hay crawler que esperar."},
+      {id:"uy_dq", t:"El gate de Uruguay valida su plata…"},
+      {id:"uy_gold", t:"…y su oro se publica con el mismo patrón que el de Santa Lucía: construir al lado y cambiar de una vez."},
+      {id:"cat", t:"El catálogo tiene dos bases, una por país, detrás de las mismas dos puertas de permisos."},
+      {id:"sl_eb", t:"El jueves a las 18:00 UTC corre la de Santa Lucía, igual que siempre."},
+      {id:"sl_ext", t:"Su extractor sale por un proxy, porque su sitio está detrás de Cloudflare."},
+      {id:"sl_gold", t:"Su Gold se reconstruye en su workgroup. Ninguna de las dos tuberías depende de la otra."},
+      {id:"sns", t:"Si algo falla en cualquiera de las dos, el aviso llega al mismo correo, y el nombre de la alarma dice de qué país es."}
     ],
 
     toggles: [
-      {label: "Resaltar lo compartido", ids: ["s3", "cat", "athena", "lf", "obs", "sns", "tfstate", "code", "ci"]},
-      {label: "Resaltar lo nuevo de Uruguay", ids: ["uy_site", "uy_eb", "uy_sfn", "uy_ext", "uy_tr", "uy_part", "uy_dq", "uy_gold", "owner"]}
+      {label: "Resaltar lo compartido", ids: ["s3", "cat", "lf", "sns", "ci"]},
+      {label: "Resaltar lo de Uruguay", ids: ["uy_site", "uy_eb", "uy_sfn", "uy_ext", "uy_tr", "uy_dq", "uy_gold", "only"]}
     ],
 
     IDLE: {chip: "seleccioná una pieza", title: "Cómo leer esto",
-           desc: "Arriba, la tubería de Santa Lucía tal como está desplegada hoy. Abajo, la de Uruguay. En el medio y al pie, lo que comparten. Hacé clic en una caja para ver qué decide el roadmap sobre ella."}
+           desc: "Arriba, la tubería de Santa Lucía. Abajo, la de Uruguay. En el medio, lo que comparten, y al pie de la cuenta, la operación. Hacé clic en una caja para ver qué es común y qué es de cada país."}
   };
 
-  global.DIAGRAM_UY = {local, nube};
+  global.DIAGRAM_UY = {nube, paises};
 })(window);
