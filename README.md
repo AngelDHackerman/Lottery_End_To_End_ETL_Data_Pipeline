@@ -146,9 +146,20 @@ suite needs no credentials.
 
 ## Cost
 
-Nothing runs between executions: compute is billed for a few minutes a week. What is billed
-all month is small: one Secrets Manager secret, the CloudWatch alarms and a few megabytes in
-S3.
+**About $3 a month in AWS for both pipelines.** This is an estimate from public prices, not a
+figure read from a bill. Nothing runs between executions, so compute is billed for a few
+minutes a week (Santa Lucía) or a night (Uruguay).
+
+| What | Approximate monthly cost |
+|---|---|
+| CloudWatch alarms (14, at $0.10 each) | $1.40 |
+| Glue crawlers (two a week, billed a 10-minute minimum each) | $0.60 |
+| Uruguay's nightly validation job in Glue (2 DPUs for about 80 billed seconds, at $0.44 per DPU-hour) | $0.60 |
+| Secrets Manager (one secret) | $0.40 |
+| Santa Lucía's weekly Glue jobs | $0.10 |
+| Lambda, Step Functions, Athena, S3, DynamoDB | cents |
+
+Three details behind those numbers:
 
 - **Athena:** rebuilding all seven Gold tables scans 4.84 MiB per run. With Athena's 10 MiB
   minimum per query, that is about $0.02 a year, and it stays there at ten times the data
@@ -157,8 +168,6 @@ S3.
   weekly run and the canary.
 - **Network:** $0 with `enable_internet = false`, the default. Turning the NAT gateway on
   costs about $32 a month and the pipeline does not need it.
-- **Uruguay:** about $0.60 a month, almost all of it the nightly validation job in Glue
-  (2 DPUs for about 80 billed seconds a night, at $0.44 per DPU-hour).
 
 ## Uruguay extension (DNLQ)
 
