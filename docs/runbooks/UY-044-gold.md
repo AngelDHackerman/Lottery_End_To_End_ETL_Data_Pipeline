@@ -23,6 +23,9 @@ manda el correo y el oro publicado sigue siendo el de la noche anterior.
 
 ## El paso del owner: la excepción de la Deny (una sola vez)
 
+> **Hecho el 2026-11-12** (23:25 de Montevideo). La corrida de esa noche ya retiró su primera
+> generación. Lo que sigue queda como registro y para rehacerlo si la política se reescribe.
+
 La política del bucket `lottery-partitioned-storage-prod` (PR-002, fuera de Terraform) niega
 todo borrado salvo a root y al rol de oro de Santa Lucía. El rol de oro de UY necesita borrar
 **solo** bajo `uy/gold/`.
