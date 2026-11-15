@@ -3954,6 +3954,43 @@ urllib3 CVE of that week was found by reading the news.
 > - What remains (requests and beautifulsoup4 in `extractor.txt`) arrives as one grouped PR a
 >   week, red until `make lock` is run on its branch.
 
+## PR-054 — The code bucket keeps its previous versions
+**Finding C of the 2026-10-24 security audit, the last one open.**
+
+**The defect.** `lambda-code-zip-prod` holds what actually runs: the extractor's zip and its
+layer, the three Glue artifacts, and Uruguay's DQ script and wheels under `uy/`. Versioning was
+off, so every upload overwrote the only copy: a bad build, or a tampered one, left nothing to
+compare against and nothing to go back to. And Terraform declared the bucket with no
+public-access block, so the code said nothing about it being private.
+
+> **PR-054 outcome (2026-11-15).** Built, **not applied**.
+>
+> - Three resources on the bucket: versioning `Enabled`, the four public-access-block flags,
+>   and a lifecycle rule that expires **noncurrent** versions after 90 days
+>   (`code_noncurrent_version_days`, minimum 7) and aborts unfinished multipart uploads after
+>   7. The live object of each key never expires, so nothing a Lambda or a Glue job reads can
+>   go missing. The lifecycle is here because versioning without it grows forever, and one
+>   artifact is 50 MB per deploy.
+> - Read from the account first: the four flags are already on (set outside this stack), so
+>   that resource changes nothing in AWS and only makes Terraform say so. Versioning is off, no
+>   lifecycle, no bucket policy; default encryption is SSE-S3. Seven objects, 51.5 MB.
+> - Read-only plan from a clean build: **3 to add, 0 to change, 0 to destroy**, and nothing else.
+> - `terraform/.checkov.baseline` loses the three findings this closes (`CKV2_AWS_6`,
+>   `CKV_AWS_21`, `CKV2_AWS_61`). Verified by removing the fix: checkov then fails on exactly
+>   those three. Still baselined on this bucket, on purpose: KMS (`CKV_AWS_145`), access
+>   logging, cross-region replication, event notifications.
+> - What versioning does not change: readers. A `GetObject` without a version id returns the
+>   live object exactly as before; the objects already there keep the version id `null`.
+> - **Apply after Uruguay's gate G4 (the 2026-11-22 run):** the Uruguay nightly reads its DQ
+>   script and wheels from this bucket, and G4 counts two weeks with no deploys. The change
+>   cannot break a read, but the gate's rule is "no intervention", not "no risky intervention".
+> - **To verify after the apply:** `get-bucket-versioning` says `Enabled`; a second
+>   `terraform plan` says `No changes`; `terraform/uy` also plans `No changes`; the next
+>   `make deploy` that changes an artifact leaves one noncurrent version behind.
+> - The tracker row for this PR, and 053.1's stale `built`, go in a follow-up after the Uruguay
+>   branch merges: that branch appends its own row at the end of the tracker, and a second
+>   append on `master` would conflict with it.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
