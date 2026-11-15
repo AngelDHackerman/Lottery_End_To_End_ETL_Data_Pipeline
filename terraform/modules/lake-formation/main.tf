@@ -1,6 +1,6 @@
 # Module: lake-formation
 # Codifies the Lake Formation setup that was previously done by hand in the console
-# (see challanges_faced.md §5), so a fresh deploy needs ZERO console clicks before the
+# (see docs/challenges.md §5), so a fresh deploy needs ZERO console clicks before the
 # silver crawlers can run.
 #
 # NEW resources (PR-013): nothing here is imported — aws_lakeformation_resource has no
