@@ -1,0 +1,18 @@
+# The UY fetch Lambda's DIRECT dependencies (UY-042.3; DESIGN.md D29) — the hand-written input.
+# scripts/build_uy_fetch_package.sh installs requirements/uy-fetch.lock, compiled from this
+# file with hashes, into dist/uy/uy_fetch.zip next to the `sorteos` package.
+#
+# To change a dependency: edit this file, run `make uy-fetch-lock` and commit BOTH files. CI
+# fails when the lock is stale. boto3 is not here on purpose: the python3.12 runtime has it.
+#
+# requests and beautifulsoup4 match requirements/extractor.txt (Santa Lucía's Lambda). pyyaml
+# loads site.yaml and games/*.yaml (P4). tzdata makes ZoneInfo("America/Montevideo") work
+# without relying on the runtime's /usr/share/zoneinfo.
+#
+# The constraint below keeps every package both Lambdas share at the version Santa Lucía's
+# extractor already runs in production, so this zip never debuts a release of its own.
+-c extractor.lock
+beautifulsoup4==4.15.0
+pyyaml==6.0.3
+requests==2.34.2
+tzdata

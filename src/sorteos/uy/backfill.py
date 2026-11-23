@@ -1,0 +1,420 @@
+"""Walk a date range and land raw pages in local bronze (UY backfill, local-only beta).
+
+    python -m sorteos.uy.backfill --start 2006-08-01 --end today
+    python -m sorteos.uy.backfill --start 2016-01-01 --end 2016-12-31 --sources resultados
+    python -m sorteos.uy.backfill --report
+
+Day by day, the results page first: it is the discovery layer, and the per-game sources are
+requested only for games it lists on that day. A key whose effective state is final is never
+requested again (``--refresh`` overrides), so the run can be stopped and resumed at any
+point and a second pass over the same range costs only what the first one left open. The
+one exception is a results page younger than the settle days: it can still list a game
+drawn later that day, so it is asked again even in ``draw``. The
+effective state is the manifest's, unless ``reference/manual_overrides.csv`` has a person's
+decision for that key (the 2019 AFAL strike days), and the same failure three times in a
+row closes a key as ``missing`` (docs/uruguay/DESIGN.md, D10–D12).
+
+At 1 request per second the full range is a few hours: ~7,400 results pages, plus one
+extract per game drawn. ``--max-requests`` caps a session.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import logging
+import sys
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from sorteos.core import bronze
+from sorteos.core import manifest as mf
+from sorteos.core.http_client import FetchError, PoliteClient
+from sorteos.uy import classify, privacy
+from sorteos.uy.parsers import resultados
+from sorteos.uy.sources import ALL_SOURCES, COUNTRY, POZOS, RESULTADOS, SOURCE_GROUPS, Source
+
+logger = logging.getLogger(__name__)
+
+URUGUAY = ZoneInfo("America/Montevideo")
+DEFAULT_ROOT = Path("data/uy")
+REFERENCE = Path(__file__).parent / "reference"
+# The earliest results page with data is 2006-08-11 (bisected 2026-10-04); start the
+# default a little before it so the manifest itself records where the history begins.
+DEFAULT_START = date(2006, 8, 1)
+# An empty page this many days old is a day without a draw, not a draw not yet published.
+DEFAULT_SETTLE_DAYS = 3
+# A 5 de Oro results page without its pozos link is asked again up to this age (UY-043.2.2).
+# The site adds the link to the page when it publishes the pozos report, usually the next day,
+# but on 2026-11-07 the pages of 11-01 and 11-05 still had none: past the 3-day settle, nobody
+# would ever ask again, and those draws would never get their draw number.
+POZOS_WAIT_DAYS = 14
+
+
+def today_in_uruguay() -> date:
+    return datetime.now(URUGUAY).date()
+
+
+def daterange(start: date, end: date) -> Iterator[date]:
+    day = start
+    while day <= end:
+        yield day
+        day += timedelta(days=1)
+
+
+@dataclass
+class RunStats:
+    requests: int = 0
+    skipped: int = 0
+    by_state: dict = field(default_factory=dict)
+    # Keys whose effective state or content moved in this run: what silver has to rewrite.
+    changed: set[tuple[str, date]] = field(default_factory=set)
+
+    def count(self, state: str) -> None:
+        self.by_state[state] = self.by_state.get(state, 0) + 1
+
+
+class BudgetExhausted(Exception):
+    pass
+
+
+class Backfill:
+    def __init__(
+        self,
+        client: PoliteClient,
+        store: bronze.BronzeStore,
+        manifest: mf.Manifest,
+        *,
+        sources: Iterable[Source],
+        today: date,
+        settle_days: int = DEFAULT_SETTLE_DAYS,
+        refresh: bool = False,
+        max_requests: int | None = None,
+        on_change: Callable[[str, date], None] | None = None,
+    ) -> None:
+        self.client = client
+        self.store = store
+        self.manifest = manifest
+        # The results page always runs first: every other source depends on it.
+        others = [s for s in sources if s is not RESULTADOS]
+        self.sources = [RESULTADOS, *others]
+        self.today = today
+        self.settle_days = settle_days
+        self.refresh = refresh
+        self.max_requests = max_requests
+        # Called the moment a key changes, right after its manifest write (UY-043.2): the
+        # cloud marks the year pending for silver there, so a run cut short (a Lambda timeout)
+        # loses none. At the end of the run would be too late: the next run sees those keys
+        # unchanged, and silver would never rewrite their year.
+        self.on_change = on_change
+        self.stats = RunStats()
+
+    def run(self, start: date, end: date) -> RunStats:
+        end = min(end, self.today)  # never ask for a day that has not happened in Uruguay
+        try:
+            for day in daterange(start, end):
+                self.run_day(day)
+        except BudgetExhausted:
+            logger.info("request budget reached", extra={"max_requests": self.max_requests})
+        return self.stats
+
+    def run_keys(self, keys: Iterable[tuple[str, date]]) -> RunStats:
+        """Only these keys, not their whole day: an old open key must not pull in sources
+        that were never fetched for its day (the historical extract PDFs, D19)."""
+        try:
+            for name, day in keys:
+                self.run_key(ALL_SOURCES[name], day)
+        except BudgetExhausted:
+            logger.info("request budget reached", extra={"max_requests": self.max_requests})
+        return self.stats
+
+    def run_day(self, day: date) -> None:
+        for source in self.sources:
+            self.run_key(source, day)
+
+    def run_key(self, source: Source, day: date) -> None:
+        url = self._url_for(source, day)
+        if url is None:
+            return
+        state = self.manifest.effective_state(source.name, day)
+        if state in mf.FINAL_STATES and not self.refresh and not self._may_grow(source, day, state):
+            self.stats.skipped += 1
+            return
+        self._fetch(source, day, url)
+
+    def _may_grow(self, source: Source, day: date, state: str) -> bool:
+        """A recent results page in ``draw`` is asked again until it settles: fetched at 16:22,
+        it lists the Vespertina only, and the Nocturna (out after 21:20) would never be found
+        (UY-027.1, 2026-10-29). Past that, it is asked again while it waits for its pozos link
+        (``awaiting_pozos``). The same parsed page again is not a change (``_same_page``)."""
+        if source is not RESULTADOS or state != mf.DRAW:
+            return False
+        return (self.today - day).days < self.settle_days or self.awaiting_pozos(day)
+
+    def awaiting_pozos(self, day: date) -> bool:
+        """``day`` had a 5 de Oro draw, its stored results page has no pozos link yet, it is
+        younger than POZOS_WAIT_DAYS, and this run fetches pozos (UY-043.2.2). Asking the page
+        again is how the link is found: once it is there, the page is a change and the pozos
+        PDF is the next source of the same day."""
+        if POZOS not in self.sources or not POZOS.applies_to(day):
+            return False
+        if not 0 <= (self.today - day).days < POZOS_WAIT_DAYS:
+            return False
+        row = self.manifest.get(RESULTADOS.name, day)
+        return bool(
+            row
+            and row["state"] == mf.DRAW
+            and POZOS.game in row["games"]
+            and not row["extra"].get("pozos_url")
+        )
+
+    def _url_for(self, source: Source, day: date) -> str | None:
+        """The URL to request, or None when this source has nothing to say for ``day``."""
+        if source is RESULTADOS:
+            return source.url(day)
+        if not source.applies_to(day):
+            return None
+        results = self.manifest.get(RESULTADOS.name, day)
+        if (
+            not results
+            or self.manifest.effective_state(RESULTADOS.name, day) != mf.DRAW
+            or source.game not in results["games"]
+        ):
+            return None
+        if source.kind == "pozos_pdf":
+            return results["extra"].get("pozos_url")
+        return source.url(day)
+
+    def _fetch(self, source: Source, day: date, url: str) -> None:
+        if self.max_requests is not None and self.stats.requests >= self.max_requests:
+            raise BudgetExhausted
+        self.stats.requests += 1
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        try:
+            result = self.client.get(url)
+        except FetchError as exc:
+            self._record(mf.Record(source.name, day, url, mf.ERROR, now, detail=str(exc)))
+            return
+
+        verdict = self._classify(source, day, result.status, result.content)
+        state = self._state_for(source, day, verdict)
+        key = None
+        content = result.content
+        if state == mf.DRAW:
+            key = self.store.key(source.name, day, source.extension)
+            kept = self._same_page(source, day, key, content, verdict)
+            if kept is None:
+                self.store.write(key, content)
+            else:
+                content = kept
+        self._record(
+            mf.Record(
+                source=source.name,
+                draw_date=day,
+                url=url,
+                state=state,
+                fetched_at=result.fetched_at.isoformat(timespec="seconds"),
+                http_status=result.status,
+                games=verdict.games,
+                warnings=verdict.warnings,
+                extra=verdict.extra,
+                detail=verdict.detail,
+                content=content,
+                bronze_key=key,
+                content_type=result.headers.get("Content-Type"),
+                last_modified=result.headers.get("Last-Modified"),
+                classifier_version=classify.CLASSIFIER_VERSION,
+            )
+        )
+
+    def _same_page(
+        self, source: Source, day: date, key: str, content: bytes, verdict
+    ) -> bytes | None:
+        """The page already in bronze, when ``content`` says the same thing in other bytes.
+
+        Every fetch of ``ver_resultados`` carries its own time (``Zona_Fecha``) and a box with
+        *today's* draws, so its SHA-256 moves on every request even when the draw does not
+        (UY-042.3). A page that parses and classifies as the one in bronze keeps the bytes
+        already there (owner, UY-043.1 1a): bronze is not rewritten, the manifest keeps its
+        SHA-256, so silver's ``source_sha256`` stays a page that exists, and the key is not a
+        change. The fetch is still an attempt in the history. The classification is compared
+        too because the manifest keeps what the parser does not read: the pozos link.
+
+        Only the results page: the other sources answer the same bytes twice (the D26 probe,
+        7 of 8). An old page that cannot be read is a change, which is the safe side: a year
+        rewritten for nothing.
+        """
+        if source is not RESULTADOS:
+            return None
+        row = self.manifest.get(source.name, day)
+        if not row or row["state"] != mf.DRAW or row["bronze_key"] != key:
+            return None
+        try:
+            old = self.store.read(key)
+        except Exception as exc:  # local or S3: any failure means "write the new page"
+            logger.warning("old page unreadable", extra={"key": key, "error": str(exc)})
+            return None
+        if hashlib.sha256(old).hexdigest() != row["content_sha256"]:
+            return None  # bronze is not the page the manifest fetched: replace both
+        same = old == content or (
+            parsed_page(old, day) == parsed_page(content, day)
+            and self._classify(source, day, 200, old) == verdict
+        )
+        return old if same else None
+
+    @staticmethod
+    def _classify(source: Source, day: date, status: int, content: bytes):
+        if source.kind in ("extracto_pdf", "pozos_pdf"):
+            return classify.classify_pdf(status, content)
+        if status != 200:
+            return classify.Classification(classify.ERROR, detail=f"HTTP {status}")
+        if source is RESULTADOS:
+            return classify.classify_resultados(content, day)
+        return classify.classify_extracto_php(content, day)
+
+    def _state_for(self, source: Source, day: date, verdict) -> str:
+        if verdict.outcome == classify.DRAW:
+            return mf.DRAW
+        if verdict.outcome == classify.ERROR:
+            return mf.ERROR
+        if (self.today - day).days < self.settle_days:
+            return mf.NOT_YET_PUBLISHED
+        # Per-game sources are only requested when the results page lists the game, so an
+        # empty one is a hole in that source, not a day off.
+        return mf.NO_DRAW if source is RESULTADOS else mf.MISSING
+
+    def _record(self, rec: mf.Record) -> None:
+        before = self._snapshot(rec.source, rec.draw_date)
+        state = self.manifest.record(rec)
+        self.stats.count(state)
+        if self._snapshot(rec.source, rec.draw_date) != before:
+            self.stats.changed.add((rec.source, rec.draw_date))
+            if self.on_change is not None:
+                self.on_change(rec.source, rec.draw_date)
+        if state in (mf.ERROR, mf.MISSING) or rec.warnings:
+            logger.warning(
+                "needs attention",
+                extra={
+                    "source": rec.source,
+                    "draw_date": rec.draw_date.isoformat(),
+                    "state": state,
+                    "detail": rec.detail,
+                    "warnings": list(rec.warnings),
+                },
+            )
+
+    def _snapshot(self, source: str, day: date) -> tuple[str | None, str | None]:
+        row = self.manifest.get(source, day)
+        return self.manifest.effective_state(source, day), row and row["content_sha256"]
+
+
+def parsed_page(content: bytes, day: date) -> object:
+    """What silver reads from a results page; a page it rejects compares by its reason."""
+    try:
+        return resultados.parse(content, day)
+    except ValueError as exc:  # PageError, or a date the page cannot hold
+        return f"{type(exc).__name__}: {exc}"
+
+
+def resolve_sources(spec: str) -> list[Source]:
+    chosen: list[Source] = []
+    for token in (t.strip() for t in spec.split(",") if t.strip()):
+        group = SOURCE_GROUPS.get(token) or (
+            (ALL_SOURCES[token],) if token in ALL_SOURCES else None
+        )
+        if group is None:
+            valid = sorted({*SOURCE_GROUPS, *ALL_SOURCES})
+            raise argparse.ArgumentTypeError(f"unknown source {token!r}; choose from {valid}")
+        chosen.extend(s for s in group if s not in chosen)
+    return chosen
+
+
+def parse_day(value: str) -> date:
+    if value == "today":
+        return today_in_uruguay()
+    return date.fromisoformat(value)
+
+
+def load_overrides() -> dict:
+    return mf.load_overrides(
+        REFERENCE / "manual_overrides.csv",
+        calendar_events=REFERENCE / "calendar_events.csv",
+        sources=ALL_SOURCES,
+    )
+
+
+def format_report(manifest: mf.Manifest) -> str:
+    lines = [f"{'source':32} {'state':18} {'count':>7}"]
+    for source, state, count in manifest.summary():
+        lines.append(f"{source:32} {state:18} {count:>7}")
+    for source in ALL_SOURCES:
+        span = manifest.date_range(source)
+        if span:
+            lines.append(f"{source}: draws from {span[0]} to {span[1]}")
+    # The counts above are what the classifier saw; these keys are skipped for a person's reason.
+    for (source, day), override in sorted(manifest.overrides.items()):
+        row = manifest.get(source, day)
+        if row and row["state"] != override.state:
+            lines.append(
+                f"override {source} {day}: {row['state']} -> {override.state} "
+                f"({override.reason})"
+            )
+    return "\n".join(lines)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m sorteos.uy.backfill",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--start", type=parse_day, default=DEFAULT_START)
+    p.add_argument("--end", type=parse_day, default=None, help="inclusive; default today (UY)")
+    p.add_argument(
+        "--sources",
+        default="resultados,extractos",
+        help="comma list of groups (resultados, extractos, pdf, pozos) or names",
+    )
+    p.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    p.add_argument("--settle-days", type=int, default=DEFAULT_SETTLE_DAYS)
+    p.add_argument("--max-requests", type=int, default=None)
+    p.add_argument("--refresh", action="store_true", help="re-fetch days already final")
+    p.add_argument("--report", action="store_true", help="print the manifest summary and exit")
+    return p
+
+
+def main(argv: list[str] | None = None, *, client: PoliteClient | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    from loteria.common.logging_setup import configure_logging
+
+    configure_logging("loteria-uy-backfill")
+    manifest = mf.SqliteManifest(args.root / "manifest.sqlite", load_overrides())
+    try:
+        if not args.report:
+            today = today_in_uruguay()
+            job = Backfill(
+                client or privacy.polite_client(),
+                bronze.BronzeStore(args.root, COUNTRY),
+                manifest,
+                sources=resolve_sources(args.sources),
+                today=today,
+                settle_days=args.settle_days,
+                refresh=args.refresh,
+                max_requests=args.max_requests,
+            )
+            stats = job.run(args.start, args.end or today)
+            logger.info(
+                "backfill finished",
+                extra={"requests": stats.requests, "skipped": stats.skipped, **stats.by_state},
+            )
+        print(format_report(manifest), file=sys.stderr)
+    finally:
+        manifest.close()
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

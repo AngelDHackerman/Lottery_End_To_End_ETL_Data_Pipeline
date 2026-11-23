@@ -1,0 +1,28 @@
+# The UY silver Lambda image's DIRECT dependencies (UY-042.4.1; DESIGN.md D29), the hand-written
+# input. The Dockerfile installs requirements/uy-silver.lock, compiled from this file with
+# hashes. To change one: edit here, `make uy-silver-lock`, commit BOTH. CI fails on a stale lock.
+#
+# This is why silver is an image and not a zip: pyarrow alone is ~156 MB unpacked, and the
+# whole set measured 222 MB against the zip's 250 MB limit (2026-11-02).
+#
+# The pins are the versions the test suite runs with in .venv, so the image runs exactly the
+# code paths that were tested: pyarrow writes the Parquet, pdfplumber (with pdfminer.six,
+# pypdfium2 and pillow) reads the pozos PDF, bs4 the HTML, pyyaml the YAML (P4), and tzdata
+# gives ZoneInfo its zones. boto3 is not here: the base image has it.
+#
+# Everything shared with the fetch Lambda (and through it, Santa Lucía's extractor) stays at
+# those versions.
+-c uy-fetch.lock
+beautifulsoup4==4.15.0
+cryptography==50.0.0
+pdfminer.six==20260107
+pdfplumber==0.11.10
+pillow==13.0.0
+pycparser==3.0
+pyarrow==25.0.0
+pypdfium2==5.14.0
+pyyaml==6.0.3
+# Not used to fetch anything here: sorteos.uy.backfill (overrides, today in Uruguay) imports
+# the HTTP client, and the image failed to import without it (found by make uy-silver-local).
+requests==2.34.2
+tzdata

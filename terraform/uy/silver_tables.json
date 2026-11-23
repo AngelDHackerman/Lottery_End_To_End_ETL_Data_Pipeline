@@ -1,0 +1,545 @@
+{
+  "_generated_by": "scripts/uy_catalog_schema.py — do not edit; run `make uy-catalog-sync`",
+  "tables": {
+    "calendar_events": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "event_date",
+          "type": "date"
+        },
+        {
+          "name": "games",
+          "type": "string"
+        },
+        {
+          "name": "event_type",
+          "type": "string"
+        },
+        {
+          "name": "moved_to",
+          "type": "date"
+        },
+        {
+          "name": "cause",
+          "type": "string"
+        },
+        {
+          "name": "source_url",
+          "type": "string"
+        },
+        {
+          "name": "check_manifest",
+          "type": "string"
+        },
+        {
+          "name": "origin",
+          "type": "string"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        }
+      }
+    },
+    "draw_gaps": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "game",
+          "type": "string"
+        },
+        {
+          "name": "previous_draw_date",
+          "type": "date"
+        },
+        {
+          "name": "expected_date",
+          "type": "date"
+        },
+        {
+          "name": "expected_from",
+          "type": "string"
+        },
+        {
+          "name": "window_end",
+          "type": "date"
+        },
+        {
+          "name": "next_draw_date",
+          "type": "date"
+        },
+        {
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "name": "calendar_event_date",
+          "type": "date"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        }
+      }
+    },
+    "draw_numbers": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "draw_date",
+          "type": "date"
+        },
+        {
+          "name": "ball_type",
+          "type": "string"
+        },
+        {
+          "name": "position",
+          "type": "int"
+        },
+        {
+          "name": "is_draw_order",
+          "type": "boolean"
+        },
+        {
+          "name": "number",
+          "type": "string"
+        },
+        {
+          "name": "is_replacement",
+          "type": "boolean"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        },
+        {
+          "name": "game",
+          "type": "string"
+        },
+        {
+          "name": "year",
+          "type": "int"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        },
+        "game": {
+          "type": "enum",
+          "values": "5_de_oro,quiniela_nocturna,quiniela_vespertina"
+        },
+        "year": {
+          "type": "integer",
+          "range": "2006,2040"
+        }
+      }
+    },
+    "draws": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "draw_date",
+          "type": "date"
+        },
+        {
+          "name": "draw_number",
+          "type": "int"
+        },
+        {
+          "name": "next_draw_text",
+          "type": "string"
+        },
+        {
+          "name": "next_draw_date",
+          "type": "date"
+        },
+        {
+          "name": "started_local",
+          "type": "timestamp"
+        },
+        {
+          "name": "first_ball_local",
+          "type": "timestamp"
+        },
+        {
+          "name": "ended_local",
+          "type": "timestamp"
+        },
+        {
+          "name": "timezone",
+          "type": "string"
+        },
+        {
+          "name": "cross_source_check",
+          "type": "string"
+        },
+        {
+          "name": "dq_flags",
+          "type": "array<string>"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        },
+        {
+          "name": "game",
+          "type": "string"
+        },
+        {
+          "name": "year",
+          "type": "int"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        },
+        "game": {
+          "type": "enum",
+          "values": "5_de_oro,quiniela_nocturna,quiniela_vespertina"
+        },
+        "year": {
+          "type": "integer",
+          "range": "2006,2040"
+        }
+      }
+    },
+    "game_rules": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "game",
+          "type": "string"
+        },
+        {
+          "name": "rule",
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "type": "string"
+        },
+        {
+          "name": "valid_from",
+          "type": "date"
+        },
+        {
+          "name": "valid_to",
+          "type": "date"
+        },
+        {
+          "name": "source",
+          "type": "string"
+        },
+        {
+          "name": "source_url",
+          "type": "string"
+        },
+        {
+          "name": "evidence",
+          "type": "string"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        }
+      }
+    },
+    "prizes": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "draw_date",
+          "type": "date"
+        },
+        {
+          "name": "prize",
+          "type": "string"
+        },
+        {
+          "name": "pool_amount",
+          "type": "decimal(18,2)"
+        },
+        {
+          "name": "currency",
+          "type": "string"
+        },
+        {
+          "name": "winners_status",
+          "type": "string"
+        },
+        {
+          "name": "winning_coupons",
+          "type": "int"
+        },
+        {
+          "name": "dq_flags",
+          "type": "array<string>"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        },
+        {
+          "name": "game",
+          "type": "string"
+        },
+        {
+          "name": "year",
+          "type": "int"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        },
+        "game": {
+          "type": "enum",
+          "values": "5_de_oro,quiniela_nocturna,quiniela_vespertina"
+        },
+        "year": {
+          "type": "integer",
+          "range": "2006,2040"
+        }
+      }
+    },
+    "quarantine": {
+      "columns": [
+        {
+          "name": "operator",
+          "type": "string"
+        },
+        {
+          "name": "source",
+          "type": "string"
+        },
+        {
+          "name": "draw_date",
+          "type": "date"
+        },
+        {
+          "name": "game",
+          "type": "string"
+        },
+        {
+          "name": "reason",
+          "type": "string"
+        },
+        {
+          "name": "ingested_at",
+          "type": "timestamp"
+        },
+        {
+          "name": "run_id",
+          "type": "string"
+        },
+        {
+          "name": "source_key",
+          "type": "string"
+        },
+        {
+          "name": "source_sha256",
+          "type": "string"
+        },
+        {
+          "name": "parser_version",
+          "type": "string"
+        }
+      ],
+      "partition_keys": [
+        {
+          "name": "country",
+          "type": "string"
+        },
+        {
+          "name": "year",
+          "type": "int"
+        }
+      ],
+      "projection": {
+        "country": {
+          "type": "enum",
+          "values": "uy"
+        },
+        "year": {
+          "type": "integer",
+          "range": "2006,2040"
+        }
+      }
+    }
+  }
+}
