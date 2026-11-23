@@ -253,6 +253,11 @@ prod, dbt on Athena, a forecasting feature, QuickSight as code, Iceberg for Silv
 transform off Glue Python Shell, and incremental Gold. For Uruguay: more games, more
 countries, and prize pools adjusted for inflation.
 
+**Next, and last: the ML phase,** planned in [`roadmap-ml.md`](./roadmap-ml.md) (in Spanish). It
+asks whether the draws can be told apart from chance, and looks for anomalies in the draws and
+around them (prize pools, sellers, prizes sold). It does not try to predict numbers. Uruguay
+goes first, with local statistics before any new infrastructure, then Amazon SageMaker.
+
 ## Decisions
 
 Six decisions shaped the project. Each links to where it was made and why.
