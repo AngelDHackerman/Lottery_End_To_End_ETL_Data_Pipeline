@@ -111,6 +111,47 @@ resource "aws_s3_bucket" "lambda_code_zip" {
   }
 }
 
+# PR-054 — this bucket holds the code that runs: the extractor's zip and layer, the three Glue
+# artifacts, and Uruguay's DQ script and wheels under uy/. Until now an overwrite was final —
+# a bad or tampered upload left no previous copy to go back to — and nothing in Terraform said
+# the bucket was private (the four flags were already on in AWS, set outside this stack).
+resource "aws_s3_bucket_versioning" "lambda_code_zip" {
+  bucket = aws_s3_bucket.lambda_code_zip.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "lambda_code_zip" {
+  bucket                  = aws_s3_bucket.lambda_code_zip.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Versioning keeps every overwritten artifact forever unless something removes it, and one of
+# them (Uruguay's wheels zip) is 50 MB per deploy. Only NONCURRENT versions expire: the live
+# object of each key is never touched, so nothing a Lambda or a Glue job reads can go missing.
+resource "aws_s3_bucket_lifecycle_configuration" "lambda_code_zip" {
+  bucket = aws_s3_bucket.lambda_code_zip.id
+
+  # A lifecycle on a bucket whose versioning is still settling can be rejected.
+  depends_on = [aws_s3_bucket_versioning.lambda_code_zip]
+
+  rule {
+    id     = "expire-old-artifact-versions"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = var.code_noncurrent_version_days
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
 # Bucket for Athena results
 resource "aws_s3_bucket" "athena_results" {
   bucket        = "lottery-athena-results-${var.environment}"

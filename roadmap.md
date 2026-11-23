@@ -3954,6 +3954,55 @@ urllib3 CVE of that week was found by reading the news.
 > - What remains (requests and beautifulsoup4 in `extractor.txt`) arrives as one grouped PR a
 >   week, red until `make lock` is run on its branch.
 
+## PR-054 — The code bucket keeps its previous versions
+**Finding C of the 2026-10-24 security audit, the last one open.**
+
+**The defect.** `lambda-code-zip-prod` holds what actually runs: the extractor's zip and its
+layer, the three Glue artifacts, and Uruguay's DQ script and wheels under `uy/`. Versioning was
+off, so every upload overwrote the only copy: a bad build, or a tampered one, left nothing to
+compare against and nothing to go back to. And Terraform declared the bucket with no
+public-access block, so the code said nothing about it being private.
+
+> **PR-054 outcome (2026-11-15).** Built, **not applied**.
+>
+> - Three resources on the bucket: versioning `Enabled`, the four public-access-block flags,
+>   and a lifecycle rule that expires **noncurrent** versions after 90 days
+>   (`code_noncurrent_version_days`, minimum 7) and aborts unfinished multipart uploads after
+>   7. The live object of each key never expires, so nothing a Lambda or a Glue job reads can
+>   go missing. The lifecycle is here because versioning without it grows forever, and one
+>   artifact is 50 MB per deploy.
+> - Read from the account first: the four flags are already on (set outside this stack), so
+>   that resource changes nothing in AWS and only makes Terraform say so. Versioning is off, no
+>   lifecycle, no bucket policy; default encryption is SSE-S3. Seven objects, 51.5 MB.
+> - Read-only plan from a clean build: **3 to add, 0 to change, 0 to destroy**, and nothing else.
+> - `terraform/.checkov.baseline` loses the three findings this closes (`CKV2_AWS_6`,
+>   `CKV_AWS_21`, `CKV2_AWS_61`). Verified by removing the fix: checkov then fails on exactly
+>   those three. Still baselined on this bucket, on purpose: KMS (`CKV_AWS_145`), access
+>   logging, cross-region replication, event notifications.
+> - What versioning does not change: readers. A `GetObject` without a version id returns the
+>   live object exactly as before; the objects already there keep the version id `null`.
+> - **Apply after Uruguay's gate G4 (the 2026-11-22 run):** the Uruguay nightly reads its DQ
+>   script and wheels from this bucket, and G4 counts two weeks with no deploys. The change
+>   cannot break a read, but the gate's rule is "no intervention", not "no risky intervention".
+> - **To verify after the apply:** `get-bucket-versioning` says `Enabled`; a second
+>   `terraform plan` says `No changes`; `terraform/uy` also plans `No changes`; the next
+>   `make deploy` that changes an artifact leaves one noncurrent version behind.
+> - The tracker row for this PR, and 053.1's stale `built`, go in a follow-up after the Uruguay
+>   branch merges: that branch appends its own row at the end of the tracker, and a second
+>   append on `master` would conflict with it.
+
+> **PR-054 applied (2026-11-23),** after G4 closed and #175 merged. A fresh `make tf-plan` from
+> `master` gave the same **3 to add, 0 to change, 0 to destroy**, and exactly that saved plan was
+> applied: **3 added**.
+>
+> - `get-bucket-versioning`: `Enabled`. Public-access block: the four flags `true`. Lifecycle:
+>   `expire-old-artifact-versions`, `Enabled`, noncurrent versions after 90 days.
+> - A second plan of the main stack: `No changes`. `make uy-tf-plan`: `No changes`, and the
+>   rendered ASL still validates.
+> - Still to see: the first `make deploy` that changes an artifact leaving one noncurrent
+>   version behind. The first Uruguay nightly reading `uy/dq/*` from the versioned bucket is the
+>   2026-11-23 run.
+
 # Open later (deferred decisions)
 
 These are deliberately *not* on the path to "hiring-manager-ready". Capture once, revisit later.
@@ -4055,5 +4104,6 @@ Update as work lands. Statuses: `todo`, `in-progress`, `merged`, `blocked`, `dro
 | 051 | **The scrape.do token rode out in every `ConnectionError`, and over plain HTTP** — `requests` embeds the failed URL, token included, and `fetch_via_proxy` re-raised it into the Lambda log and the Step Functions history; `BASE_PROXY_URL` was `http://`. Found in the 2026-10-24 security audit | **applied + verified** (2026-10-25) — the owner's `make deploy`; the deployed `loteria/extractor/scraping.py` has `BASE_PROXY_URL = "https://api.scrape.do/"` and `_scrubbed`. The first real HTTPS fetch is the Thursday 2026-10-29 run. Built: re-raised with the token scrubbed and the class kept (the Retry matches it); HTTPS in the extractor and the canary; CloudWatch search for `"token="` came back empty, so no rotation. No AWS change until the next `make deploy` ships the extractor zip | [PR #106](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/106) |
 | 052 | **SageMaker removed** — the always-created `lottery-sagemaker-execution-role-prod` (AmazonSageMakerFullAccess + CloudWatchLogsFullAccess), its 2 policies, 4 attachments, the `sm-studio-sg-prod` SG, `module.sagemaker`, `enable_sagemaker` and `make sagemaker`. Found in the 2026-10-24 security audit; the owner never used it after the simple bucket went | **applied + verified** (2026-10-25) — the owner's `make deploy` (`0/3/8`); the role is `NoSuchEntity` afterwards. Both domains, the 12 QuickSetup roles, 2 empty buckets, a log group and the projects portfolio were deleted by hand with the owner's approval; only the account's service-linked role and another project's role remain. Built: read-only plan `0/3/8`: the 8 SageMaker destroys + PR-051's extractor update + the known `gold_purge` phantom. The two domains outside Terraform are deleted by the owner, by hand | [PR #109](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/109) |
 | 053 | **CI supply chain** — every GitHub Action pinned to a commit SHA (26 references, each verified to sit on its repository's default or release branch) and a `.github/dependabot.yml` for Actions and pip. Findings B and E of the 2026-10-24 security audit | **merged** (2026-10-25), no AWS change | [PR #113](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/113) |
-| 053.1 | **Dependabot scoped to what is installed** — its first run opened 11 PRs, mostly duplicates and bumps of files nothing installs. One pip entry, `glue.txt` and `dq.txt` excluded, great-expectations ignored, pip grouped | **built** (2026-10-26), no AWS change | [PR #126](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/126) |
-| UY | **Uruguay extension (DNLQ)** — a second pipeline in the same repository for Uruguay's official draws (5 de Oro, Quiniela, Tómbola): its own code (`src/sorteos/`), data prefix (`uy/`), catalog database and Terraform stack (`terraform/uy/`). It has its own plan and tracker, [`roadmap-uruguay.md`](./roadmap-uruguay.md) (UY-000 … UY-050); this row only points to it. Nothing of Santa Lucía changes: no file under `src/loteria/` or the main `terraform/` stack is touched, the four Santa Lucía artifacts build byte-identical from `master` and from the merged tree, and its suite alone stays at 534 tests / 98.99 % | **in review** (2026-11-13): built on `loteria-uruguaya-test` and deployed since 2026-11-09; the merge into `master` waits for gate G4 (two weeks of unattended nightly runs, ending with the 2026-11-22 run) | — |
+| 053.1 | **Dependabot scoped to what is installed** — its first run opened 11 PRs, mostly duplicates and bumps of files nothing installs. One pip entry, `glue.txt` and `dq.txt` excluded, great-expectations ignored, pip grouped | **merged** (2026-10-26), no AWS change | [PR #126](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/126) |
+| UY | **Uruguay extension (DNLQ)** — a second pipeline in the same repository for Uruguay's official draws (5 de Oro, Quiniela, Tómbola): its own code (`src/sorteos/`), data prefix (`uy/`), catalog database and Terraform stack (`terraform/uy/`). It has its own plan and tracker, [`roadmap-uruguay.md`](./roadmap-uruguay.md) (UY-000 … UY-050); this row only points to it. Nothing of Santa Lucía changes: no file under `src/loteria/` or the main `terraform/` stack is touched, the four Santa Lucía artifacts build byte-identical from `master` and from the merged tree, and its suite alone stays at 534 tests / 98.99 % | **merged** (2026-11-23): built on `loteria-uruguaya-test` and deployed since 2026-11-09; gate G4 met — the 14 unattended nightly runs from 2026-11-09 to 2026-11-22 all `SUCCEEDED`, with the five Uruguay alarms in `OK` throughout | — |
+| 054 | **The code bucket keeps its previous versions** — `lambda-code-zip-prod` (the extractor zip and layer, the Glue artifacts, Uruguay's DQ script and wheels) gets versioning, a Terraform-declared public-access block, and a lifecycle that expires noncurrent versions after 90 days. Finding C of the 2026-10-24 security audit, the last one open | **applied + verified** (2026-11-23, after G4) — the reviewed plan `3/0/0` applied as is; versioning `Enabled`, the four public-access flags on, the lifecycle rule enabled; the main stack and `terraform/uy` both plan `No changes` afterwards. Three checkov findings leave the baseline | [PR #177](https://github.com/AngelDHackerman/Lottery_End_To_End_ETL_Data_Pipeline/pull/177) |

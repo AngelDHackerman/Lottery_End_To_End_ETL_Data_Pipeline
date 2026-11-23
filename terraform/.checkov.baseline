@@ -220,13 +220,10 @@
                 {
                     "resource": "module.storage.aws_s3_bucket.lambda_code_zip",
                     "check_ids": [
-                        "CKV2_AWS_6",
-                        "CKV2_AWS_61",
                         "CKV2_AWS_62",
                         "CKV_AWS_144",
                         "CKV_AWS_145",
-                        "CKV_AWS_18",
-                        "CKV_AWS_21"
+                        "CKV_AWS_18"
                     ]
                 },
                 {
