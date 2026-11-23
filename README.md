@@ -1,158 +1,173 @@
-# End-to-End Data Pipeline for Santa Lucía Lottery: Historical Data Mining, Web Scraping, ETL, and Dynamic Visualization
+# Lottery data pipelines on AWS: Santa Lucía (Guatemala) and DNLQ (Uruguay)
 
-## 📷 Architectural Diagrams
+A serverless ETL pipeline that scrapes the results of **Lotería Santa Lucía**, Guatemala's
+largest lottery, every week and builds the only historical dataset of its draws: raw pages,
+typed Parquet and query-ready aggregates in S3, with a data-quality gate that blocks bad data
+before it reaches the tables people query. Everything is Terraform, and every claim below was
+checked against the deployed account, not against the documentation. A second pipeline in the
+same repository does the same for Uruguay's official draws
+([Uruguay extension](#uruguay-extension-dnlq)).
 
-> **Start here: [`layouts/diagram.html`](./layouts/diagram.html)** — an interactive diagram of what is
-> *actually deployed today*. Open it in any browser; it needs no server, no CDN and no build step
-> — just the `layouts/` folder (HTML + `css/diagram.css` + `js/`).
-> Click any component for its real AWS resource names, or replay the weekly run step by step.
->
-> ⚠️ **The two NAT diagrams below no longer describe the deployment.** They show the VPC as
-> central to the ETL, and it is not: the extractor Lambda has no `vpc_config`, the Glue jobs
-> have no connection, and the only module that ever consumed the network, `sagemaker`, was removed
-> in PR-052 (2026-10-25). **The whole pipeline runs outside the VPC.** The network
-> is still deployed (with NAT off, so it costs almost nothing), but these images predate that
-> and are kept as history until PR-037 redraws them.
+**Start here: the [interactive architecture diagram](https://angeldhackerman.github.io/Lottery_End_To_End_ETL_Data_Pipeline/)** ([source](./layouts/diagram.html)).
+Click any component for its real AWS resource names and its state, or replay the weekly run
+step by step.
 
+## Contents
 
-Below you'll find two diagrams representing both possible states of the VPC architecture:
+1. [Why it exists](#why-it-exists)
+2. [Quick start](#quick-start)
+3. [Architecture](#architecture)
+4. [Data quality](#data-quality)
+5. [Observability](#observability)
+6. [Tests](#tests)
+7. [Cost](#cost)
+8. [Uruguay extension (DNLQ)](#uruguay-extension-dnlq)
+9. [Roadmap and future work](#roadmap-and-future-work)
+10. [Decisions](#decisions)
+11. [Analysis](#analysis)
 
-### 1. NAT Gateway OFF
-Used for cost-efficient operation during exploratory data analysis (EDA) inside Amazon SageMaker Studio Lab.  
-Internet access is disabled; only the **VPC Gateway Endpoint to S3 (vpce-s3-prod)** is active for private subnet communication with S3 buckets.
+## Why it exists
 
-![NAT OFF Architecture](./images/Santa_Lucia_Lottery+(NAT-OFF).png)
+Lotería Santa Lucía was founded in 1956, and its website shows only the latest draws. Once a
+draw leaves the page, its results are gone: the alternatives are old printed newspapers, some
+Facebook videos (since 2018) or paid PDFs from Guatemala's national newspaper archive. No
+public dataset exists, on Kaggle or anywhere else, and no audit of the lottery is possible
+without one.
 
----
+This pipeline captures each draw while it is still online and keeps it. On 2026-10-22 the lake
+held 121 draws and 127,837 prize rows.
 
-### 2. NAT Gateway ON
-Enables internet access (via NAT Gateway + Elastic IP) from private subnets when downloading dependencies, libraries, or updates.  
-The public subnet is associated with a route table that points to the Internet Gateway, while private subnets route through the NAT.
+## Quick start
 
-![NAT ON Architecture](./images/Santa_Lucia_Lottery_(NAT-ON).png)
+You need an AWS account, Terraform, Python 3.12 and a [scrape.do](https://scrape.do) token
+(the lottery's site sits behind Cloudflare and only answers through a proxy).
 
----
+```bash
+python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,dq]"
+make bootstrap    # the remote Terraform state (S3 bucket + lock table)
+cp terraform/backend.hcl.example terraform/backend.hcl && cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+make secrets      # the one secret: the bucket name and the scrape.do token
+make deploy       # build the artifacts, terraform apply, upload the Glue code
+```
 
-### 3. ETL Full Serverless Diagram
+Edit the two copied files before `make secrets`: the state bucket goes in `backend.hcl`, and
+your alert e-mail in `terraform.tfvars`. After the deploy, confirm the SNS subscription from
+the e-mail AWS sends, or no alarm will reach you.
 
-1. The process starts with **Amazon EventBridge**, which triggers every Monday (weekly) and activates a Python-based **AWS Lambda function** for data extraction.
+This stack was built by importing a pipeline that was already running, so it has not yet been
+deployed into an empty account from scratch. Expect to adjust something on a first deploy.
 
-2. It fetches **.txt files** from the target website via a proxy and stores them in **Amazon S3** under a Hive-style partitioned key (`raw/year=<YYYY>/sorteo=<N>/`).
+Every target is documented in the [`Makefile`](./Makefile).
 
-3. A **Glue Job** then transforms the `.txt` data into `.parquet` files and writes them back to the same bucket's Silver layer (`silver/{sorteos,premios}/year=<YYYY>/sorteo=<N>/`).
+## Architecture
 
-4. Next, an **AWS Glue Crawler** updates the **Data Catalog**, making the data queryable through **Amazon Athena** and ready for visualization in **Amazon QuickSight**.
+One S3 bucket, three layers, one state machine. EventBridge starts the Step Functions state
+machine `lottery-etl-pipeline-prod` every Thursday at 18:00 UTC:
 
-![ETL Full Serverless Diagram](./images/ETL-AWS-Workflow.png)
+| Step | What runs | What it does |
+|---|---|---|
+| Extract | Lambda (Python 3.12) | Fetches the results page through the proxy and stores one `.txt` per draw in `raw/year=<YYYY>/sorteo=<N>/`. Skips draws already in Silver. Proxy errors (429, 5xx) are retried after 5, 15 and 35 minutes |
+| Transform | Glue Python Shell job | Splits header and body, types every column and writes Parquet to `silver/sorteos/` and `silver/premios/`. Rows the parser cannot read go to `quarantine/`, counted and classified |
+| Catalog | Two Glue crawlers | Register the new partitions. The table schemas themselves live in Terraform |
+| Validate | Glue 5.0 job with Great Expectations | The quality gate. If it fails, Gold is not rebuilt and an alert is sent |
+| Gold | Lambda and Athena CTAS | Builds seven aggregate tables next to the published ones, swaps them in with one catalog update, then retires old generations |
 
+| Layer | Prefix | Contents |
+|---|---|---|
+| Raw | `raw/` | The scraped text, byte for byte |
+| Silver | `silver/` | Typed Parquet, partitioned by `year` and `sorteo`, with lineage columns (`run_id`, `ingested_at`). The source of truth |
+| Gold | `gold/` | Seven Athena tables ([`sql/gold/`](./sql/gold/)): draw summary, winning-number frequency, terminations, letters, geography, vendors and a time series |
 
----
+Lake Formation and IAM both guard the data, and a bucket policy denies every delete except to
+the account root and the one role that retires old Gold generations.
 
-### 4. Step Functions Workflow 
-This is how each Monday (Weekly) the stepFunctions machine works and orchestrate the ETL workflow in AWS
+The pipeline runs entirely outside the VPC. A network module is still deployed with NAT off,
+but nothing uses it.
 
-![StepFunctions Workflow](./images/stepfunctions_graph.png)
+The infrastructure is in [`terraform/`](./terraform/), split into modules (`storage`,
+`network`, `iam`, `etl-lambda`, `etl-glue`, `catalog`, `orchestration`, `lake-formation`,
+`observability`). The code is in [`src/loteria/`](./src/loteria/).
 
----
+## Data quality
 
-This dual-state design demonstrates cloud architecture flexibility based on workflow needs (data-only vs. development).
+Two checks work together, one before the weekly run and one inside it.
 
-These diagramas were created in lucidchart.com
+- **The scraper canary** ([`scraper-canary.yml`](./.github/workflows/scraper-canary.yml)) runs
+  in GitHub Actions every Wednesday, the day before the pipeline. It fetches the live site
+  through the proxy and checks that the page still has the shape the parser expects. If the
+  site or the proxy changed, it opens an issue a day ahead of the real run.
+- **The gate** runs inside the state machine, after Silver is written and before Gold is
+  built. It validates the whole Silver layer with Great Expectations: 29 expectations over
+  the two tables, including that every prize points to a draw that exists. A failure stops
+  the run, leaves last week's Gold published and sends an alert.
 
+The expectations were profiled from the real data first, and the suites are generated from
+code ([`src/loteria/dq/suites.py`](./src/loteria/dq/suites.py)) into
+[`qa/great_expectations/`](./qa/great_expectations/). A test fails if the two drift apart.
+`make dq` runs the same gate from a laptop against the bucket.
 
+Bad rows are never dropped silently. The transformer counts and classifies everything it
+rejects, and stores the rows that matter in `quarantine/`. An alarm fires on the one class
+that signals a real change in the source.
 
-## **Description:** 
+## Observability
 
-In this project I tried to answer and discover insights about **"Loteria Santa Lucia de Guatemala"** which is the biggest lottery in my country (Guatemala). Also to create a historical dataset for their winnig number, due to the fact that there is no way to retrieve the old data from the past draws.
+- **Dashboard:** `loteria-pipeline-prod` in CloudWatch.
+- **Logs:** every log group is declared in Terraform with a retention period. The execution
+  name travels from Step Functions into the Lambda and Glue logs as a correlation id, and
+  into Silver as `run_id`.
+- **Alarms:** nine, all to one SNS topic.
 
-## **Table of Contents**
-1. [Description](#description)
-2. [Why of this project?](#why-of-this-project)
-3. [Automated ETL Process for Loteria Santa Lucia Data](#automated-etl-process-for-loteria-santa-lucia-data)
-   - [ETL Architecture](#etl-architecture)
-   - [Extract Phase](#extract-phase)
-   - [Transform Phase](#transform-phase)
-   - [Results](#results)
-   - [Future Steps](#future-steps)
-   - [Uruguay extension (DNLQ)](#uruguay-extension-dnlq)
-4. [Requisites](#requisites)
-5. [Insights and Findings from Visualizations EDA 2024 - 01/2025](./eda_2024-01_2025.md)
-6. [Technologies and Tools Used](#technologies-and-tools-used-🛠️)
-7. [Project Structure](#project-structure)
-8. [Next Steps](#next-steps)
-9. [Acknowledgements](#acknowledgements)
+| Alarm | Fires when |
+|---|---|
+| `loteria-sfn-execution-failed-prod` | A run of the state machine fails |
+| `loteria-sfn-no-success-7d-prod` | A week passes without a successful run |
+| `loteria-extractor-errors-prod` | The extractor Lambda errors |
+| `loteria-scrapedo-failed-prod` | The proxy returns an HTTP error |
+| `loteria-glue-transform-failed-prod` | The transform job fails |
+| `loteria-crawler-start-failed-prod` | A crawler cannot be started |
+| `loteria-quarantined-unrecognised-prod` | The parser meets a line it does not recognise |
+| `loteria-quarantine-write-failed-prod` | A quarantined row could not be stored |
+| `loteria-gold-retention-failed-prod` | Old Gold generations could not be retired |
 
+A failed quality gate sends its own alert from inside the state machine.
 
-## **Why of this project?** [Go Back ⬆️](#table-of-contents)
+## Tests
 
-Lotería Santa Lucía is the largest and oldest lottery in Guatemala, founded in 1956. Unfortunately, there is no way to retrieve historical data other than through old physical newspapers, some Facebook videos (available only since 2018), or by purchasing old newspapers (PDFs) from the "National Newspaper Archive of Guatemala," which is very expensive (I tried it...).
+```bash
+make test    # pytest with coverage; fails under 98 %
+make lint    # ruff and terraform fmt, exactly as CI does
+```
 
-Once a draw expires, the data is permanently erased. There is no way to perform any kind of audit on "Lotería Santa Lucía." Surprisingly, no thesis projects or university studies from Math or Statistics students have been conducted on this topic. Additionally, there is no dataset available on platforms like Kaggle.
+CI ([`ci.yml`](./.github/workflows/ci.yml)) runs both on every pull request, plus
+`terraform validate`, checkov against a baseline, bandit, and a reproducible-build check: the
+Lambda layer must come out byte-identical from its lock file. AWS is mocked with moto, so the
+suite needs no credentials.
 
-Due to all these factors, I found a valuable way to provide data that no one else has, which could be interesting for those interested in statistics and Machine Learning.
+## Cost
 
+**About $3 a month in AWS for both pipelines.** This is an estimate from public prices, not a
+figure read from a bill. Nothing runs between executions, so compute is billed for a few
+minutes a week (Santa Lucía) or a night (Uruguay).
 
-## **Automated ETL Process for Loteria Santa Lucia Data** [Go Back ⬆️](#table-of-contents)
+| What | Approximate monthly cost |
+|---|---|
+| CloudWatch alarms (14, at $0.10 each) | $1.40 |
+| Glue crawlers (two a week, billed a 10-minute minimum each) | $0.60 |
+| Uruguay's nightly validation job in Glue (2 DPUs for about 80 billed seconds, at $0.44 per DPU-hour) | $0.60 |
+| Secrets Manager (one secret) | $0.40 |
+| Santa Lucía's weekly Glue jobs | $0.10 |
+| Lambda, Step Functions, Athena, S3, DynamoDB | cents |
 
-### Introduction
+Three details behind those numbers:
 
-This project focuses on automating the ETL (Extract, Transform, Load) process for Santa Lucia Lottery data. The main goal is to efficiently collect, clean, and store data to enable analysis and visualization, highlighting insights such as winning patterns, frequently rewarded locations, and more.
-
-### ETL Architecture
-
-⚙️ ETL Architecture  (updated 2025-06)
-
-The pipeline is now 100 % **serverless-ready** and consists of two main stages
-(*extract* → *transform & load*).  
-Each stage will eventually run inside its own **AWS Lambda** function, but you can still execute them locally for development.
-
-
-| Stage | What happens | Key AWS resources |
-|-------|--------------|-------------------|
-| **Extraction** | *scraping.py* fetches the Santa Lucía page through the scrape.do proxy → saves a `.txt` per draw → uploads it **once**, to `raw/year=<YYYY>/sorteo=<N>/…` in the partitioned bucket.<br>Skips draws already present in Silver. | *S3 (partitioned)*<br>*Secrets Manager* (bucket names)<br>*VPC Gateway Endpoint* (S3) |
-| **Transformation + Load** | *transformer.py* downloads any new `.txt`, splits **HEADER / BODY**, cleans with Pandas/pyarrow, and writes Hive-style Parquet to **one** place: `silver/sorteos/` & `silver/premios/`, partitioned by `year` and `sorteo`. | *S3 (partitioned)*<br>*Secrets Manager* |
-| **Discovery + Query (serverless)** | A **Glue Crawler** runs on the partitioned bucket, registers tables `loteria.premios` & `loteria.sorteos`.<br>Analysts query with **Athena** or visualise in **QuickSight** without touching the VPC. | *AWS Glue Crawler*<br>*AWS Athena*<br>*AWS QuickSight* |
-
----
-
-### 🟢 Extraction phase
-
-| Item | Details |
-|------|---------|
-| **Tool** | Selenium + Python |
-| **Script** | [`src/loteria/extractor/scraping.py`](src/loteria/extractor/scraping.py) |
-| **Flow** | 1. Fetch the awards page through the proxy<br>2. Choose ID (or latest) → follow the draw link<br>3. Parse header/body, infer real draw number & date<br>4. Write `results_raw_lottery_id_<ID>_<title>.txt`<br>5. Upload to the partitioned bucket |
-| **Idempotence** | Before scraping, the script checks `processed/year=<YYYY>/sorteo=<N>/sorteos.parquet`; if it exists, the draw is skipped. |
-
----
-
-### 🟢 Transform + Load phase
-
-| Item | Details |
-|------|---------|
-| **Tool** | Pandas, PyArrow, Boto3 |
-| **Script** | [`src/loteria/transformer/transformer.py`](src/loteria/transformer/transformer.py) |
-| **Flow** | 1. List raw `.txt` files in the partitioned bucket<br>2. Skip draws already processed<br>3. Download → split HEADER/BODY<br>4. Create two DataFrames:<br>   • **sorteos** (metadata + prize digits)<br>   • **premios** (ticket, letters, amount, vendor, city, depto.)<br>5. Write partitioned Parquet (`silver/sorteos/`, `silver/premios/`) to the partitioned bucket |
-| **Data model** | Columns are strongly typed; extra columns (`year`, `sorteo`) are added before partition write. |
-
----
-
-### 🟢 Resulting benefits
-
-* **One bucket, three layers** (`raw/` → `silver/` → `gold/`) → a single declared owner for every byte, and ad-hoc analysis reads the same Parquet the dashboards do.
-* **Glue Crawler + Athena** → zero-admin SQL layer, cheap (< $5/TB scanned).  
-* **QuickSight dashboards** → shareable insights without moving data out of AWS.  
-* **Ready for Lambda/Step Functions** → push-button or cron-based automation.
-
----
-
-> **Note:** The old `loader.py` (MySQL/RDS) has been retired to keep the stack fully serverless and cost-efficient. Historic diagrams and EDA from 2024–2025 have been moved to [`/docs/eda_2024-01_2025.md`](docs/eda_2024-2025.md).
-
-
-### Conclusion
-
-This automated ETL project demonstrates expertise in data extraction, transformation, and storage while showcasing potential for advanced analytics and visualization. It is a robust solution for managing lottery data efficiently.
-
+- **Athena:** rebuilding all seven Gold tables scans 4.84 MiB per run. With Athena's 10 MiB
+  minimum per query, that is about $0.02 a year, and it stays there at ten times the data
+  ([measured in PR-043.1](./sql/gold/README.md)).
+- **Proxy:** about 175 of the 1,000 scrape.do credits in the monthly plan, counting the
+  weekly run and the canary.
+- **Network:** $0 with `enable_internet = false`, the default. Turning the NAT gateway on
+  costs about $32 a month and the pipeline does not need it.
 
 ## Uruguay extension (DNLQ)
 
@@ -227,71 +242,42 @@ Q9 in the findings below).
 
 These documents are written in Spanish.
 
+## Roadmap and future work
 
-## **Technologies and Tools Used 🛠️** [Go Back ⬆️](#table-of-contents)
+The work was planned and tracked one pull request at a time in [`roadmap.md`](./roadmap.md),
+with [`DoD.md`](./DoD.md) as the definition of done. Each PR section there ends with an
+**Outcome** that says what was measured, not only what was built.
 
-### 🐍 Languages and Python Libraries
-- **Python 3.12** – Core language for the entire ETL pipeline.
-  - **Selenium** – For headless web scraping and automation.
-  - **Pandas** – For data cleaning, formatting, and transformation.
-  - **PyArrow** – For writing Parquet files efficiently to S3.
-  - **Boto3** – AWS SDK for Python; used for interacting with S3, Secrets Manager, and more.
-  - **re / json / os** – Standard libraries used in extraction and transformation.
+Deferred on purpose (the "Open later" table in the roadmap): separate AWS accounts for dev and
+prod, dbt on Athena, a forecasting feature, QuickSight as code, Iceberg for Silver, moving the
+transform off Glue Python Shell, and incremental Gold. For Uruguay: more games, more
+countries, and prize pools adjusted for inflation.
 
-### ☁️ AWS Cloud Services
-- **Amazon S3** – One partitioned bucket, layered:
-  - `raw/` (the scraped `.txt`, Hive-style)  
-  - `silver/` (typed Parquet — the source of truth) and `gold/` (CTAS aggregates for Athena/QuickSight)
-- **AWS Secrets Manager** – Secure retrieval of S3 bucket names and credentials.
-- **AWS Glue Crawler** – Automatically detects and registers schema + partitions for Athena.
-- **Amazon Athena** – Serverless SQL engine to query Parquet data stored in S3.
-- **Amazon QuickSight** – For cloud-based dashboards and storytelling.
-- **(Planned)** **AWS Lambda** – Will run each ETL step serverlessly.
-- **(Planned)** **AWS Step Functions / EventBridge** – For orchestration of the full pipeline.
+**Next, and last: the ML phase,** planned in [`roadmap-ml.md`](./roadmap-ml.md) (in Spanish). It
+asks whether the draws can be told apart from chance, and looks for anomalies in the draws and
+around them (prize pools, sellers, prizes sold). It does not try to predict numbers. Uruguay
+goes first, with local statistics before any new infrastructure, then Amazon SageMaker.
 
-### 💻 Development & Runtime Environment
-- **Jupyter Notebooks** – Local exploratory data analysis and chart prototyping ([`notebooks/`](./notebooks/)). SageMaker Studio was used early on and removed in PR-052.
-- **Terraform** – Infrastructure-as-code used to provision S3, IAM, Glue, etc. All infra lives under [`terraform/`](./terraform/) (modular layout: `storage`, `network`, `iam`, `etl-lambda`, `etl-glue`, `catalog`, `orchestration`, `lake-formation` and `observability`).
-- **ChromeDriver + Headless Chrome** – For scraping the official lottery website.
+## Decisions
 
-### 📊 Visualization & Analytics
-- **Matplotlib / Seaborn** – Used for generating visual insights during EDA.
-- **AWS QuickSight** – (Active phase) for producing clean, dynamic dashboards.
-- **(Optional)** Dash / Streamlit – Considered for future real-time visualizations.
+Six decisions shaped the project. Each links to where it was made and why.
 
-### ⚙️ Methods & Design Patterns
-- **Serverless-first architecture** – All core services designed to run without persistent compute.
-- **Medallion layering** – One bucket, three prefixes (`raw/` → `silver/` → `gold/`), so every byte has exactly one declared owner. A second, flat bucket carried a duplicate of every draw until PR-041 retired it: nothing read it, and two copies with one owner is drift waiting to happen.
-- **Partitioned Data Lake** – Optimized S3 structure with `year=/sorteo=` folders.
-- **Modular Python code** – Scripts are atomic and Lambda-compatible.
-- **Secure-by-default** – All sensitive config (bucket names, keys) are managed with Secrets Manager.
+| Decision | Why | Where |
+|---|---|---|
+| The pipeline runs outside the VPC | Lambda, Glue, Athena and S3 reach each other over AWS-managed paths. A VPC would add interface endpoints and cost, and protect nothing here | [`vpc-separation.md`](./vpc-separation.md) |
+| Glue, not Lambda, for the transform | pandas and pyarrow did not fit comfortably in a Lambda package | [`docs/challenges.md`](./docs/challenges.md), section 7 |
+| A scraping proxy (scrape.do) | The site is geo-restricted and behind Cloudflare. The proxy profile that works has changed twice, so it is treated as a live negotiation, with a canary | [`docs/challenges.md`](./docs/challenges.md), section 6, and PR-031 in the roadmap |
+| Athena CTAS for Gold, rebuilt in full | Measured, not assumed: the full rebuild costs cents a year, and an incremental version would cost more | [`sql/gold/README.md`](./sql/gold/README.md) |
+| The quality gate blocks the run | A gate that only warns lets bad data reach Gold. It was proven in both directions in production | [`docs/runbooks/PR-033-dq-gate.md`](./docs/runbooks/PR-033-dq-gate.md) |
+| One AWS account | Two accounts are the better design and are deferred until there is a reason to pay for them | [`DoD.md`](./DoD.md), section 4 |
 
+The runbooks in [`docs/runbooks/`](./docs/runbooks/) record every migration and every defect
+that only appeared when the pipeline ran for real.
 
-## 🔗 Reference Documentation
+## Analysis
 
-Below are official AWS documentation links for key services and methods used in this project:
+- [Insights from the 2024 – January 2025 draws](./eda_2024-01_2025.md), with the notebooks in
+  [`notebooks/`](./notebooks/).
+- [Challenges faced and how they were overcome](./docs/challenges.md).
 
-- **Glue Crawlers and Partitioned Data Lakes**
-  - [Incremental Crawls for Partitioned Data in Glue](https://docs.aws.amazon.com/glue/latest/dg/incremental-crawls.html)
-  - [Adding a Glue Crawler](https://docs.aws.amazon.com/glue/latest/dg/add-crawler.html)
-- **S3 Partitioning Strategy**
-  - [Hive-style Partitioning in AWS Glue](https://docs.aws.amazon.com/glue/latest/dg/partitioned-data.html)
-- **Athena and Querying Parquet**
-  - [Using Athena with Partitioned Tables](https://docs.aws.amazon.com/athena/latest/ug/partitioning.html)
-- **IAM and Secrets Management**
-  - [Managing Secrets with AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/latest/userguide/intro.html)
-- **Infrastructure-as-Code**
-  - [Terraform AWS Provider Docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-
-
-## 🧠 Architectural Decisions
-
-- [ADR-001: Separation of VPC and Serverless Services](./vpc-separation.md)
-
-
-
-## 🚧 Challenges Faced and How They Were Overcome
-
-Take a look to the challanged I faced and how I overcome them by giving a look to this file:
-
-- [Challanges Faced and How They Were Overcome](./challanges_faced.md)
+Licensed under the [MIT License](./LICENSE).

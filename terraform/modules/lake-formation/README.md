@@ -5,7 +5,7 @@ manual console clicks.
 
 **Status:** codified in **PR-013**. Unlike the other modules these are **new** resources,
 not imports — the equivalent setup existed only as console clicks (documented in
-`challanges_faced.md` §5). See `docs/runbooks/PR-013-lake-formation.md`.
+`docs/challenges.md` §5). See `docs/runbooks/PR-013-lake-formation.md`.
 
 ## What it grants
 

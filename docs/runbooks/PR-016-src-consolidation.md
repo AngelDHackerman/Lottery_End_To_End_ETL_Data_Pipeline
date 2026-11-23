@@ -23,7 +23,7 @@ Read the "Deploy order" section before applying, or the weekly run will break.
 **Deleted:**
 
 - `lambda/transformer/` — dead code. The transform runs on Glue, not Lambda
-  (`challanges_faced.md` §7). Its `transformer.py` was the *old* version that wrote to
+  (`docs/challenges.md` §7). Its `transformer.py` was the *old* version that wrote to
   `processed/`; the surviving Glue one writes `silver/`.
 - `lambda/extractor/dry_test.py` — scratch.
 - `modules/ETL/Prod/` — stale scratch. `extract.py` was a gutted Selenium-era stub with
