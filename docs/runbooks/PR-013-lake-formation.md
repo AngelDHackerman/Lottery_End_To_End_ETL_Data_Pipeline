@@ -1,6 +1,6 @@
 # PR-013 — Codify Lake Formation (new resources, no state moves)
 
-**Goal:** Turn the manual Lake Formation console setup (challanges_faced.md §5) into
+**Goal:** Turn the manual Lake Formation console setup (`docs/challenges.md` §5) into
 Terraform, so a fresh account deploy needs zero LF console clicks before the silver
 crawlers run.
 
