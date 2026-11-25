@@ -12,7 +12,7 @@ alarm 6 watches — which is why PR-026 was executed first).
 Verified live on 2026-08-02:
 
 ```
-$ aws sns list-subscriptions-by-topic --topic-arn arn:aws:sns:us-east-1:913524903233:loteria-alerts-prod
+$ aws sns list-subscriptions-by-topic --topic-arn arn:aws:sns:us-east-1:<account-id>:loteria-alerts-prod
 (empty)
 ```
 
@@ -107,10 +107,10 @@ The substitute is `AWS/States` `ServiceIntegrationsFailed`, dimensioned by
 `ServiceIntegrationResourceArn`. All four values confirmed present live:
 
 ```
-arn:aws:states:us-east-1:913524903233:lambda:invoke
-arn:aws:states:us-east-1:913524903233:glue:startJobRun.sync
-arn:aws:states:us-east-1:913524903233:aws-sdk:glue:startCrawler
-arn:aws:states:us-east-1:913524903233:athena:startQueryExecution.sync
+arn:aws:states:us-east-1:<account-id>:lambda:invoke
+arn:aws:states:us-east-1:<account-id>:glue:startJobRun.sync
+arn:aws:states:us-east-1:<account-id>:aws-sdk:glue:startCrawler
+arn:aws:states:us-east-1:<account-id>:athena:startQueryExecution.sync
 ```
 
 Note these are **account-qualified** — the bare `arn:aws:states:::glue:...` form used in the
@@ -137,7 +137,7 @@ The obvious alternative — a `aws_cloudwatch_log_metric_filter` over `/aws-glue
 counting `ERROR` lines — was rejected on evidence:
 
 - That log group is **account-wide** (PR-023 §3) and another project already writes to it.
-  Verified live, its streams include `near-real-time-crypto-silver-crawler-crypto`.
+  Verified live: its streams include one from that other project.
 - Metric filters apply to **every stream in a group** and cannot be scoped to a stream.
 - The crawler name is not on individual log lines. The format is
   `[<crawl-id>] LEVEL : message` — the name appears only in the stream name and the opening
@@ -278,7 +278,7 @@ aws events describe-rule --name loteria-crawler-failed-prod --query '[Name,State
 aws events list-targets-by-rule --rule loteria-crawler-failed-prod --query 'Targets[].Arn' --output text
 
 # The topic policy kept BOTH statements.
-aws sns get-topic-attributes --topic-arn arn:aws:sns:us-east-1:913524903233:loteria-alerts-prod \
+aws sns get-topic-attributes --topic-arn arn:aws:sns:us-east-1:<account-id>:loteria-alerts-prod \
   --query 'Attributes.Policy' --output text | jq -r '.Statement[].Sid'
 # expect: DefaultStatement / AllowEventBridgePublish
 ```
@@ -303,6 +303,6 @@ test-event-pattern` at least proves the pattern matches a representative event:
 ```bash
 aws events test-event-pattern \
   --event-pattern "$(aws events describe-rule --name loteria-crawler-failed-prod --query EventPattern --output text)" \
-  --event '{"id":"1","account":"913524903233","region":"us-east-1","source":"aws.glue","time":"2026-08-02T00:00:00Z","detail-type":"Glue Crawler State Change","resources":[],"detail":{"crawlerName":"lottery-premios-silver-crawler","state":"Failed","message":"test"}}'
+  --event '{"id":"1","account":"<account-id>","region":"us-east-1","source":"aws.glue","time":"2026-08-02T00:00:00Z","detail-type":"Glue Crawler State Change","resources":[],"detail":{"crawlerName":"lottery-premios-silver-crawler","state":"Failed","message":"test"}}'
 # expect: true
 ```

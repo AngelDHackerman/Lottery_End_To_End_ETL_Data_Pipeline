@@ -13,7 +13,7 @@ module (`count = var.enable_sagemaker ? 1 : 0`, default **false**), then delete 
 On `master` with PR-014 merged (and PR-010..014 state ops done):
 
 ```bash
-export AWS_PROFILE=angel-adming AWS_REGION=us-east-1
+export AWS_PROFILE=<admin-user> AWS_REGION=us-east-1
 cd terraform-lottery/Prod
 
 terraform state list
@@ -45,7 +45,7 @@ Every value from that tfvars is preserved in the runbooks / module defaults.)
 Optional: the old state object (empty now) can stay in S3 as history, or be removed:
 
 ```bash
-aws s3 rm s3://loteria-tf-state-913524903233/legacy/terraform.tfstate   # optional
+aws s3 rm s3://loteria-tf-state-<account-id>/legacy/terraform.tfstate   # optional
 ```
 
 (The bucket is versioned, so even this is recoverable.)

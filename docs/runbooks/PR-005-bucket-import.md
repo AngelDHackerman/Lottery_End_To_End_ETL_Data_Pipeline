@@ -24,14 +24,14 @@ blocks (safe hardening on private data buckets). No bucket contents are touched.
 ## Prerequisites
 
 - PR-004 merged: the legacy stack is remote-backed at
-  `s3://loteria-tf-state-913524903233/legacy/terraform.tfstate` and
+  `s3://loteria-tf-state-<account-id>/legacy/terraform.tfstate` and
   `terraform plan` is currently a no-op.
 - Both buckets already have (from PR-002): **Versioning = Enabled** and the
   **deny-delete bucket policy**. That's why importing versioning below is a no-op, and
   why we do **not** model the bucket policy in Terraform.
 - Prod credentials exported:
   ```bash
-  export AWS_PROFILE=angel-adming     # or your prod profile
+  export AWS_PROFILE=<admin-user>     # or your prod profile
   export AWS_REGION=us-east-1
   ```
 - Your `terraform.tfvars` for `terraform-lottery/Prod` is present (gitignored).
@@ -41,7 +41,7 @@ blocks (safe hardening on private data buckets). No bucket contents are touched.
 ```bash
 cd terraform-lottery/Prod
 terraform init \
-  -backend-config="bucket=loteria-tf-state-913524903233" \
+  -backend-config="bucket=loteria-tf-state-<account-id>" \
   -backend-config="region=us-east-1"
 ```
 

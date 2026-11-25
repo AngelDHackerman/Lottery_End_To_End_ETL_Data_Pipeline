@@ -28,7 +28,7 @@ evaluate `lifecycle`, so `prevent_destroy` does not block it (and nothing is des
 ## Prerequisites
 
 ```bash
-export AWS_PROFILE=angel-adming     # prod profile
+export AWS_PROFILE=<admin-user>     # prod profile
 export AWS_REGION=us-east-1
 ```
 - Both stacks already init'd against the S3 backend (main was init'd in PR-006).

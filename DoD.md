@@ -37,7 +37,7 @@ Pulled from reading the repo today. None of this is a complaint — it's the pun
 - `null_resource` running `aws glue start-crawler` at apply time — fragile, runs on every apply, no clean way to gate.
 - IAM has **wildcards** (`Resource = "*"` on Secrets Manager, Glue, Logs) — fine for a personal project, not for "production-ready".
 - `temp_tf_files/` and a leftover `s3_bucket_objects_arn` variable described `"ELIMINAR ESTE BUCKET"` — leftover noise.
-- `iam.tf` references two pre-existing IAM users (`santa-lucia-dev`, `angel-adming`) by name. Will fail in any other account.
+- `iam.tf` references two pre-existing IAM users (`<dev-user>`, `<admin-user>`) by name. Will fail in any other account.
 - Lake Formation is acknowledged as configured **manually** in the README and `challanges_faced.md`. Not in code → not reproducible.
 - No `outputs.tf` → callers don't get the bucket names, state-machine ARN, etc.
 - `glue_job.tf` is locked to Glue 3.0 / Python 3.9 with a hard-coded `script_location` referencing `lambda-code-zip-prod`.
@@ -235,7 +235,7 @@ Signed off by the owner on 2026-06-28.
 | scrape.do token leaked in CI logs | Use `${{ secrets.SCRAPE_DO_TOKEN }}`, never echo, add `bandit` to CI |
 | Lake Formation permissions wipe on `terraform apply` | Codify them; test in `dev` env first |
 | Glue Job version pinned to 3.0 / Py 3.9 going EOL | Schedule an upgrade-to-Glue-4.0/Py3.10 spike in Phase 2 |
-| Existing IAM users referenced by name (`santa-lucia-dev`, `angel-adming`) break in another account | Gate that block behind a `var.enable_personal_iam_attachments = false` default |
+| Existing IAM users referenced by name (`<dev-user>`, `<admin-user>`) break in another account | Gate that block behind a `var.enable_personal_iam_attachments = false` default |
 
 ---
 

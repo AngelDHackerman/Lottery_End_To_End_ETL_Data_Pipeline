@@ -27,17 +27,17 @@ carries their code so the egress path can be turned on later. Only these 11 exis
 
 | Address | Real ID |
 |---|---|
-| `aws_vpc.lottery` | `vpc-0fadac4b71ca76304` |
-| `aws_subnet.private_a` | `subnet-09ef51bcc7e17e8e7` |
-| `aws_subnet.private_b` | `subnet-0419da5b53dba0caf` |
-| `aws_subnet.public` | `subnet-0265debc002fe82db` |
-| `aws_route_table.public_rt` | `rtb-0054f3d18c0e386ae` |
-| `aws_route_table.private_rt` | `rtb-0bf322b5258c586f4` |
-| `aws_route_table_association.public_assoc` | `subnet-0265debc002fe82db/rtb-0054f3d18c0e386ae` |
-| `aws_route_table_association.private_a_assoc` | `subnet-09ef51bcc7e17e8e7/rtb-0bf322b5258c586f4` |
-| `aws_route_table_association.private_b_assoc` | `subnet-0419da5b53dba0caf/rtb-0bf322b5258c586f4` |
-| `aws_vpc_endpoint.s3` | `vpce-0e9af20f880a7cf6e` |
-| `aws_security_group.sagemaker_studio` | `sg-0972cb28f1deb67a8` |
+| `aws_vpc.lottery` | `<vpc-id>` |
+| `aws_subnet.private_a` | `<subnet-private-a>` |
+| `aws_subnet.private_b` | `<subnet-private-b>` |
+| `aws_subnet.public` | `<subnet-public>` |
+| `aws_route_table.public_rt` | `<rtb-public>` |
+| `aws_route_table.private_rt` | `<rtb-private>` |
+| `aws_route_table_association.public_assoc` | `<subnet-public>/<rtb-public>` |
+| `aws_route_table_association.private_a_assoc` | `<subnet-private-a>/<rtb-private>` |
+| `aws_route_table_association.private_b_assoc` | `<subnet-private-b>/<rtb-private>` |
+| `aws_vpc_endpoint.s3` | `<vpce-id>` |
+| `aws_security_group.sagemaker_studio` | `<sg-id>` |
 
 > Route-table-association import IDs use the `SUBNET_ID/ROUTE_TABLE_ID` form (not the
 > `rtbassoc-…` id).
@@ -47,7 +47,7 @@ carries their code so the egress path can be turned on later. Only these 11 exis
 ## Prerequisites
 
 ```bash
-export AWS_PROFILE=angel-adming     # prod profile
+export AWS_PROFILE=<admin-user>     # prod profile
 export AWS_REGION=us-east-1
 ```
 - Both stacks already init'd against the S3 backend.
@@ -72,17 +72,17 @@ tracked by at least one state). The main stack needs no tfvars (`environment` de
 ```bash
 cd terraform
 
-terraform import module.network.aws_vpc.lottery                                vpc-0fadac4b71ca76304
-terraform import module.network.aws_subnet.private_a                           subnet-09ef51bcc7e17e8e7
-terraform import module.network.aws_subnet.private_b                           subnet-0419da5b53dba0caf
-terraform import module.network.aws_subnet.public                              subnet-0265debc002fe82db
-terraform import module.network.aws_route_table.public_rt                      rtb-0054f3d18c0e386ae
-terraform import module.network.aws_route_table.private_rt                     rtb-0bf322b5258c586f4
-terraform import module.network.aws_route_table_association.public_assoc       subnet-0265debc002fe82db/rtb-0054f3d18c0e386ae
-terraform import module.network.aws_route_table_association.private_a_assoc    subnet-09ef51bcc7e17e8e7/rtb-0bf322b5258c586f4
-terraform import module.network.aws_route_table_association.private_b_assoc    subnet-0419da5b53dba0caf/rtb-0bf322b5258c586f4
-terraform import module.network.aws_vpc_endpoint.s3                            vpce-0e9af20f880a7cf6e
-terraform import module.network.aws_security_group.sagemaker_studio           sg-0972cb28f1deb67a8
+terraform import module.network.aws_vpc.lottery                                <vpc-id>
+terraform import module.network.aws_subnet.private_a                           <subnet-private-a>
+terraform import module.network.aws_subnet.private_b                           <subnet-private-b>
+terraform import module.network.aws_subnet.public                              <subnet-public>
+terraform import module.network.aws_route_table.public_rt                      <rtb-public>
+terraform import module.network.aws_route_table.private_rt                     <rtb-private>
+terraform import module.network.aws_route_table_association.public_assoc       <subnet-public>/<rtb-public>
+terraform import module.network.aws_route_table_association.private_a_assoc    <subnet-private-a>/<rtb-private>
+terraform import module.network.aws_route_table_association.private_b_assoc    <subnet-private-b>/<rtb-private>
+terraform import module.network.aws_vpc_endpoint.s3                            <vpce-id>
+terraform import module.network.aws_security_group.sagemaker_studio           <sg-id>
 ```
 
 If any import says "Resource already managed," it's already done — skip it.

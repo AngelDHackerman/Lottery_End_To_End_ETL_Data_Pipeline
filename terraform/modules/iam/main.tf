@@ -550,7 +550,7 @@ resource "aws_iam_policy" "gold_purge_lambda_policy" {
           # glue:UpdatePartition — the denial said so in as many words:
           #
           #   not authorized to perform: glue:UpdatePartition on resource:
-          #   arn:aws:glue:us-east-1:913524903233:catalog
+          #   arn:aws:glue:us-east-1:<account-id>:catalog
           #
           # while the policy already listed glue:BatchUpdatePartition. The singular form is
           # the one that grants; the Batch* names are kept because Glue's own docs list
@@ -838,7 +838,7 @@ resource "aws_iam_role_policy_attachment" "object_count_custom" {
 # ---------------------------------------------------------------------------
 # PERSONAL IAM-USER GRANTS (opt-in)
 #
-# PR-009: the two hard-coded attachments (santa-lucia-dev, angel-adming) are now gated
+# PR-009: the two hard-coded attachments (<dev-user>, <admin-user>) are now gated
 # behind var.personal_iam_users. Empty (the default, and what a fresh cloner gets) => no
 # attachments are created. The owner sets the list in a gitignored tfvars to keep their
 # own users' Athena-results access.

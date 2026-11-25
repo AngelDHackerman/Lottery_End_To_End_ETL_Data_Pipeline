@@ -131,7 +131,7 @@ A real 502 cannot be scheduled, so the bar is the unit suite plus the deployed d
 ```bash
 # 1. The deployed machine carries the retrier.
 aws stepfunctions describe-state-machine \
-  --state-machine-arn arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod \
+  --state-machine-arn arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod \
   --query definition --output text \
   | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["States"]["RunExtractorLambda"]["Retry"], indent=1))'
 # expect: two retriers, the second with ErrorEquals ["ProxyRetryableError"], 300 / 3 / 2.0

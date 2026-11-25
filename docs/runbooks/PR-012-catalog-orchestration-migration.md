@@ -39,7 +39,7 @@ Saturday trigger.
 ## Prerequisites
 
 ```bash
-export AWS_PROFILE=angel-adming
+export AWS_PROFILE=<admin-user>
 export AWS_REGION=us-east-1
 ```
 
@@ -51,13 +51,13 @@ Merge order: PR-010 (#11) and PR-011 (#12) merged + their state ops done.
 cd terraform
 
 # catalog (db import id = "ACCOUNT_ID:db_name"; crawlers/workgroup = name)
-terraform import module.catalog.aws_glue_catalog_database.lottery_db      913524903233:lottery_santalucia_db
+terraform import module.catalog.aws_glue_catalog_database.lottery_db      <account-id>:lottery_santalucia_db
 terraform import module.catalog.aws_glue_crawler.premios_silver_crawler   lottery-premios-silver-crawler
 terraform import module.catalog.aws_glue_crawler.sorteos_silver_crawler   lottery-sorteos-silver-crawler
 terraform import module.catalog.aws_athena_workgroup.lottery_wg           lottery-wg
 
 # orchestration (sfn = ARN; rule = "bus/name"; target = "bus/rule/target-id")
-terraform import module.orchestration.aws_sfn_state_machine.pipeline_state_machine arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
+terraform import module.orchestration.aws_sfn_state_machine.pipeline_state_machine arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod
 terraform import module.orchestration.aws_cloudwatch_event_rule.weekly_etl_trigger default/lottery-etl-weekly-trigger-prod
 terraform import module.orchestration.aws_cloudwatch_event_target.trigger_step_function default/lottery-etl-weekly-trigger-prod/StepFunctionLotteryETL
 ```
@@ -117,7 +117,7 @@ Step Function already crawls the silver crawlers, confirmed back in PR-004).
 
 ```bash
 aws stepfunctions start-execution --state-machine-arn \
-  arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
+  arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod
 ```
 
 Full run must succeed (Lambda → Glue job → both silver crawlers). Also confirm only ONE
@@ -125,7 +125,7 @@ enabled rule targets the state machine:
 
 ```bash
 aws events list-rule-names-by-target --target-arn \
-  arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
+  arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod
 ```
 
 Expected: only `lottery-etl-weekly-trigger-prod`.

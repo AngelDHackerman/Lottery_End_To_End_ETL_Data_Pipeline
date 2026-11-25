@@ -709,10 +709,10 @@ class TestTheInputsSentToGlue:
         staged = {
             "Name": "t__stg_run",
             "DatabaseName": "lottery_santalucia_db",
-            "CatalogId": "913524903233",
+            "CatalogId": "123456789012",
             "CreateTime": "2026-09-24",
             "UpdateTime": "2026-09-24",
-            "CreatedBy": "arn:aws:sts::913524903233:assumed-role/x",
+            "CreatedBy": "arn:aws:sts::123456789012:assumed-role/x",
             "IsRegisteredWithLakeFormation": True,
             "VersionId": "4",
             "Parameters": {"generation": "new"},
@@ -762,7 +762,7 @@ class TestTheInputsSentToGlue:
             "DatabaseName": "lottery_santalucia_db",
             "TableName": "gold_draw_summary",
             "CreationTime": "2026-09-24",
-            "CatalogId": "913524903233",
+            "CatalogId": "123456789012",
             "IsSomethingNew": True,
         }
 
