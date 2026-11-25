@@ -9,7 +9,7 @@
 > with a no-op plan.
 
 **Goal:** A fresh remote-backed state at
-`s3://loteria-tf-state-913524903233/legacy/terraform.tfstate` that matches the
+`s3://loteria-tf-state-<account-id>/legacy/terraform.tfstate` that matches the
 deployed AWS resources, proven by `terraform plan` == no changes.
 
 > **Who runs this:** the repo owner, in their AWS account, with prod credentials.
@@ -20,7 +20,7 @@ deployed AWS resources, proven by `terraform plan` == no changes.
 
 ## Prerequisites
 
-- PR-003 applied: state bucket `loteria-tf-state-913524903233` and lock table
+- PR-003 applied: state bucket `loteria-tf-state-<account-id>` and lock table
   `loteria-tf-locks` exist (confirm with `terraform output` in `terraform/bootstrap/`).
 - Prod credentials exported:
   ```bash
@@ -42,7 +42,7 @@ it pins the *main* stack's key):
 ```bash
 cd terraform-lottery/Prod
 terraform init \
-  -backend-config="bucket=loteria-tf-state-913524903233" \
+  -backend-config="bucket=loteria-tf-state-<account-id>" \
   -backend-config="region=us-east-1"
 ```
 
@@ -105,7 +105,7 @@ terraform plan
 ## Step 5 — Confirm state landed in S3
 
 ```bash
-aws s3 ls "s3://loteria-tf-state-913524903233/legacy/"
+aws s3 ls "s3://loteria-tf-state-<account-id>/legacy/"
 # expect: legacy/terraform.tfstate
 terraform state list | wc -l    # 62 (67 blocks − 5 non-importable, with enable_internet=false so the 5 NAT resources are count=0)
 ```
@@ -117,7 +117,7 @@ terraform state list | wc -l    # 62 (67 blocks − 5 non-importable, with enabl
 State reconstruction only writes a new state object; it does not change infra. To bail:
 
 1. Delete the reconstructed state object:
-   `aws s3 rm "s3://loteria-tf-state-913524903233/legacy/terraform.tfstate"`
+   `aws s3 rm "s3://loteria-tf-state-<account-id>/legacy/terraform.tfstate"`
    (versioning is on, so it's recoverable anyway).
 2. Remove/rename `backend.tf` and `terraform init` back to local if desired.
 3. No AWS resources were touched, so nothing to revert on the infra side.

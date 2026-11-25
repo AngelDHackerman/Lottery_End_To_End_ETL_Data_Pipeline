@@ -19,7 +19,7 @@ recreating anything**, AND apply three deliberate wildcard tightenings.
   `lambda_custom`, `athena_results_access`, `sfn_execution_policy`,
   `eventbridge_to_sfn_policy`.
 - **10 role-policy attachments** (see Step 1).
-- **2 user-policy attachments** (`santa-lucia-dev`, `angel-adming`) — NOT imported by
+- **2 user-policy attachments** (`<dev-user>`, `<admin-user>`) — NOT imported by
   default; gated behind `var.personal_iam_users` (Step 2).
 
 > **Why the SFN/EventBridge IAM moves now (not in PR-012):** the module must output
@@ -40,7 +40,7 @@ All three are supersets-safe: the pipeline only touches those exact resources.
 
 ## Prerequisites
 ```bash
-export AWS_PROFILE=angel-adming
+export AWS_PROFILE=<admin-user>
 export AWS_REGION=us-east-1
 ```
 - The `lottery_secret_prod_2` secret exists (the module resolves its ARN by name).
@@ -67,26 +67,26 @@ terraform import module.iam.aws_iam_role.sfn_execution_role       sfn-lottery-ex
 terraform import module.iam.aws_iam_role.eventbridge_to_sfn_role  eventbridge-to-sfn-role-prod
 
 # --- 8 customer-managed policies (import id = policy ARN) ---
-terraform import module.iam.aws_iam_policy.sagemaker_s3_read_policy      arn:aws:iam::913524903233:policy/lottery-sagemaker-s3-read-policy-prod
-terraform import module.iam.aws_iam_policy.sagemaker_studio_admin_policy arn:aws:iam::913524903233:policy/lottery-sagemaker-studio-admin-policy-prod
-terraform import module.iam.aws_iam_policy.glue_crawler_s3_policy        arn:aws:iam::913524903233:policy/glue-crawler-s3-access
-terraform import module.iam.aws_iam_policy.glue_job_policy               arn:aws:iam::913524903233:policy/glue-lottery-transform-policy-prod
-terraform import module.iam.aws_iam_policy.lambda_custom                 arn:aws:iam::913524903233:policy/lottery-lambda-customprod
-terraform import module.iam.aws_iam_policy.athena_results_access         arn:aws:iam::913524903233:policy/athena-results-s3-access
-terraform import module.iam.aws_iam_policy.sfn_execution_policy          arn:aws:iam::913524903233:policy/sfn-lottery-policy-prod
-terraform import module.iam.aws_iam_policy.eventbridge_to_sfn_policy     arn:aws:iam::913524903233:policy/eventbridge-to-sfn-policy-prod
+terraform import module.iam.aws_iam_policy.sagemaker_s3_read_policy      arn:aws:iam::<account-id>:policy/lottery-sagemaker-s3-read-policy-prod
+terraform import module.iam.aws_iam_policy.sagemaker_studio_admin_policy arn:aws:iam::<account-id>:policy/lottery-sagemaker-studio-admin-policy-prod
+terraform import module.iam.aws_iam_policy.glue_crawler_s3_policy        arn:aws:iam::<account-id>:policy/glue-crawler-s3-access
+terraform import module.iam.aws_iam_policy.glue_job_policy               arn:aws:iam::<account-id>:policy/glue-lottery-transform-policy-prod
+terraform import module.iam.aws_iam_policy.lambda_custom                 arn:aws:iam::<account-id>:policy/lottery-lambda-customprod
+terraform import module.iam.aws_iam_policy.athena_results_access         arn:aws:iam::<account-id>:policy/athena-results-s3-access
+terraform import module.iam.aws_iam_policy.sfn_execution_policy          arn:aws:iam::<account-id>:policy/sfn-lottery-policy-prod
+terraform import module.iam.aws_iam_policy.eventbridge_to_sfn_policy     arn:aws:iam::<account-id>:policy/eventbridge-to-sfn-policy-prod
 
 # --- 10 role-policy attachments (import id = "role-name/policy-arn") ---
 terraform import module.iam.aws_iam_role_policy_attachment.lambda_basic                  "lottery-lambda-exec-roleprod/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-terraform import module.iam.aws_iam_role_policy_attachment.lambda_custom_attach          "lottery-lambda-exec-roleprod/arn:aws:iam::913524903233:policy/lottery-lambda-customprod"
-terraform import module.iam.aws_iam_role_policy_attachment.glue_attach_policy            "glue-lottery-transform-role-prod/arn:aws:iam::913524903233:policy/glue-lottery-transform-policy-prod"
-terraform import module.iam.aws_iam_role_policy_attachment.attach_glue_s3                "glue-crawler-role/arn:aws:iam::913524903233:policy/glue-crawler-s3-access"
-terraform import module.iam.aws_iam_role_policy_attachment.sagemaker_s3_read_attach      "lottery-sagemaker-execution-role-prod/arn:aws:iam::913524903233:policy/lottery-sagemaker-s3-read-policy-prod"
-terraform import module.iam.aws_iam_role_policy_attachment.sagemaker_admin_policy_attach "lottery-sagemaker-execution-role-prod/arn:aws:iam::913524903233:policy/lottery-sagemaker-studio-admin-policy-prod"
+terraform import module.iam.aws_iam_role_policy_attachment.lambda_custom_attach          "lottery-lambda-exec-roleprod/arn:aws:iam::<account-id>:policy/lottery-lambda-customprod"
+terraform import module.iam.aws_iam_role_policy_attachment.glue_attach_policy            "glue-lottery-transform-role-prod/arn:aws:iam::<account-id>:policy/glue-lottery-transform-policy-prod"
+terraform import module.iam.aws_iam_role_policy_attachment.attach_glue_s3                "glue-crawler-role/arn:aws:iam::<account-id>:policy/glue-crawler-s3-access"
+terraform import module.iam.aws_iam_role_policy_attachment.sagemaker_s3_read_attach      "lottery-sagemaker-execution-role-prod/arn:aws:iam::<account-id>:policy/lottery-sagemaker-s3-read-policy-prod"
+terraform import module.iam.aws_iam_role_policy_attachment.sagemaker_admin_policy_attach "lottery-sagemaker-execution-role-prod/arn:aws:iam::<account-id>:policy/lottery-sagemaker-studio-admin-policy-prod"
 terraform import module.iam.aws_iam_role_policy_attachment.sagemaker_full_access         "lottery-sagemaker-execution-role-prod/arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
 terraform import module.iam.aws_iam_role_policy_attachment.cloudwatch_logs_full_access   "lottery-sagemaker-execution-role-prod/arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
-terraform import module.iam.aws_iam_role_policy_attachment.sfn_execution_policy_attachment      "sfn-lottery-execution-role-prod/arn:aws:iam::913524903233:policy/sfn-lottery-policy-prod"
-terraform import module.iam.aws_iam_role_policy_attachment.eventbridge_to_sfn_policy_attachment "eventbridge-to-sfn-role-prod/arn:aws:iam::913524903233:policy/eventbridge-to-sfn-policy-prod"
+terraform import module.iam.aws_iam_role_policy_attachment.sfn_execution_policy_attachment      "sfn-lottery-execution-role-prod/arn:aws:iam::<account-id>:policy/sfn-lottery-policy-prod"
+terraform import module.iam.aws_iam_role_policy_attachment.eventbridge_to_sfn_policy_attachment "eventbridge-to-sfn-role-prod/arn:aws:iam::<account-id>:policy/eventbridge-to-sfn-policy-prod"
 ```
 If any import says "Resource already managed," skip it.
 
@@ -94,12 +94,12 @@ If any import says "Resource already managed," skip it.
 Default (`personal_iam_users = []`) drops these grants. To keep them, add a **gitignored**
 `terraform/terraform.tfvars` (or `*.auto.tfvars`):
 ```hcl
-personal_iam_users = ["santa-lucia-dev", "angel-adming"]
+personal_iam_users = ["<dev-user>", "<admin-user>"]
 ```
 then import the two attachments (id = `user-name/policy-arn`):
 ```bash
-terraform import 'module.iam.aws_iam_user_policy_attachment.personal_athena_results["santa-lucia-dev"]' "santa-lucia-dev/arn:aws:iam::913524903233:policy/athena-results-s3-access"
-terraform import 'module.iam.aws_iam_user_policy_attachment.personal_athena_results["angel-adming"]'    "angel-adming/arn:aws:iam::913524903233:policy/athena-results-s3-access"
+terraform import 'module.iam.aws_iam_user_policy_attachment.personal_athena_results["<dev-user>"]' "<dev-user>/arn:aws:iam::<account-id>:policy/athena-results-s3-access"
+terraform import 'module.iam.aws_iam_user_policy_attachment.personal_athena_results["<admin-user>"]'    "<admin-user>/arn:aws:iam::<account-id>:policy/athena-results-s3-access"
 ```
 If you leave `personal_iam_users` empty, skip this — the grants are removed from Terraform
 management (the attachments stay in AWS until Step 3 removes them from legacy state; they
@@ -179,7 +179,7 @@ crawlers.
 > these exact (already-narrowed) policies — nothing about its permissions changed.
 ```bash
 aws stepfunctions start-execution --state-machine-arn \
-  arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
+  arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod
 ```
 
 ---

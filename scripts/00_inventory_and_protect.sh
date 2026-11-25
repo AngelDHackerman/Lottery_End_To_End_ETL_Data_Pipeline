@@ -83,7 +83,7 @@ mutate() {
 # --------------------------------------------------------------------------- #
 # Preconditions
 # --------------------------------------------------------------------------- #
-: "${AWS_PROFILE:?Set AWS_PROFILE (e.g. export AWS_PROFILE=angel-adming)}"
+: "${AWS_PROFILE:?Set AWS_PROFILE (e.g. export AWS_PROFILE=<admin-user>)}"
 : "${AWS_REGION:?Set AWS_REGION (e.g. export AWS_REGION=us-east-1)}"
 command -v aws >/dev/null 2>&1 || die "aws CLI not found on PATH"
 

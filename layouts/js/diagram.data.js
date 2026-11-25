@@ -3,7 +3,7 @@
    viven en diagram.js. Para actualizar el diagrama, normalmente solo se toca
    este archivo. Se expone como window.DIAGRAM_DATA.
 
-   Verificado contra la cuenta 913524903233 el 2026-09-25: definición de la
+   Verificado contra la cuenta el 2026-09-25: definición de la
    máquina de estados, cron de EventBridge, argumentos de los dos jobs de Glue,
    env del Lambda extractor, política del Lambda de gold, grants de Lake
    Formation, alarmas, tablas del catálogo y conteos de objetos por capa.
@@ -53,7 +53,7 @@
   /* Marcos de contexto: plano de control, cuenta AWS, VPC. */
   const ZONES = [
     {x:24,  y:126, w:352, h:300, cls:"gh",  label:"PLANO DE CONTROL · GITHUB ACTIONS", color:"var(--soft)"},
-    {x:400, y:126, w:976, h:600, cls:"aws", label:"CUENTA AWS · 913524903233 · us-east-1", color:"var(--ink)"},
+    {x:400, y:126, w:976, h:600, cls:"aws", label:"CUENTA AWS · us-east-1", color:"var(--ink)"},
     {x:420, y:640, w:936, h:66,  cls:"vpc", label:"", color:"var(--off)"}
   ];
 
@@ -91,7 +91,7 @@
 
     {id:"tfstate", x:1140, y:158, w:216, h:56, st:"ok", t:"Estado de Terraform", s:["S3 + lock DynamoDB"],
      title:"Estado remoto", desc:"El estado de Terraform vive en S3 con bloqueo en DynamoDB. El estado legacy se perdió una vez y hubo que reconstruirlo importando 67 recursos a mano.",
-     kv:{"Bucket":"loteria-tf-state-913524903233","Lock":"loteria-tf-locks","Versionado":"sí, + prevent_destroy"},
+     kv:{"Bucket":"loteria-tf-state-<account-id>","Lock":"loteria-tf-locks","Versionado":"sí, + prevent_destroy"},
      warn:{k:"p",t:"No todo lo que gobierna la cuenta está en este estado. El grant de Lake Formation ALTER a nivel de base de datos se hizo fuera de banda: ningún plan iba a mostrar nunca que faltaba el de las tablas. Un recurso que no está en el estado es un recurso sobre el que Terraform no puede avisarte."}},
 
     {id:"extract", x:424, y:252, w:172, h:84, st:"ok", t:"Extractor", s:["Lambda · python","guard sobre silver/","escribe raw/"],

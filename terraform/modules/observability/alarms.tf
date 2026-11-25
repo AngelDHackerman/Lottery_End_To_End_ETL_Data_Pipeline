@@ -204,8 +204,8 @@ resource "aws_cloudwatch_metric_alarm" "crawler_start_failed" {
 #
 # Not a metric alarm, on purpose. The two candidates were:
 #   - a Logs metric filter over /aws-glue/crawlers — REJECTED. That group is ACCOUNT-WIDE
-#     (PR-023 §3) and another project already writes to it (stream
-#     `near-real-time-crypto-silver-crawler-crypto`, verified live). Metric filters apply to
+#     (PR-023 §3) and another project already writes to it (verified
+#     live). Metric filters apply to
 #     every stream in a group with no way to scope by stream, and the crawler name does not
 #     appear on individual ERROR lines — only in the stream name and the opening BENCHMARK
 #     line. So the filter would alarm on an unrelated project's crawler.

@@ -27,7 +27,7 @@
     tab: "Uruguay · la corrida nocturna",
     title: "Extensión Uruguay — la corrida nocturna",
     lede: "Lo que corre cada noche a las 23:30 de Montevideo: una máquina de estados con cuatro pasos que pide al sitio solo lo nuevo, reescribe la plata del año, la valida y publica el oro. Todo lo verde está desplegado. Hacé clic en una pieza para ver sus nombres reales.",
-    meta: ["cuenta 913524903233", "us-east-1", "13.021 sorteos · 2006-08-11 → 2026-11-12", "13 nov 2026"],
+    meta: ["cuenta AWS", "us-east-1", "13.021 sorteos · 2006-08-11 → 2026-11-12", "13 nov 2026"],
     viewBox: "0 0 1400 850",
     play: "▶ Reproducir la corrida del 12 de noviembre",
     STATE_LABEL: {ok: "desplegado", pend: "pendiente", bad: "bloqueado a propósito", off: "aplazado"},
@@ -35,7 +35,7 @@
 
     ZONES: [
       {x:24, y:20,  w:1352, h:112, cls:"gh",  label:"INTERNET · DNLQ, MINISTERIO DE ECONOMÍA Y FINANZAS", color:"var(--soft)"},
-      {x:24, y:156, w:1352, h:556, cls:"aws", label:"CUENTA AWS · 913524903233 · us-east-1 · stack terraform/uy/", color:"var(--ink)"},
+      {x:24, y:156, w:1352, h:556, cls:"aws", label:"CUENTA AWS · us-east-1 · stack terraform/uy/", color:"var(--ink)"},
       {x:24, y:736, w:1352, h:96,  cls:"vpc", label:"GITHUB · LA MÁQUINA DEL OWNER", color:"var(--off)"}
     ],
 
@@ -191,7 +191,7 @@
     tab: "Los dos países",
     title: "Santa Lucía + Uruguay — qué comparten y qué no",
     lede: "Dos tuberías en la misma cuenta. Comparten el bucket de datos, el catálogo, los permisos, el topic de alertas y el CI. No comparten ni el código, ni el horario, ni el stack de Terraform, ni el workgroup de Athena: la fuente y la cadencia no se parecen en nada.",
-    meta: ["cuenta 913524903233", "us-east-1", "las dos desplegadas", "13 nov 2026"],
+    meta: ["cuenta AWS", "us-east-1", "las dos desplegadas", "13 nov 2026"],
     viewBox: "0 0 1400 850",
     play: "▶ Reproducir una semana",
     STATE_LABEL: {ok: "desplegado", pend: "pendiente", bad: "bloqueado a propósito", off: "aplazado"},
@@ -199,7 +199,7 @@
 
     ZONES: [
       {x:24, y:20,  w:1352, h:100, cls:"gh",  label:"INTERNET", color:"var(--soft)"},
-      {x:24, y:150, w:1352, h:560, cls:"aws", label:"CUENTA AWS · 913524903233 · us-east-1", color:"var(--ink)"},
+      {x:24, y:150, w:1352, h:560, cls:"aws", label:"CUENTA AWS · us-east-1", color:"var(--ink)"},
       {x:24, y:728, w:664,  h:112, cls:"gh",  label:"GITHUB · LA MÁQUINA DEL OWNER", color:"var(--soft)"},
       {x:712, y:728, w:664, h:112, cls:"vpc", label:"CONSUMO", color:"var(--off)"}
     ],

@@ -30,7 +30,7 @@ crawlers run.
 The manual setup registered `processed/`; `silver/` may or may not also be registered:
 
 ```bash
-export AWS_PROFILE=angel-adming AWS_REGION=us-east-1
+export AWS_PROFILE=<admin-user> AWS_REGION=us-east-1
 aws lakeformation list-resources
 ```
 

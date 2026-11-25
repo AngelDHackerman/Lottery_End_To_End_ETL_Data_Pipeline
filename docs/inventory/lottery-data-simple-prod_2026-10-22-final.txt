@@ -1,6 +1,6 @@
 # Final inventory of s3://lottery-data-simple-prod — PR-041.3
 # Listed (UTC):  2026-10-22, read-only, before the owner's purge the same day
-# AWS account:   913524903233
+# AWS account:   <account-id>
 # Deleted (UTC): 2026-10-22 by the owner (delete-objects on every version and delete
 #                marker, then delete-bucket). head-bucket → 404 afterwards.
 Current objects: 347   (unchanged since 041.1 froze it on 2026-09-20)

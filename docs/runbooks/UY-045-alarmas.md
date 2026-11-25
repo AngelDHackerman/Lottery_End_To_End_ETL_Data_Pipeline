@@ -96,7 +96,7 @@ Ninguna ejecución terminó bien en dos días.
 ```bash
 aws scheduler get-schedule --name lottery-uy-nightly-prod --query '[State,ScheduleExpression]'
 aws stepfunctions list-executions --max-results 5 --query 'executions[].[name,status,startDate]' \
-  --state-machine-arn arn:aws:states:us-east-1:913524903233:stateMachine:lottery-uy-pipeline-prod
+  --state-machine-arn arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-uy-pipeline-prod
 ```
 
 Si el schedule está `ENABLED` y no hay ejecuciones, mirar el rol `lottery-uy-scheduler-prod`. Si

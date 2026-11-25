@@ -223,7 +223,7 @@ aws logs describe-log-groups \
 
 # Step Functions logging is on.
 aws stepfunctions describe-state-machine \
-  --state-machine-arn arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod \
+  --state-machine-arn arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod \
   --query 'loggingConfiguration'
 ```
 
@@ -237,7 +237,7 @@ Expected: `retentionInDays: 30` on all six, and
   "level": "ALL",
   "includeExecutionData": true,
   "destinations": [{"cloudWatchLogsLogGroup": {"logGroupArn":
-    "arn:aws:logs:us-east-1:913524903233:log-group:/aws/vendedlogs/states/lottery-etl-pipeline-prod:*"}}]
+    "arn:aws:logs:us-east-1:<account-id>:log-group:/aws/vendedlogs/states/lottery-etl-pipeline-prod:*"}}]
 }
 ```
 
@@ -251,7 +251,7 @@ Then trigger one execution and confirm log streams land in
 
 ```bash
 aws stepfunctions start-execution \
-  --state-machine-arn arn:aws:states:us-east-1:913524903233:stateMachine:lottery-etl-pipeline-prod
+  --state-machine-arn arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-etl-pipeline-prod
 ```
 
 > **Do NOT verify delivery with `aws logs describe-log-streams`.** Its stream metadata lies

@@ -54,9 +54,9 @@ cat > /tmp/uy-gold-bucket-policy.json <<'JSON'
       "Condition": {
         "StringNotEquals": {
           "aws:PrincipalArn": [
-            "arn:aws:iam::913524903233:root",
-            "arn:aws:iam::913524903233:role/lottery-gold-purge-role-prod",
-            "arn:aws:iam::913524903233:role/lottery-uy-gold-lambda-prod"
+            "arn:aws:iam::<account-id>:root",
+            "arn:aws:iam::<account-id>:role/lottery-gold-purge-role-prod",
+            "arn:aws:iam::<account-id>:role/lottery-uy-gold-lambda-prod"
           ]
         }
       }
@@ -69,7 +69,7 @@ cat > /tmp/uy-gold-bucket-policy.json <<'JSON'
       "NotResource": "arn:aws:s3:::lottery-partitioned-storage-prod/uy/gold/*",
       "Condition": {
         "StringEquals": {
-          "aws:PrincipalArn": "arn:aws:iam::913524903233:role/lottery-uy-gold-lambda-prod"
+          "aws:PrincipalArn": "arn:aws:iam::<account-id>:role/lottery-uy-gold-lambda-prod"
         }
       }
     }
@@ -99,7 +99,7 @@ segundo statement es la misma regla del lado del bucket.
 # La salida de la última ejecución: $.gold.report trae la generación, las filas por tabla y
 # lo que se retiró.
 aws stepfunctions list-executions --max-results 1 --query 'executions[0].[name,status]' \
-  --state-machine-arn arn:aws:states:us-east-1:913524903233:stateMachine:lottery-uy-pipeline-prod
+  --state-machine-arn arn:aws:states:us-east-1:<account-id>:stateMachine:lottery-uy-pipeline-prod
 
 # Las seis tablas, la generación que apuntan y la anterior.
 aws glue get-tables --database-name lottery_uy_db --expression '^gold_' \
@@ -120,7 +120,7 @@ nueva solo a quien la crea. Ser administrador del data lake permite otorgar perm
 Por eso `gold.tf` otorga `SELECT` y `DESCRIBE` sobre todas las tablas de `lottery_uy_db` (con
 comodín, porque las de oro no las nombra Terraform) a:
 
-- el usuario IAM que aplica el stack (hoy, `angel-adming`), y
+- el usuario IAM que aplica el stack (hoy, `<usuario-admin>`), y
 - cada ARN de `var.catalog_reader_arns`.
 
 Si Athena responde `Relation contains no accessible columns`, a quien consulta le falta ese

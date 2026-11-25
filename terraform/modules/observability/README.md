@@ -171,7 +171,7 @@ equally good, and that is why alarm 5 is two resources:
 The second case is covered by an EventBridge rule on `Glue Crawler State Change` /
 `state: Failed`, scoped by `crawlerName`. A Logs metric filter over `/aws-glue/crawlers` was
 the other candidate and was **rejected**: that group is account-wide, another project already
-writes to it (stream `near-real-time-crypto-silver-crawler-crypto`, verified live), metric
+writes to it (verified live), metric
 filters cannot be scoped to a stream, and the crawler name does not appear on individual
 error lines.
 

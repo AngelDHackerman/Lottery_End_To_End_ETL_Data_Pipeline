@@ -35,7 +35,7 @@ names anyway. PR-017 switches the code to consume `LOTERIA_SECRET_NAME`.
 ## Prerequisites
 
 ```bash
-export AWS_PROFILE=angel-adming
+export AWS_PROFILE=<admin-user>
 export AWS_REGION=us-east-1
 ```
 

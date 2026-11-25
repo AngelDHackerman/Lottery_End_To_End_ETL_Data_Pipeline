@@ -253,7 +253,7 @@ Move terraform-lottery/Prod/iam.tf into terraform/modules/iam/. While moving:
    - logs:* → keep wildcard for now but add a TODO comment.
    - glue:* in Step Function policy → narrow to the specific job + crawler ARNs from outputs.
 
-2. Gate the two personal IAM-user attachments (santa-lucia-dev, angel-adming) behind a variable:
+2. Gate the two personal IAM-user attachments (<dev-user>, <admin-user>) behind a variable:
    `variable "personal_iam_users" { type = list(string); default = [] }`
    If empty, the `aws_iam_user_policy_attachment` resources are not created (`for_each = toset(var.personal_iam_users)`). The owner's own tfvars can set the list; a fresh cloner gets nothing.
 
@@ -2013,7 +2013,7 @@ the artifact is the folder as-is.
 ```
 
 **Before publishing, check:**
-1. **Content.** The page names account `913524903233`, bucket, role and function names. All
+1. **Content.** The page names account `<account-id>`, bucket, role and function names. All
    of that is already public in this repo (roadmap, runbooks, Terraform), so Pages exposes
    nothing new. It holds **no secrets or tokens**: confirm with a grep before the first
    deploy, and keep it that way. A future edit that pastes a token into a `kv` is now a

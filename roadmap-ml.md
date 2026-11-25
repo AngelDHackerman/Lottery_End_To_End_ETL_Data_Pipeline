@@ -64,8 +64,8 @@
 10. **No hay contacto proactivo con las fuentes.** Si aparece algo raro se documenta, no se reporta
     al operador (decisión del owner del 2026-10-24).
 11. **Seguridad en AWS** (lo que dejó PR-052): nada de `AmazonSageMakerFullAccess`, nada de dominios
-    de Studio permanentes y nada de endpoints en tiempo real encendidos. **Otro proyecto (cripto)
-    comparte la cuenta**, así que su rol de SageMaker nunca se toca.
+    de Studio permanentes y nada de endpoints en tiempo real encendidos. **En la cuenta hay
+    recursos de otros proyectos**, y esos nunca se tocan.
 
 ---
 

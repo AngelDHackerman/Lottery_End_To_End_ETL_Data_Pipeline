@@ -42,10 +42,10 @@ The bucket carries `scripts/policies/lottery-data-simple-prod_protect.json`:
 ```json
 "Effect": "Deny", "Principal": "*",
 "Action": ["s3:DeleteBucket", "s3:DeleteObject*"],
-"Condition": { "StringNotEquals": { "aws:PrincipalArn": "arn:aws:iam::913524903233:root" } }
+"Condition": { "StringNotEquals": { "aws:PrincipalArn": "arn:aws:iam::<account-id>:root" } }
 ```
 
-Every principal **except the account root** is denied. `angel-adming` is not root, so the
+Every principal **except the account root** is denied. `<admin-user>` is not root, so the
 CLI will fail with `AccessDenied` and the failure will look like a permissions bug rather
 than the safety net it is — this is exactly what the gold-purge work ran into. Either
 remove the policy for the duration or run as root. **Put it back if the bucket is kept.**
@@ -149,9 +149,9 @@ also the honest answer to why the flat copies existed. 041.2 repoints it at `sil
 
 ```bash
 aws iam get-policy-version --policy-arn \
-  arn:aws:iam::913524903233:policy/lottery-sagemaker-s3-read-policy-prod \
+  arn:aws:iam::<account-id>:policy/lottery-sagemaker-s3-read-policy-prod \
   --version-id "$(aws iam get-policy --policy-arn \
-    arn:aws:iam::913524903233:policy/lottery-sagemaker-s3-read-policy-prod \
+    arn:aws:iam::<account-id>:policy/lottery-sagemaker-s3-read-policy-prod \
     --query Policy.DefaultVersionId --output text)" --query Document
 ```
 
@@ -163,7 +163,7 @@ additionally needs a Lake Formation grant; this policy covers the direct S3 read
 ## 7. ✅ Result — PR-041.3, 2026-10-22
 
 The owner chose **deletion** over §5's "keep it empty", and ran it from the terminal as
-`angel-adming`.
+`<admin-user>`.
 
 1. **Abort condition (§4):** 347 on 2026-10-22, two days past the end of the grace period
    and after five Thursdays without a write (09-24 → 10-22). It held.
