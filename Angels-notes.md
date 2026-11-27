@@ -102,3 +102,82 @@
   - **Decisión:** retirarlo en un PR chico, en orden: crawlers → tablas → ubicaciones de Lake Formation → objetos (estos con root, por el `Deny`).
 - **Tablas: Terraform vs crawler.** Yo recordaba que Uruguay estaba en Terraform y Santa Lucía en crawler, pero ya no es así: los esquemas de plata de los dos países están en Terraform (Santa Lucía desde PR-045.2, importado). La diferencia real está en las particiones: Santa Lucía las registra con un crawler (con el esquema bloqueado) y Uruguay usa *partition projection*, sin crawler. El oro, en los dos, lo crea el pipeline (CTAS o Lambda), no Terraform.
   - **Decisión:** medir *partition projection* para Santa Lucía en un PR aparte. Quitaría 2 crawlers y el paso de polling de Step Functions. Hay que medirlo antes porque `sorteo` es texto y un rango amplio haría que una consulta sin filtro revise miles de prefijos.
+
+## Parada 4 — La transformación a plata (2026-11-27)
+
+### ¿Por qué el transform de Santa Lucía corre en Glue Python Shell y no en Lambda?
+
+**Respuesta corta:** "Por el peso de pandas, no por el volumen. El entorno con pandas medía unos 420 MB descomprimido y un zip de Lambda admite 250 MB, aunque uses layers. Glue Python Shell trae pandas incluido. El precio fue quedarme en Python 3.9, que es el máximo de Python Shell."
+
+- **Corrección mía:** yo creía que Lambda era "demasiado" para tan poco volumen. Es al revés: con poco volumen Lambda sería más barata y arrancaría más rápido. Lo que la descartó fue el tamaño del paquete (`docs/challenges.md`, sección 7).
+
+### ¿Qué son las columnas de linaje?
+
+**Respuesta corta:** "Son cuatro columnas en cada fila de plata que dicen de dónde salió: qué corrida la escribió (`run_id`), cuándo (`ingested_at`), de qué archivo de `raw/` (`source_key`) y con qué versión del parser (`parser_version`). Con el `run_id` voy de una fila en Athena a su ejecución de Step Functions y a sus logs."
+
+- **`run_id`:** es el nombre de la ejecución de Step Functions. Es NULL a propósito cuando la escritura no vino del pipeline, por ejemplo una corrida a mano.
+- **`ingested_at`:** la hora en que el transformer escribió el archivo, en UTC y sin zona horaria.
+- **Un solo lugar:** el contrato vive en `src/loteria/common/lineage.py`, así el que escribe, el que valida y el que lee no pueden desincronizarse.
+- **Los archivos viejos:** 222 archivos son anteriores a estas columnas. Por eso el gate de calidad solo las exige cuando `parser_version >= 1`; si no, estaría en rojo desde el primer día con datos que están bien.
+
+### ¿Qué clases de rechazo existen en la cuarentena y cuál dispara una alarma?
+
+**Respuesta corta:** "Cinco, y la lista es cerrada a propósito: contar por texto libre no sirve. Tres son por línea y dos por archivo. Solo `unrecognised` dispara alarma, porque significa que el sitio cambió o que el parser tiene un hueco. Hay una segunda alarma para cuando no se pudo escribir la cuarentena misma."
+
+| código | nivel | ¿se guarda? | ¿alarma? |
+|---|---|---|---|
+| `section_header` | línea | no, solo se cuenta (6.5% de las líneas: encabezados como "DOS MIL") | no |
+| `orphan_vendor_line` | línea | sí | no |
+| `unrecognised` | línea | sí | **sí** |
+| `malformed_header` | archivo | sí | no |
+| `unexpected_key` | archivo | sí | no |
+
+- **La otra alarma:** si falla la escritura de la cuarentena, plata está bien pero se perdió el registro de lo descartado.
+- **El umbral se midió:** `unrecognised` apareció una vez en 118 sorteos, así que la alarma suena más o menos una vez al año. Una alarma que sonara cada semana se silenciaría en un mes.
+- **Hoy (2026-11-27):** `quarantine/` está vacío en los dos países.
+
+### ¿Por qué el esquema de plata está en Terraform y no lo decide el crawler?
+
+**Respuesta corta:** "Porque el crawler no podía evolucionar el esquema. Las columnas de linaje se escribían en el Parquet pero Athena no las veía. Y abrir el crawler era peor: inferiría los tipos de los datos en una tabla de la que dependen siete consultas de oro. Con Terraform el esquema es un contrato revisado en un PR, no una adivinanza."
+
+- **Los tres ajustes que se suman:** `UpdateBehavior: LOG` (detecta el cambio y solo lo anota), `CRAWL_NEW_FOLDERS_ONLY` (nunca vuelve a mirar las particiones existentes) e `InheritFromTable` (una partición nueva hereda el esquema de la tabla, no el de sus archivos).
+- **Corrección mía:** yo pensaba que era por trazabilidad y escalabilidad. La trazabilidad es un beneficio; la razón fue que el crawler escondía las columnas nuevas.
+- **El contrato se prueba:** un test verifica que las columnas declaradas en Terraform coincidan con las de Python.
+- **El crawler sigue:** ahora solo registra particiones nuevas, con el esquema bloqueado.
+
+### ¿Por qué la Lambda de plata de Uruguay es una imagen y la de fetch un zip? (D29)
+
+**Respuesta corta:** "Por tamaño. Las dependencias de silver miden 222 MB, y solo `pyarrow` son 156 MB. El límite de un zip es 250 MB, así que quedaban 28 MB de margen, que una versión nueva de `pyarrow` se puede comer. Una imagen admite 10 GB. Fetch solo usa `requests`, `beautifulsoup4` y `pyyaml`: un zip es más simple, sin ECR ni build de imagen."
+
+- **Corrección mía:** el zip no es zip por estar en S3. Es zip porque es chico; si fuera grande, también sería imagen.
+
+### ¿Por qué D17 reescribe el año entero y no hace append?
+
+**Respuesta corta:** "Porque Parquet no tiene upsert. Con append, repetir una corrida duplica filas; reescribir el año da siempre el mismo resultado. Y hay correcciones: los pozos del 5 de Oro que llegan tarde se vuelven a pedir hasta por 14 días, y esas filas hay que reemplazarlas, no sumarlas. Reescribir un año son unos 650 sorteos y unos 12 segundos."
+
+- **Además:** un append diario dejaría cientos de archivos chicos por año, y Athena lee peor muchos archivos chicos que pocos grandes.
+- **Qué es un año "tocado":** uno con al menos un sorteo que cambió en la corrida. Un día normal toca un año; la primera semana de enero, dos.
+
+### ¿Qué es una dead letter queue y por qué no hay ninguna?
+
+**Respuesta corta:** "Es una cola, normalmente de SQS, donde AWS deja un evento que falló después de agotar los reintentos, para no perderlo. Solo existe para invocaciones asíncronas. Aquí Step Functions llama a las Lambdas de forma síncrona: si una falla, falla la ejecución y suena la alarma. No hay ningún evento que se pueda perder en silencio."
+
+- **Está documentado:** el chequeo de checkov que pide una DLQ (`CKV_AWS_116`) está suprimido en el Terraform con ese motivo escrito, no ignorado.
+
+### ¿Qué pasa si el parser se encuentra con un formato nuevo?
+
+**Respuesta corta:** "No se pierde nada y nada entra a medias. En Santa Lucía, la línea o el archivo van a cuarentena, la corrida sigue con el resto y suena la alarma si es `unrecognised`. En Uruguay, el sorteo va entero a cuarentena. En los dos casos el original sigue en bronce, así que cuando arreglo el parser vuelvo a parsear sin pedirle nada de nuevo al sitio."
+
+- **Santa Lucía:** antes de PR-044.2, un encabezado roto tumbaba la corrida de toda la semana; ahora ese archivo va a cuarentena y el resto se escribe.
+- **El `except` es angosto a propósito:** captura solo `ValueError` ("el dato no es lo que esperaba"). Un error de S3 o un bug sigue haciendo fallar la corrida, en vez de disfrazarse de dato malo.
+- **Uruguay:** mientras haya algo en cuarentena, `draw_gaps` no se reescribe; si no, ese sorteo parecería un hueco del calendario.
+
+### ¿Por qué Glue para Guatemala y Lambda para Uruguay?
+
+**Respuesta corta:** "Por historia, no por principio. Guatemala se construyó cuando pandas no entraba en un zip de Lambda y la salida fue Glue. Uruguay se diseñó después, con imágenes de contenedor, que me dan Python 3.12 y espacio para `pyarrow`. Si empezara hoy, los dos serían Lambda con imagen. Migrar Guatemala no se justifica mientras funcione y cueste centavos."
+
+- **Uruguay también usa Glue:** pero solo para Great Expectations (Glue 5.0), porque GX 1.x no corre en Python 3.9.
+
+### ¿Cómo sabes qué versión del parser produjo cada fila?
+
+**Respuesta corta:** "Cada fila lleva `parser_version`, junto con `source_key` y `run_id`: sé qué versión, de qué archivo y en qué corrida. La debilidad es que la versión se sube a mano en `lineage.py`. Si alguien cambia el parser y se olvida de subirla, la columna miente."
