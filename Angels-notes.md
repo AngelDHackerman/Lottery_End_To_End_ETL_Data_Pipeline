@@ -59,3 +59,46 @@
 - **Lo que aprendí:** un script sin shebang lo ejecuta `dash`, que no entiende `<<<`; y scrape.do no responde 401 con un token viejo, responde 200 con `IsActive: false`.
 
 **Idea (2026-11-25):** Santa Lucía no tiene manifiesto. Usar los calendarios oficiales (`images/listado_sorteos_*.jpg`) como la lista de lo que debería existir, igual que Uruguay usa su calendario, sería una buena práctica que hoy no está implementada.
+
+## Parada 3 — El data lake en S3 (2026-11-27)
+
+### ¿Por qué un bucket con prefijos y no un bucket por capa?
+
+**Respuesta corta:** "Porque con un solo dueño y este volumen, un bucket me da una sola política de protección, un solo versionado y un solo lifecycle, en vez de repetirlos por capa. IAM y Lake Formation ya trabajan por prefijo, así que el aislamiento lo pongo ahí. Lo partiría si hubiera varios equipos o datos regulados."
+
+- **A favor:** el rol de purga solo puede tocar `gold/*` por IAM; Lake Formation registra `silver/` y `uy/silver/` por prefijo; Uruguay entró como `uy/` sin crear infraestructura nueva.
+- **En contra, y lo reconozco:** un bucket por capa aísla mejor los daños, permite reglas distintas por capa (por ejemplo, versionar solo `raw/`) y separa los costos. La política ya necesita dos `Deny` y un `NotResource`: es la señal de que se está complicando.
+
+### Si alguien con permisos de administrador borra `silver/` por error, ¿qué pasa?
+
+**Respuesta corta:** "No puede: la política del bucket tiene un `Deny` explícito y en IAM un `Deny` siempre gana a cualquier `Allow`, aunque tenga `AdministratorAccess`. Y si primero cambiara la política, el versionado haría que el borrado solo deje marcas, y la versión anterior se puede restaurar. La última defensa es que `silver/` se puede regenerar desde `raw/`, que nunca se pisa."
+
+- **Quién sí puede borrar:** root, el rol de purga de oro de Santa Lucía y la Lambda de oro de Uruguay. Un segundo `Deny` encierra a esta última dentro de `uy/gold/`.
+- **El hueco que reconozco:** el admin no puede borrar, pero sí puede cambiar la política (`PutBucketPolicy` no está denegado). La protección es contra accidentes, no contra un admin malicioso. Y la política no está en Terraform: la aplica `scripts/00_inventory_and_protect.sh`.
+- **Por qué se puede restaurar:** la regla de lifecycle `Delete-old-versions` expira las versiones viejas a los 30 días, pero `NewerNoncurrentVersions=1` guarda para siempre la más reciente. Quitar las marcas de borrado devuelve el archivo.
+- **Lo que aprendí con el oro:** en un bucket versionado, `DeleteObject` no borra nada, solo pone una marca. La purga de oro "vaciaba" la carpeta pero Athena seguía viendo objetos y el CTAS fallaba con `HIVE_PATH_ALREADY_EXISTS` (2026-07-22). Para vaciar de verdad hay que borrar versiones y marcas por `VersionId`, con `s3:DeleteObjectVersion`.
+
+### ¿Para qué Lake Formation, si ya tienes IAM?
+
+**Respuesta corta:** "IAM decide qué llamadas a la API y qué objetos de S3 puede tocar alguien. Lake Formation decide qué bases, tablas, columnas o filas del catálogo puede ver, y le entrega a Athena credenciales temporales para leer S3. Hoy, con un solo usuario, aporta poco; vale la pena cuando haya varios consumidores, por ejemplo SageMaker leyendo solo oro."
+
+- **Corrección mía:** Lake Formation no indexa los datos. El índice es el Glue Data Catalog, que se llena con crawlers, con Terraform o con un CTAS.
+- **Se necesitan los dos:** una lectura falla si falta el permiso de Lake Formation o el de IAM (`lakeformation:GetDataAccess`).
+- **Lo que costó:** el swap de oro necesitó tres arreglos de permisos, y un cambio de permisos no se nota hasta una corrida real.
+
+### ¿Por qué Parquet y no CSV o JSON en plata?
+
+**Respuesta corta:** "Porque es columnar, va comprimido y guarda el esquema con sus tipos dentro del archivo. Athena lee solo las columnas que pido y se salta bloques con las estadísticas min/max. A este volumen no me ahorra dólares, porque Athena cobra un mínimo de 10 MiB por consulta; lo que me da de verdad son los tipos."
+
+- **Corrección mía:** la alternativa columnar es ORC, no "OCR".
+- **Dónde sí uso JSON/HTML:** en `raw/`, porque ahí quiero la forma original de la respuesta, sin interpretar.
+- **Lo que aprendí con los tipos:** una columna toda `None` se escribe con el tipo `Null` de Parquet y un `int` de Python como int64. Ambos rompen la lectura cuando la tabla declara otro tipo. CSV no me habría avisado: lo habría leído todo como texto.
+
+### Hallazgos de la parada
+
+- **`lambda-code-zip-prod` es el nombre del bucket, no de un archivo.** Adentro están los zips de las Lambdas y del job de Glue. Tiene versionado, bloqueo de acceso público y una regla que expira versiones viejas a los 90 días (PR-054).
+- **El bucket simple** se creó para leer los datos sin particiones desde notebooks; nunca se usó en serio. Se retiró porque cada sorteo se escribía dos veces (*Fault A* de la auditoría de 2026-09-14) y se borró el 2026-10-22. Los notebooks pueden leer desde Athena.
+- **`processed/` está muerto.** 267 objetos (1.8 MB) que nadie escribe desde PR-012, cuando el transformer pasó a `silver/`. Le cuelgan, todo fuera de Terraform: 2 tablas Glue (`premios_premios`, `sorteos_sorteos`), 2 crawlers sin schedule (última corrida 2025-12-14) y 3 ubicaciones en Lake Formation. Ningún código lo lee. PR-012 lo dejó "por precaución" y nadie volvió a revisarlo.
+  - **Decisión:** retirarlo en un PR chico, en orden: crawlers → tablas → ubicaciones de Lake Formation → objetos (estos con root, por el `Deny`).
+- **Tablas: Terraform vs crawler.** Yo recordaba que Uruguay estaba en Terraform y Santa Lucía en crawler, pero ya no es así: los esquemas de plata de los dos países están en Terraform (Santa Lucía desde PR-045.2, importado). La diferencia real está en las particiones: Santa Lucía las registra con un crawler (con el esquema bloqueado) y Uruguay usa *partition projection*, sin crawler. El oro, en los dos, lo crea el pipeline (CTAS o Lambda), no Terraform.
+  - **Decisión:** medir *partition projection* para Santa Lucía en un PR aparte. Quitaría 2 crawlers y el paso de polling de Step Functions. Hay que medirlo antes porque `sorteo` es texto y un rango amplio haría que una consulta sin filtro revise miles de prefijos.
